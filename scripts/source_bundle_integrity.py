@@ -79,10 +79,11 @@ def check_component_spelling(name: str, seen: dict[str, str]) -> None:
 
 def ignored(rel: Path) -> bool:
     # A freshly checked-out source tree carries Git internals not distributed
-    # by the ZIP. Cargo build outputs are similarly not part of the source.
-    # Ignore only the root-level target directory, not nested source files.
+    # by the ZIP. Cargo build outputs and the local devlog are similarly not
+    # part of the source. Ignore only the root-level folders, not nested files.
     return (".git" in rel.parts or "__pycache__" in rel.parts
-            or rel.suffix == ".pyc" or (bool(rel.parts) and rel.parts[0] == "target"))
+            or rel.suffix == ".pyc"
+            or (bool(rel.parts) and rel.parts[0] in ("target", "log")))
 
 
 def sha256_stream(stream, limit: int) -> tuple[int, str]:

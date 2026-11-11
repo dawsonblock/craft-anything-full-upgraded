@@ -6,6 +6,8 @@ plans/
 /log/
 corpus/
 /dist/
+__pycache__/
+*.pyc
 .DS_Store
 .claude/worktrees/
 # Secrets and local settings (`cargo xtask secrets` refuses them too)

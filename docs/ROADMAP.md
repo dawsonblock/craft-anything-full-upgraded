@@ -171,10 +171,10 @@ cheapest help we can give anyone, so nothing below should hold it up for long.
       store as "no Ghidra", so a real Homebrew install made them fail — PR #8
 - [x] The MCP server caps how many tool calls run at once: an overload says so instead of starting
       unbounded threads, and cancellation still works under load — PR #12
-- [ ] The source tree verifies again: the 17 tracked `__pycache__/*.pyc` files (which embed a
+- [x] The source tree verifies again: the 17 tracked `__pycache__/*.pyc` files (which embed a
       local path, so `cargo xtask secrets` fails) are removed and ignored, the local devlog is
       left out of the inventory, and `SOURCE_INTEGRITY.json` is regenerated from the edited tree
-      — claimed: Devin, branch chore/r5.1-source-integrity-hygiene
+      — PR #10
 
 ### R5.2 Keeping contributions moving
 Owner: maintainers · Status: in progress
