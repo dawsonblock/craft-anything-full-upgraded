@@ -991,7 +991,7 @@ impl Worker {
                 prompt = p;
                 continue;
             }
-            let not_good = checks.iter().find(|c| !c.good(opts.good_enough));
+            let not_good = checks.iter().find(|c| needs_fixing(c, opts.good_enough));
             if not_good.is_some() && progress_available && progress.stalled() {
                 // A check-only resume skipped the builder's before-turn scan. A real edit
                 // while the project was closed (or during this check) still starts an attempt.
@@ -1366,6 +1366,13 @@ fn run_outcome(result: Result<Result<String, ToolError>, Box<dyn std::any::Any +
     }
 }
 
+/// A check the builder can do something about: it failed, its claims don't hold, or the evidence
+/// it needed is missing. A check that didn't run is not one: refining it would only ask the
+/// builder for what the check already said nothing can do.
+fn needs_fixing(c: &CheckResult, good_enough: f64) -> bool {
+    !c.good(good_enough) && !matches!(c.outcome, Outcome::Skipped | Outcome::Unknown)
+}
+
 /// A Ready status is a claim about the *whole* latest round, not merely the final check.
 /// A build that works but misses a requested similarity bar remains NeedsYou through
 /// `run_outcome`; the person may explicitly accept it with `project_build_finish`.
@@ -1434,6 +1441,15 @@ mod ready_regressions {
         assert!(error.message.contains("didn't run") && error.message.contains("Nothing was built"), "{error:?}");
         let unknown = CheckResult::unknown("game-self-test", 2, "Not run: the round ran out of time");
         assert!(checked_round_is_ready(&[unknown], 70.0).is_err());
+    }
+
+    #[test]
+    fn a_check_that_did_not_run_is_not_something_to_fix() {
+        let skipped = CheckResult::skipped("own-tests", 1, "No tests ran.");
+        assert!(!needs_fixing(&skipped, 90.0), "there is nothing to fix");
+        assert!(needs_fixing(&CheckResult::new("build", 1, false, "Build failed"), 90.0));
+        let blind = CheckResult { unknowns: vec!["/about couldn't be pictured".into()], ..CheckResult::new("web-visual", 1, true, "") };
+        assert!(needs_fixing(&blind, 90.0), "missing evidence is still something to fix");
     }
 
     #[test]
