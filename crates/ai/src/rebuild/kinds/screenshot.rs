@@ -89,7 +89,10 @@ impl Check for ScreenshotCheck {
         // The person's pictures, and the picture of the original running (runtime study).
         let mut pictures = ws.references();
         pictures.extend(Some(ws.capture_dir().join("window.png")).filter(|p| p.is_file()));
-        let bar = cx.build_settings().picture_good_enough;
+        // The person's bar wins; with reference pictures and none set, the build must still
+        // resemble them (DEFAULT_PICTURE_BAR). With no pictures there is nothing to compare
+        // with, so likeness stays reported rather than gated.
+        let bar = cx.build_settings().picture_good_enough.or_else(|| (!pictures.is_empty()).then_some(DEFAULT_PICTURE_BAR));
         let mut similarity = None;
         let likeness = picture_likeness(&img, &pictures);
         let unknowns = missing_comparison(bar, &likeness);
@@ -370,6 +373,11 @@ fn missing_comparison(bar: Option<f64>, likeness: &Likeness) -> Vec<String> {
         Likeness::NoPictures => vec!["A picture similarity threshold is set but no reference pictures were supplied.".into()],
     }
 }
+
+/// A build resembling its reference pictures at least this much counts as looking alike when
+/// the person set no bar of their own: enough that a wrong program can't pass on a nonblank
+/// screenshot, loose enough not to demand pixels it never saw.
+const DEFAULT_PICTURE_BAR: f64 = 60.0;
 
 /// Nothing drawn: almost every pixel the same brightness.
 pub fn is_blank(img: &Image) -> bool {
