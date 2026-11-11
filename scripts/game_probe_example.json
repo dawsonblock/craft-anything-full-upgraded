@@ -1,0 +1,15 @@
+{
+  "protocol": 1,
+  "steps": [
+    {"id": "initial", "keys": []},
+    {"id": "moved", "keys": ["Right"]},
+    {"id": "acted", "keys": ["Space"]},
+    {"id": "hud", "keys": []}
+  ],
+  "requirements": {
+    "min_move": 5,
+    "min_action_delta": 1,
+    "min_pixel_changed_fraction": 0.05,
+    "hud_contains": "Score: 1"
+  }
+}

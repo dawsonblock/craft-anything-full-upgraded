@@ -1,0 +1,37 @@
+name: Independent Fork Native Validation
+
+# Run this manually. Upstream's normal CI is a separate shared workflow;
+# this checks the extracted source fork with its own, explicit gate.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Inventory validation also asserts the ZIP's declared source root.
+          path: craft-anything-full-upgraded
+      - name: Install Linux native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-dev libwayland-dev libx11-dev libxrandr-dev libxi-dev libgl1-mesa-dev libgtk-3-dev
+      - name: Install the workspace minimum Rust toolchain
+        run: |
+          rustup toolchain install 1.97.0 --profile minimal --component clippy,rustfmt
+          rustup default 1.97.0
+      - name: Run full bounded source and native validation
+        working-directory: craft-anything-full-upgraded
+        run: python3 scripts/native_validation.py --root . --timeout 1200 --report /tmp/craft_native_validation.json
+      - name: Retain validation receipt even when the gate fails
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: craft-native-validation-linux
+          path: /tmp/craft_native_validation.json
+          if-no-files-found: warn
