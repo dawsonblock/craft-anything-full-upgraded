@@ -390,6 +390,11 @@ impl CheckResult {
         self.outcome == Outcome::Failed
     }
 
+    /// Whether nothing ran: the check has no verdict on the build either way.
+    pub fn did_not_run(&self) -> bool {
+        matches!(self.outcome, Outcome::Skipped | Outcome::Unknown)
+    }
+
     /// Passed with nothing left unknown and every claim holding, and (when compared) at least as
     /// alike as its own bar, else `good_enough`.
     pub fn good(&self, good_enough: f64) -> bool {

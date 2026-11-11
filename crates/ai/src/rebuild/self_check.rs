@@ -74,6 +74,12 @@ pub fn summary(checks: &[CheckResult], good_enough: f64) -> String {
     }
 }
 
+/// Whether the builder's own check would pass: every check is good, except one the build can do
+/// without (a person's own tests) that didn't run.
+fn would_pass(checks: &[CheckResult], good_enough: f64) -> bool {
+    checks.iter().all(|c| (!c.required && c.did_not_run()) || c.good(good_enough))
+}
+
 /// What the builder is told about its own check: each result with its likeness and the bar,
 /// what's still unknown (the checks' and its own open questions), where its pictures are, and
 /// whether it would pass.
@@ -118,7 +124,7 @@ pub fn report(checks: &[CheckResult], good_enough: f64, open: &[craft_anything_e
     if !pictures.is_empty() {
         lines.push(format!("Pictures of your build (compare each with the original's in capture/ or reference/): {}", pictures.join(", ")));
     }
-    lines.push(if checks.iter().all(|c| c.good(good_enough)) {
+    lines.push(if would_pass(checks, good_enough) {
         "This would pass. Finish what you're doing, then reply.".to_string()
     } else {
         "Not good enough yet: fix what it lists, build again, and check again with rebuild_check.".to_string()
@@ -156,6 +162,14 @@ impl Worker {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_passing_build_with_optional_skipped_tests_would_pass() {
+        let build = CheckResult::new("build", 1, true, "Build succeeded.");
+        let tests = CheckResult { required: false, ..CheckResult::skipped("own-tests", 1, "No tests ran: the project has none.") };
+        let text = report(&[build, tests], 90.0, &[]);
+        assert!(text.contains("This would pass"), "{text}");
+    }
 
     #[test]
     fn the_report_says_what_differs_and_whether_it_would_pass() {

@@ -974,10 +974,7 @@ impl Worker {
             let checks = self.checks_with_a_retry(ws, kind, round)?;
             ws.manifest.checks.extend(checks.iter().cloned());
             ws.manifest.awaiting_check = false;
-            // A round with missing evidence, a check that didn't run, or failed functional claims
-            // is not verified as working, even when its top-level outcome was a pass. Low visual
-            // likeness alone does not count as a broken executable.
-            let working = checks.iter().all(|c| c.passed() && c.unknowns.is_empty() && c.claims.iter().all(|claim| claim.passed));
+            let working = round_is_working(&checks);
             ws.manifest.not_working_checks = if working { 0 } else { ws.manifest.not_working_checks.saturating_add(1) };
             ws.save()?;
             for c in &checks {
@@ -1366,6 +1363,13 @@ fn run_outcome(result: Result<Result<String, ToolError>, Box<dyn std::any::Any +
     }
 }
 
+/// Whether a round's checks show the build working: every required check ran and passed, with no
+/// missing evidence and no failed claims. A check the build can do without (a person's own tests)
+/// that didn't run is not held against it; one that ran and failed still is.
+fn round_is_working(checks: &[CheckResult]) -> bool {
+    checks.iter().all(|c| (!c.required && c.did_not_run()) || (c.passed() && c.unknowns.is_empty() && c.claims.iter().all(|claim| claim.passed)))
+}
+
 /// A check the builder can do something about: it failed, its claims don't hold, or the evidence
 /// it needed is missing. A check that didn't run is not one: refining it would only ask the
 /// builder for what the check already said nothing can do.
@@ -1441,6 +1445,15 @@ mod ready_regressions {
         assert!(error.message.contains("didn't run") && error.message.contains("Nothing was built"), "{error:?}");
         let unknown = CheckResult::unknown("game-self-test", 2, "Not run: the round ran out of time");
         assert!(checked_round_is_ready(&[unknown], 70.0).is_err());
+    }
+
+    #[test]
+    fn an_optional_check_that_did_not_run_is_not_counted_as_not_working() {
+        let build = CheckResult::new("build", 1, true, "Build succeeded.");
+        let tests = CheckResult { required: false, ..CheckResult::skipped("own-tests", 1, "No tests ran.") };
+        assert!(round_is_working(&[build.clone(), tests]), "a passing build with no tests is not a broken build");
+        let failing = CheckResult { required: false, ..CheckResult::new("own-tests", 1, false, "The project's tests failed") };
+        assert!(!round_is_working(&[build, failing]), "a real test failure still counts");
     }
 
     #[test]
