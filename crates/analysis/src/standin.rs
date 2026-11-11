@@ -229,6 +229,7 @@ pub fn looks_secret(t: &str) -> bool {
         .any(|p| t.starts_with(p) && t.len() > p.len() + 3)
         || ((t.starts_with("AKIA") || t.starts_with("ASIA")) && t.len() >= 16 && t.bytes().all(|b| b.is_ascii_uppercase() || b.is_ascii_digit()))
         || (t.starts_with("AIza") && t.len() >= 30)
+        || (t.starts_with("AQ.") && t.len() >= 30)
         || (t.starts_with("npm_") && t.len() >= 20)
 }
 
