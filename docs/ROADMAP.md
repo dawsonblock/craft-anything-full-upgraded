@@ -167,12 +167,14 @@ cheapest help we can give anyone, so nothing below should hold it up for long.
       they don't stay open marked `fixed` — PR #1006; claimed: doubektomas,
       branch docs/r5.1-post-release-tickets. The checklist is documented; closing tickets waits
       for publication of the release containing their fixes.
-- [ ] The UI smoke tests pass on a machine with Ghidra installed: two tests treated an empty engine
-      store as "no Ghidra", so a real Homebrew install made them fail
-      — claimed: Devin, branch test/r5.1-ui-tests-without-installed-engines
-- [ ] The MCP server caps how many tool calls run at once: an overload says so instead of starting
-      unbounded threads, and cancellation still works under load
-      — claimed: Devin, branch bugfix/r5.1-mcp-call-ceiling
+- [x] The UI smoke tests pass on a machine with Ghidra installed: two tests treated an empty engine
+      store as "no Ghidra", so a real Homebrew install made them fail — PR #8
+- [x] The MCP server caps how many tool calls run at once: an overload says so instead of starting
+      unbounded threads, and cancellation still works under load — PR #12
+- [ ] The source tree verifies again: the 17 tracked `__pycache__/*.pyc` files (which embed a
+      local path, so `cargo xtask secrets` fails) are removed and ignored, the local devlog is
+      left out of the inventory, and `SOURCE_INTEGRITY.json` is regenerated from the edited tree
+      — claimed: Devin, branch chore/r5.1-source-integrity-hygiene
 
 ### R5.2 Keeping contributions moving
 Owner: maintainers · Status: in progress
