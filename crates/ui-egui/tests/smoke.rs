@@ -215,8 +215,11 @@ fn deep_mode_without_ghidra_asks_to_get_it_before_using_it() {
     let mut h = harness_sized(egui::vec2(1280.0, 1120.0), move || {
         let mut a = demo::app(demo::engine(Mode::Beginner, true));
         demo::fill_projects(&mut a);
-        // An empty engine store: no Ghidra here.
+        // An empty engine store, and only what's configured: no Ghidra here, whatever this
+        // computer has installed (a Homebrew Ghidra would otherwise be found and the dialog
+        // never shown).
         a.settings.engines.store_dir = Some(store);
+        a.settings.engines.only_configured = true;
         a.state.make.target = TargetRef::Local { path: game };
         a.state.make.game = true;
         a.state.make.request = "Recreate this game".into();
@@ -912,7 +915,9 @@ fn mode_switch_and_deep_toggle() {
     let empty = store.path().to_path_buf();
     let mut h = harness(move || {
         let mut a = demo::app(demo::engine(Mode::Beginner, true));
+        // An empty store and only what's configured: no Ghidra here, whatever this computer has.
         a.settings.engines.store_dir = Some(empty);
+        a.settings.engines.only_configured = true;
         a
     });
     h.run_steps(3);
