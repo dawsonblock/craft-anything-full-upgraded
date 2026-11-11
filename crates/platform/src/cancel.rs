@@ -22,4 +22,10 @@ impl CancelToken {
     pub fn check(&self) -> Result<(), ToolError> {
         if self.is_cancelled() { Err(ToolError::cancelled()) } else { Ok(()) }
     }
+
+    /// `true` when both tokens are one flag: clones of the same token, not two tokens that
+    /// happen to read alike. A token dropped for the wrong call can't cancel the live one.
+    pub fn same(&self, other: &CancelToken) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
 }
