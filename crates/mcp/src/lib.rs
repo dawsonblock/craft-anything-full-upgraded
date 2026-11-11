@@ -43,11 +43,17 @@ pub const CLAUDE_CODE_RESPONSE_BYTES: usize = 80 * 1024;
 /// Longest accepted request line.
 const MAX_REQUEST_BYTES: usize = 64 * 1024 * 1024;
 
-const INSTRUCTIONS: &str = "Craft Anything shows how software works, with evidence. Start with core_investigation_show and core_session_show. \
+const INSTRUCTIONS_HEAD: &str = "Craft Anything shows how software works, with evidence. Start with core_investigation_show and core_session_show. \
 Open a target with core_target_open (absolute path), then use focused tools; ask for summaries first and page for detail. \
-Only the Essentials toolset is listed at first: call list_toolsets and enable_toolset to add native, Android, web and other tools. \
-Keep the investigation memory current (core_brief_write, core_plan_update, core_hypothesis_record, core_finding_record with evidence ids, core_handoff_write at the end of each turn). \
-Cite evidence ids, separate observations from inferences, and record open questions as unknowns. \
+Only the Essentials toolset is listed at first: call list_toolsets and enable_toolset to add native, Android, web and other tools.";
+
+const MEMORY_INSTRUCTIONS: &str = "Keep the investigation memory current (core_brief_write, core_plan_update, core_hypothesis_record, core_finding_record with evidence ids, core_handoff_write at the end of each turn).";
+
+/// Restricted mode turns the memory tools off with every other writer, so a client told to keep
+/// them current would only collect refusals.
+const RESTRICTED_INSTRUCTIONS: &str = "This server is restricted to reading for a shared host: tools that write files, act on the machine or reach the network are off, including the investigation memory tools (core_brief_write, core_plan_update, core_hypothesis_record, core_finding_record, core_handoff_write). Keep your notes in your replies.";
+
+const INSTRUCTIONS_TAIL: &str = "Cite evidence ids, separate observations from inferences, and record open questions as unknowns. \
 Tools that run code or change a device need the user's approval. \
 In Clean room (Deep mode off) only the tools that work from outside are listed: nothing inside a target is read, and a refused tool says how to turn Deep mode on.";
 
@@ -203,6 +209,10 @@ fn read_line_capped<R: BufRead>(r: &mut R, buf: &mut Vec<u8>) -> std::io::Result
     }
 }
 
+/// The most calls one connection may run at once. Beyond it calls are refused instead of
+/// spawning unbounded worker threads a client could use to exhaust the host.
+const MAX_INFLIGHT_CALLS: usize = 8;
+
 fn error_response(id: Value, code: i64, message: &str) -> Value {
     json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message}})
 }
@@ -267,19 +277,35 @@ impl Server {
             return None;
         };
         if method == "tools/call" {
+            let key = id_key(&id);
             let token = CancelToken::default();
-            self.inflight.lock().unwrap_or_else(PoisonError::into_inner).insert(id_key(&id), token.clone());
+            {
+                let mut inflight = self.inflight.lock().unwrap_or_else(PoisonError::into_inner);
+                if inflight.contains_key(&key) {
+                    self.send(&error_response(id, -32600, "A call with this id is already running."));
+                    return None;
+                }
+                if inflight.len() >= MAX_INFLIGHT_CALLS {
+                    self.send(&error_response(id, -32000, "Too many calls running; wait for one to finish or cancel it."));
+                    return None;
+                }
+                inflight.insert(key.clone(), token.clone());
+            }
             let me = self.clone();
+            let worker_key = key.clone();
+            let worker_token = token.clone();
             let spawned = std::thread::Builder::new().name("mcp-call".into()).spawn(move || {
-                let resp = me.tools_call(&id, &params, &token);
-                me.inflight.lock().unwrap_or_else(PoisonError::into_inner).remove(&id_key(&id));
-                if !token.is_cancelled() {
+                let resp = me.tools_call(&id, &params, &worker_token);
+                me.end_inflight(&worker_key, &worker_token);
+                if !worker_token.is_cancelled() {
                     me.send(&resp);
                 }
             });
             return match spawned {
                 Ok(h) => Some(h),
                 Err(_) => {
+                    // The worker never started: drop its slot or the id stays busy forever.
+                    self.end_inflight(&key, &token);
                     self.send(&error_response(msg.get("id").cloned().unwrap_or(Value::Null), -32603, "Could not start a worker"));
                     None
                 }
@@ -291,6 +317,15 @@ impl Server {
         };
         self.send(&resp);
         None
+    }
+
+    /// A finished call drops only its own cancel token: a later call that took the same id
+    /// keeps its token, so a client can still cancel it.
+    fn end_inflight(&self, key: &str, token: &CancelToken) {
+        let mut inflight = self.inflight.lock().unwrap_or_else(PoisonError::into_inner);
+        if inflight.get(key).is_some_and(|t| t.same(token)) {
+            inflight.remove(key);
+        }
     }
 
     fn handle_notification(&self, method: &str, params: &Value) {
@@ -343,15 +378,24 @@ impl Server {
                 "logging": {},
             },
             "serverInfo": {"name": SERVER_NAME, "title": "Craft Anything", "version": env!("CARGO_PKG_VERSION")},
-            "instructions": INSTRUCTIONS,
+            "instructions": self.instructions(),
         })
+    }
+
+    /// What this connection is told at `initialize`: the same guidance, with the memory sentence
+    /// replaced by what restricted mode leaves out.
+    fn instructions(&self) -> String {
+        let memory = if self.opts.restricted { RESTRICTED_INSTRUCTIONS } else { MEMORY_INSTRUCTIONS };
+        format!("{INSTRUCTIONS_HEAD} {memory} {INSTRUCTIONS_TAIL}")
     }
 
     // ---- tools ----
 
-    /// In restricted mode, the refusal for `name` when it's off: tools that act on the machine or
-    /// reach the network, going by what each declares, not a list that can drift. Web and capture
-    /// tools have flags of their own (#855, #856).
+    /// In restricted mode, the refusal for `name` when it's off: tools that write files, act on
+    /// the machine or reach the network, going by what each declares, not a list that can drift.
+    /// Writing is included because restricted mode is read-only, and a client that could write
+    /// anywhere could also delete or answer its own consent questions. Web and capture tools have
+    /// flags of their own (#855, #856).
     fn restricted_refusal(&self, name: &str) -> Option<ToolError> {
         if !self.opts.restricted {
             return None;
@@ -365,8 +409,12 @@ impl Server {
         } else if web {
             (!self.opts.allow_web, "Start the MCP server with --allow-web to turn web tools on.")
         } else {
-            let machine =
-                effects.needs_consent() || effects.contains(Effects::ACCESSES_NETWORK) || spec.id.starts_with("adb_") || ACTS_ON_MACHINE.contains(&spec.id);
+            // Writing files or being able to discard data also acts on the machine: in restricted
+            // mode the client is read-only, so declared write effects refuse the tool too.
+            let machine = effects.needs_consent()
+                || effects.intersects(Effects::ACCESSES_NETWORK | Effects::WRITES_FILESYSTEM | Effects::MAY_DISCARD_DATA)
+                || spec.id.starts_with("adb_")
+                || ACTS_ON_MACHINE.contains(&spec.id);
             (machine, "Start the MCP server without --restricted to allow tools that act on the machine.")
         };
         off.then(|| {

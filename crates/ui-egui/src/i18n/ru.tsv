@@ -201,6 +201,7 @@ Call path	Путь вызова
 Call the build done	Объявить сборку завершённой
 Called done. A new message carries on from here.	Объявлено завершённым. Новое сообщение продолжает отсюда.
 Cancel	Отмена
+Cancel fresh analysis	Отменить новый анализ
 Cancel: don't use this folder	Отмена: не использовать эту папку
 Capture a website for rebuilding	Захватить веб-сайт для пересборки
 Capture inventories	Захватить инвентари
@@ -269,6 +270,7 @@ Compare two runs	Сравнить два запуска
 Compare two screenshots	Сравнить два скриншота
 Comparing and rebuilding	Сравнение и пересборка
 Compiled Python file	Скомпилированный файл Python
+Confirm reanalysis	Подтвердить повторный анализ
 Connect	Подключить
 Connect agent apps	Подключить приложения-агенты
 Connect to a browser	Подключиться к браузеру
@@ -428,6 +430,7 @@ For example: a website for my bakery	Например: веб-сайт для м
 For example: recreate this website	Например: пересоздать этот веб-сайт
 For example: the same app, but simpler	Например: то же приложение, но проще
 For example: the same game, with a high-score table	Например: та же игра с таблицей рекордов
+Force fresh analysis	Запустить новый анализ
 Force-stop an app	Принудительно остановить приложение
 Forget the key	Забыть ключ
 Found on this computer	Найдено на этом компьютере

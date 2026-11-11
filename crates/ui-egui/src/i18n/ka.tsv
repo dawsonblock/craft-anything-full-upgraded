@@ -249,6 +249,7 @@ Call path	გამოძახების გზა
 Call the build done	აწყობის დასრულებულად გამოცხადება
 Called done. A new message carries on from here.	დასრულებულად გამოცხადდა. ახალი შეტყობინება აქედან გააგრძელებს.
 Cancel	გაუქმება
+Cancel fresh analysis	ახალი ანალიზის გაუქმება
 Cancel: don't use this folder	გაუქმება: ამ საქაღალდეს არ ვიყენებთ
 Capture a website for rebuilding	ვებსაიტის გადაღება ხელახლა ასაწყობად
 Capture inventories	ინვენტარების გადაღება
@@ -315,6 +316,7 @@ Compare two runs	ორი გაშვების შედარება
 Compare two screenshots	ეკრანის ორი ანაბეჭდის შედარება
 Comparing and rebuilding	შედარება და ხელახალი აწყობა
 Compiled Python file	კომპილირებული Python ფაილი
+Confirm reanalysis	განმეორებითი ანალიზის დადასტურება
 Connect	დაკავშირება
 Connect agent apps	აგენტის აპების დაკავშირება
 Connect to a browser	ბრაუზერთან დაკავშირება
@@ -471,6 +473,7 @@ For example: a website for my bakery	მაგალითად: ვებს�
 For example: recreate this website	მაგალითად: ამ ვებსაიტის ხელახლა შექმნა
 For example: the same app, but simpler	მაგალითად: იგივე აპი, ოღონდ უფრო მარტივი
 For example: the same game, with a high-score table	მაგალითად: იგივე თამაში, რეკორდების ცხრილით
+Force fresh analysis	ახალი ანალიზის იძულებით გაშვება
 Force-stop an app	აპის იძულებითი შეჩერება
 Forget the key	გასაღების დავიწყება
 Found on this computer	ნაპოვნია ამ კომპიუტერზე

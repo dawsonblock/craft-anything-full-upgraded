@@ -387,9 +387,79 @@ fn restricted_mode_omits_machine_and_web_tools() {
         assert!(!names.contains(&id.to_string()), "{id}");
     }
 
+    // Restricted mode is read-only: declared write effects keep these off even with no consent,
+    // network or machine list entry. In particular, a client must not export to an arbitrary
+    // path, delete a project, or answer its own consent questions.
+    for id in
+        ["core_evidence_export", "core_report_save", "project_delete", "project_duplicate", "project_inbox_answer", "project_approvals_set", "settings_set"]
+    {
+        assert!(!names.contains(&id.to_string()), "{id}");
+    }
+
+    // The investigation memory is written to the project's files, so read-only mode loses it
+    // too. That's deliberate: the initialize instructions say so, and the reading tool stays.
+    for id in [
+        "core_brief_write",
+        "core_plan_update",
+        "core_hypothesis_record",
+        "core_hypothesis_update",
+        "core_finding_record",
+        "core_finding_edit",
+        "core_handoff_write",
+    ] {
+        assert!(!names.contains(&id.to_string()), "{id}");
+    }
+
     // Safe core tools remain available
     assert!(names.contains(&"core_session_show".to_string()));
     assert!(names.contains(&"core_investigation_show".to_string()));
+}
+
+/// The restricted predicate goes by what a tool declares, so every declared writer is refused
+/// whether or not it happens to be listed (Clean room, toolsets), and readers stay available.
+#[test]
+fn restricted_mode_refuses_declared_writers_and_allows_readers() {
+    let engine = Arc::new(Engine::new(craft_anything_engine::testing::session()));
+    let server = Server::new(engine, ServerOptions { restricted: true, ..Default::default() }, Box::new(Buf::default()));
+    for id in [
+        "web_scripts_save",
+        "core_evidence_export",
+        "core_report_save",
+        "core_report_write",
+        "project_delete",
+        "project_duplicate",
+        "project_rename",
+        "project_inbox_answer",
+        "project_approvals_set",
+        "settings_set",
+        "core_brief_write",
+        "core_handoff_write",
+    ] {
+        assert!(server.restricted_refusal(id).is_some(), "{id} writes, so restricted mode must refuse it");
+    }
+    for id in ["core_session_show", "core_investigation_show", "core_evidence_browse", "core_journal_read"] {
+        assert!(server.restricted_refusal(id).is_none(), "{id} only reads");
+    }
+}
+
+/// What a client is told at `initialize` matches what it can call: restricted mode doesn't tell
+/// it to keep the investigation memory current with tools that mode turns off.
+#[test]
+fn restricted_mode_instructions_dont_promise_turned_off_tools() {
+    let init = |opts: ServerOptions| {
+        let out =
+            run_with(opts, &[req(1, "initialize", json!({"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "t", "version": "1"}}))]);
+        response(&out, 1)["result"]["instructions"].as_str().unwrap_or_default().to_string()
+    };
+    let open = init(ServerOptions::default());
+    assert!(open.contains("Keep the investigation memory current") && open.contains("core_brief_write"), "{open}");
+    let restricted = init(ServerOptions { restricted: true, ..Default::default() });
+    assert!(!restricted.contains("Keep the investigation memory current"), "{restricted}");
+    assert!(restricted.contains("restricted to reading") && restricted.contains("Keep your notes in your replies"), "{restricted}");
+    // The rest of the guidance is the same in both modes.
+    for sentence in ["core_target_open", "list_toolsets", "Cite evidence ids", "Clean room"] {
+        assert!(open.contains(sentence) && restricted.contains(sentence), "{sentence} is missing");
+    }
 }
 
 /// #855, #856: Calling turned-off tools in restricted mode returns a refusal stating they are off.
@@ -408,6 +478,9 @@ fn restricted_mode_refuses_calling_turned_off_tools() {
             req(7, "tools/call", json!({"name": "adb_device_show", "arguments": {}})),
             req(8, "tools/call", json!({"name": "mcp__craft-anything__web_site_open", "arguments": {}})),
             req(9, "tools/call", json!({"name": "web-site-open", "arguments": {}})),
+            req(10, "tools/call", json!({"name": "core_evidence_export", "arguments": {"path": "/tmp/x.json", "overwrite": true}})),
+            req(11, "tools/call", json!({"name": "project_delete", "arguments": {}})),
+            req(12, "tools/call", json!({"name": "project_inbox_answer", "arguments": {}})),
         ],
     );
 
@@ -421,6 +494,9 @@ fn restricted_mode_refuses_calling_turned_off_tools() {
         (7, "adb_device_show"),
         (8, "web_site_open"),
         (9, "web_site_open"),
+        (10, "core_evidence_export"),
+        (11, "project_delete"),
+        (12, "project_inbox_answer"),
     ] {
         let r = response(&out, id);
         assert_eq!(r["result"]["isError"], true, "id {id} ({tool_name}) should be error");
@@ -456,6 +532,42 @@ fn restricted_mode_allows_web_and_capture_tools_when_operator_permits() {
     assert!(names_cap.contains(&"web_page_states_capture".to_string()));
     assert!(!names_cap.contains(&"build_command_run".to_string()));
     assert!(!names_cap.iter().any(|n| n.starts_with("adb_")));
+}
+
+/// A second tools/call using an id that is already running is rejected, not allowed to clobber
+/// the first call's cancel token; and in-flight calls are capped so a client can't grow worker
+/// threads without bound. A finished call removes only its own token.
+#[test]
+fn duplicate_ids_are_rejected_and_inflight_is_capped() {
+    let engine = Arc::new(Engine::new(craft_anything_engine::testing::session()));
+    let buf = Buf::default();
+    let server = Arc::new(Server::new(engine, ServerOptions::default(), Box::new(buf.clone())));
+
+    // A call already running under id 9: a second call with the same id is refused.
+    server.inflight.lock().unwrap().insert("9".into(), CancelToken::default());
+    let dup = json!({"jsonrpc": "2.0", "id": 9, "method": "tools/call", "params": {"name": "core_session_show", "arguments": {}}});
+    assert!(server.clone().handle_line(&dup.to_string()).is_none(), "a duplicate id spawns no worker");
+
+    // At the cap the next call is refused as busy.
+    for i in 0..MAX_INFLIGHT_CALLS {
+        server.inflight.lock().unwrap().insert(format!("n{i}"), CancelToken::default());
+    }
+    let busy = json!({"jsonrpc": "2.0", "id": 77, "method": "tools/call", "params": {"name": "core_session_show", "arguments": {}}});
+    assert!(server.clone().handle_line(&busy.to_string()).is_none(), "a call over the cap spawns no worker");
+
+    let out = String::from_utf8(buf.0.lock().unwrap().clone()).unwrap();
+    let msgs: Vec<Value> = out.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+    assert!(msgs.iter().any(|m| m["id"] == json!(9) && m["error"]["message"].as_str().unwrap_or_default().contains("already running")), "{msgs:?}");
+    assert!(msgs.iter().any(|m| m["id"] == json!(77) && m["error"]["message"].as_str().unwrap_or_default().contains("Too many calls")), "{msgs:?}");
+
+    // Finishing removes the entry only when it still belongs to that call's token.
+    let mine = CancelToken::default();
+    let theirs = CancelToken::default();
+    server.inflight.lock().unwrap().insert("k".into(), mine.clone());
+    server.end_inflight("k", &theirs);
+    assert!(server.inflight.lock().unwrap().contains_key("k"), "another call's token must survive");
+    server.end_inflight("k", &mine);
+    assert!(!server.inflight.lock().unwrap().contains_key("k"));
 }
 
 #[test]

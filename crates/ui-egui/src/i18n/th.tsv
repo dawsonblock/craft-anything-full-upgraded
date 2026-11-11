@@ -214,6 +214,7 @@ Call path	เส้นทางการเรียก
 Call the build done	ประกาศว่าบิลด์เสร็จ
 Called done. A new message carries on from here.	ประกาศเสร็จแล้ว ข้อความใหม่จะทำต่อจากจุดนี้
 Cancel	ยกเลิก
+Cancel fresh analysis	ยกเลิกการวิเคราะห์ใหม่
 Cancel: don't use this folder	ยกเลิก: ไม่ใช้โฟลเดอร์นี้
 Capture a website for rebuilding	เก็บเว็บไซต์ไว้สร้างใหม่
 Capture inventories	เก็บรายการสินค้าคงคลัง
@@ -281,6 +282,7 @@ Compare two runs	เปรียบเทียบการรันสองค
 Compare two screenshots	เปรียบเทียบภาพหน้าจอสองภาพ
 Comparing and rebuilding	กำลังเปรียบเทียบและสร้างใหม่
 Compiled Python file	ไฟล์ Python ที่คอมไพล์แล้ว
+Confirm reanalysis	ยืนยันการวิเคราะห์ซ้ำ
 Connect	เชื่อมต่อ
 Connect agent apps	เชื่อมต่อแอปเอเจนต์
 Connect to a browser	เชื่อมต่อเบราว์เซอร์
@@ -440,6 +442,7 @@ For example: a website for my bakery	ตัวอย่าง: เว็บไ�
 For example: recreate this website	ตัวอย่าง: สร้างเว็บไซต์นี้ใหม่
 For example: the same app, but simpler	ตัวอย่าง: แอปเดิม แต่เรียบง่ายกว่า
 For example: the same game, with a high-score table	ตัวอย่าง: เกมเดิม แต่มีตารางคะแนนสูงสุด
+Force fresh analysis	บังคับการวิเคราะห์ใหม่
 Force-stop an app	บังคับหยุดแอป
 Forget the key	ลืมคีย์
 Found on this computer	พบในเครื่องนี้

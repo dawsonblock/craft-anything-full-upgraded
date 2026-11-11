@@ -214,6 +214,7 @@ Call path	呼叫路徑
 Call the build done	將建置標為完成
 Called done. A new message carries on from here.	已標為完成。傳送新訊息即可從這裡繼續。
 Cancel	取消
+Cancel fresh analysis	取消新的分析
 Cancel: don't use this folder	取消：不使用此資料夾
 Capture a website for rebuilding	擷取網站用於重建
 Capture inventories	擷取清單
@@ -281,6 +282,7 @@ Compare two runs	比較兩次執行
 Compare two screenshots	比較兩張螢幕截圖
 Comparing and rebuilding	比較與重建
 Compiled Python file	編譯後的 Python 檔案
+Confirm reanalysis	確認重新分析
 Connect	連線
 Connect agent apps	連線至代理應用程式
 Connect to a browser	連線至瀏覽器
@@ -440,6 +442,7 @@ For example: a website for my bakery	例如：給我的麵包店做個網站
 For example: recreate this website	例如：重現這個網站
 For example: the same app, but simpler	例如：做一個相同但更簡潔的應用程式
 For example: the same game, with a high-score table	例如：同樣的遊戲，加上最高分排行榜
+Force fresh analysis	強制重新分析
 Force-stop an app	強制停止應用程式
 Forget the key	移除金鑰
 Found on this computer	在此電腦上找到

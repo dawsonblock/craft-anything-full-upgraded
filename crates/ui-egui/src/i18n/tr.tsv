@@ -214,6 +214,7 @@ Call path	Çağrı yolu
 Call the build done	Derlemeyi bitti say
 Called done. A new message carries on from here.	Bitti olarak işaretlendi. Yeni bir mesaj buradan devam eder.
 Cancel	İptal
+Cancel fresh analysis	Yeni analizi iptal et
 Cancel: don't use this folder	İptal: bu klasörü kullanma
 Capture a website for rebuilding	Yeniden derlemek için bir web sitesi yakala
 Capture inventories	Envanterleri yakala
@@ -281,6 +282,7 @@ Compare two runs	İki çalıştırmayı karşılaştır
 Compare two screenshots	İki ekran görüntüsünü karşılaştır
 Comparing and rebuilding	Karşılaştırma ve yeniden derleme
 Compiled Python file	Derlenmiş Python dosyası
+Confirm reanalysis	Yeniden analizi onayla
 Connect	Bağlan
 Connect agent apps	Ajan uygulamalarını bağla
 Connect to a browser	Bir tarayıcıya bağlan
@@ -440,6 +442,7 @@ For example: a website for my bakery	Örneğin: fırınım için bir web sitesi
 For example: recreate this website	Örneğin: bu web sitesini yeniden oluştur
 For example: the same app, but simpler	Örneğin: aynı uygulama, ama daha basit
 For example: the same game, with a high-score table	Örneğin: aynı oyun, yüksek skor tablosuyla
+Force fresh analysis	Yeni analizi zorla
 Force-stop an app	Bir uygulamayı zorla durdur
 Forget the key	Anahtarı unut
 Found on this computer	Bu bilgisayarda bulundu
