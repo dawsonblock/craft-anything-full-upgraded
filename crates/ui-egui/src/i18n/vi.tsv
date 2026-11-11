@@ -214,6 +214,7 @@ Call path	Đường gọi
 Call the build done	Coi lượt xây dựng là xong
 Called done. A new message carries on from here.	Đã coi là xong. Một tin nhắn mới sẽ tiếp tục từ đây.
 Cancel	Hủy
+Cancel fresh analysis	Hủy phân tích mới
 Cancel: don't use this folder	Hủy: không dùng thư mục này
 Capture a website for rebuilding	Ghi lại một trang web để dựng lại
 Capture inventories	Ghi lại các danh mục
@@ -281,6 +282,7 @@ Compare two runs	So sánh hai lần chạy
 Compare two screenshots	So sánh hai ảnh chụp màn hình
 Comparing and rebuilding	So sánh và dựng lại
 Compiled Python file	Tệp Python đã biên dịch
+Confirm reanalysis	Xác nhận phân tích lại
 Connect	Kết nối
 Connect agent apps	Kết nối các ứng dụng tác tử
 Connect to a browser	Kết nối với trình duyệt
@@ -440,6 +442,7 @@ For example: a website for my bakery	Ví dụ: một trang web cho tiệm bánh 
 For example: recreate this website	Ví dụ: dựng lại trang web này
 For example: the same app, but simpler	Ví dụ: cùng ứng dụng đó, nhưng đơn giản hơn
 For example: the same game, with a high-score table	Ví dụ: cùng trò chơi đó, kèm bảng điểm cao
+Force fresh analysis	Buộc phân tích mới
 Force-stop an app	Buộc dừng một ứng dụng
 Forget the key	Quên khóa
 Found on this computer	Tìm thấy trên máy tính này

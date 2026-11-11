@@ -214,6 +214,7 @@ Call path	Percorso di chiamata
 Call the build done	Dichiara finita la costruzione
 Called done. A new message carries on from here.	Dichiarata finita. Un messaggio nuovo riparte da qui.
 Cancel	Annulla
+Cancel fresh analysis	Annulla la nuova analisi
 Cancel: don't use this folder	Annulla: non usare questa cartella
 Capture a website for rebuilding	Cattura un sito da ricostruire
 Capture inventories	Cattura gli inventari
@@ -281,6 +282,7 @@ Compare two runs	Confronta due esecuzioni
 Compare two screenshots	Confronta due schermate
 Comparing and rebuilding	Confrontare e ricostruire
 Compiled Python file	File Python compilato
+Confirm reanalysis	Conferma la nuova analisi
 Connect	Connetti
 Connect agent apps	Connetti le app degli agenti
 Connect to a browser	Connettiti a un browser
@@ -441,6 +443,7 @@ For example: a website for my bakery	Per esempio: un sito per la mia panetteria
 For example: recreate this website	Per esempio: ricostruisci questo sito
 For example: the same app, but simpler	Per esempio: la stessa app, ma più semplice
 For example: the same game, with a high-score table	Per esempio: lo stesso gioco, con una classifica
+Force fresh analysis	Forza una nuova analisi
 Force-stop an app	Chiudi forzatamente un'app
 Forget the key	Dimentica la chiave
 Found on this computer	Trovato su questo computer

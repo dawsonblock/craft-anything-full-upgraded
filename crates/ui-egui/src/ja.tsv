@@ -106,6 +106,7 @@ Built by	作成元
 Built with	使用技術
 Built with {stack}, as you asked, so no game engine is needed.	ご指定の {stack} でビルドするため、ゲームエンジンは不要です。
 Cancel	キャンセル
+Cancel fresh analysis	新しい解析をキャンセル
 Cancel: don't use this folder	キャンセル: このフォルダを使わない
 Change	変更
 Change it	変更
@@ -137,6 +138,7 @@ Close it	閉じる
 Close it first.	先に閉じてください。
 Coding agent app	コーディングエージェントのアプリ
 Command palette (Ctrl/⌘ K)	コマンドパレット (Ctrl/⌘ K)
+Confirm reanalysis	再解析を確認
 Connect	接続
 Connect {name}	{name} を接続
 Continue	続ける
@@ -227,6 +229,7 @@ For example: a website for my bakery	例: パン屋の Web サイト
 For example: recreate this website	例: この Web サイトを再現
 For example: the same app, but simpler	例: 同じアプリをもっとシンプルに
 For example: the same game, with a high-score table	例: 同じゲームにハイスコア表を追加
+Force fresh analysis	新しい解析を強制実行
 Forget the key	キーを破棄
 Found on this computer	このコンピュータで見つかりました
 From	再現元
