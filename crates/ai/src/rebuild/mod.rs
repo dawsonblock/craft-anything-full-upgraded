@@ -991,7 +991,7 @@ impl Worker {
                 prompt = p;
                 continue;
             }
-            let not_good = checks.iter().find(|c| !c.good(opts.good_enough));
+            let not_good = checks.iter().find(|c| needs_fixing(c, opts.good_enough));
             if not_good.is_some() && progress_available && progress.stalled() {
                 // A check-only resume skipped the builder's before-turn scan. A real edit
                 // while the project was closed (or during this check) still starts an attempt.
@@ -1366,6 +1366,13 @@ fn run_outcome(result: Result<Result<String, ToolError>, Box<dyn std::any::Any +
     }
 }
 
+/// A check the builder can do something about: it failed, its claims don't hold, or the evidence
+/// it needed is missing. A check that never ran is not one — refining it would only ask the
+/// builder for what the check already said nothing can do.
+fn needs_fixing(c: &CheckResult, good_enough: f64) -> bool {
+    !c.good(good_enough) && !c.unverified
+}
+
 /// A Ready status is a claim about the *whole* latest round, not merely the final check.
 /// A build that works but misses a requested similarity bar remains NeedsYou through
 /// `run_outcome`; the person may explicitly accept it with `project_build_finish`.
@@ -1375,12 +1382,19 @@ fn checked_round_is_ready(checks: &[CheckResult], good_enough: f64) -> Result<()
     }
     let broken: Vec<_> = checks
         .iter()
-        .filter(|c| !c.passed || !c.unknowns.is_empty() || c.claims.iter().any(|claim| !claim.passed))
+        .filter(|c| !c.unverified && (!c.passed || !c.unknowns.is_empty() || c.claims.iter().any(|claim| !claim.passed)))
         .map(|c| format!("{}: {}", c.check, c.note))
         .collect();
     if !broken.is_empty() {
         return Err(ToolError::new(ErrorCode::ProgramFailed, format!("The build is not verified: {}", broken.join(" | ")))
             .with_remediation("Fix the failing or unverified checks, then run them again. A later passing check does not override an earlier failure."));
+    }
+    // Nothing ran: the person's project is fine as far as anyone knows, but there is nothing here
+    // that says so, and no refinement can change that.
+    let unchecked: Vec<_> = checks.iter().filter(|c| c.unverified).map(|c| format!("{}: {}", c.check, c.note)).collect();
+    if !unchecked.is_empty() {
+        return Err(ToolError::new(ErrorCode::ProgramFailed, format!("The build couldn't be checked: {}.", unchecked.join(" | ")))
+            .with_remediation("Craft Anything has no way to build or test this kind of project. Accept the result with project_build_finish, or build it another way and check again."));
     }
     let below_bar: Vec<_> = checks.iter().filter(|c| !c.good(good_enough)).map(|c| c.check.as_str()).collect();
     if !below_bar.is_empty() {
@@ -1397,6 +1411,20 @@ fn checked_round_is_ready(checks: &[CheckResult], good_enough: f64) -> Result<()
 mod ready_regressions {
     use super::*;
     use craft_anything_engine::workspace::Claim;
+
+    /// A check that never ran is not Ready, and it is not something to refine either: the builder
+    /// is never sent back to fix what Craft Anything has no way to build or test.
+    #[test]
+    fn a_round_that_never_ran_is_not_ready_and_not_something_to_fix() {
+        let never = CheckResult { unverified: true, ..CheckResult::new(CheckResult::BUILD, 1, true, "Nothing was built: no known toolchain.") };
+        let error = checked_round_is_ready(std::slice::from_ref(&never), 90.0).unwrap_err();
+        assert!(error.message.contains("couldn't be checked") && error.message.contains("no known toolchain"), "{error:?}");
+        assert!(!needs_fixing(&never, 90.0), "there is nothing to fix");
+        assert!(needs_fixing(&CheckResult::new(CheckResult::BUILD, 1, false, "Build failed"), 90.0));
+        let blind = CheckResult { unknowns: vec!["/about couldn't be pictured".into()], ..CheckResult::new(CheckResult::WEB_VISUAL, 1, true, "") };
+        assert!(needs_fixing(&blind, 90.0), "missing evidence is still something to fix");
+        assert!(!needs_fixing(&CheckResult::new(CheckResult::BUILD, 1, true, "Build succeeded."), 90.0));
+    }
 
     #[test]
     fn every_check_in_a_round_must_pass_even_when_the_final_check_passes() {

@@ -70,6 +70,7 @@ pub fn summary(checks: &[CheckResult], good_enough: f64) -> String {
     match checks.iter().find_map(|c| c.similarity) {
         Some(s) => format!("about {s:.0}% like the original{claims_part}"),
         None if good == checks.len() => format!("all {} checks pass{claims_part}", checks.len()),
+        None if checks.iter().all(|c| c.unverified) => "nothing could be checked".to_string(),
         None => format!("{good} of {} checks pass{claims_part}", checks.len()),
     }
 }
@@ -83,7 +84,14 @@ pub fn report(checks: &[CheckResult], good_enough: f64, open: &[craft_anything_e
     }
     let mut lines = Vec::new();
     for c in checks {
-        let mut line = format!("{}: {}", c.check, if c.passed { "passed" } else { "failed" });
+        let state = if c.unverified {
+            "not checked"
+        } else if c.passed {
+            "passed"
+        } else {
+            "failed"
+        };
+        let mut line = format!("{}: {state}", c.check);
         if let Some(s) = c.similarity {
             line.push_str(&format!(", {s:.0}% alike (needs {:.0}%)", c.good_enough.unwrap_or(good_enough)));
         }
@@ -111,6 +119,8 @@ pub fn report(checks: &[CheckResult], good_enough: f64, open: &[craft_anything_e
     }
     lines.push(if checks.iter().all(|c| c.good(good_enough)) {
         "This would pass. Finish what you're doing, then reply.".to_string()
+    } else if checks.iter().all(|c| c.unverified || c.good(good_enough)) {
+        "Nothing could be checked, so this can't pass as verified: say what you changed and why, then reply.".to_string()
     } else {
         "Not good enough yet: fix what it lists, build again, and check again with rebuild_check.".to_string()
     });
@@ -193,6 +203,12 @@ mod tests {
         };
         let r = report(&[blind], 90.0, &[]);
         assert!(r.contains("Not compared, so it can't pass yet: /about at 768 px") && r.contains("Not good enough yet"), "an unknown never passes: {r}");
+        // Nothing ran: said as such, with no advice to fix what has no fix.
+        let never = CheckResult { unverified: true, ..CheckResult::new(CheckResult::BUILD, 1, true, "Nothing was built: no known toolchain.") };
+        let r = report(std::slice::from_ref(&never), 90.0, &[]);
+        assert!(r.starts_with("build: not checked — Nothing was built") && r.contains("Nothing could be checked, so this can't pass as verified"), "{r}");
+        assert!(!r.contains("Not good enough yet") && !r.contains("Make those parts exist"), "{r}");
+        assert_eq!(summary(&[never], 90.0), "nothing could be checked");
     }
 
     #[test]

@@ -257,6 +257,10 @@
           "items": {
             "type": "string"
           }
+        },
+        "unverified": {
+          "type": "boolean",
+          "default": false
         }
       },
       "required": [

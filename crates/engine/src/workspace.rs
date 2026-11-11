@@ -274,6 +274,11 @@ pub struct CheckResult {
     /// Missing evidence never counts as alike, so a check with any isn't good enough.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub unknowns: Vec<String>,
+    /// Nothing ran: there is no way to build or test this kind of project, so the check proves
+    /// nothing either way. It isn't a failure (the builder has nothing to fix) and it isn't good
+    /// enough either (Ready can't rest on it).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub unverified: bool,
     /// The things the build must do, each judged on its own; one that fails keeps the check from
     /// being good enough, however alike the rest looks.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -327,14 +332,16 @@ impl CheckResult {
             good_enough: None,
             pages: Vec::new(),
             unknowns: Vec::new(),
+            unverified: false,
             claims: Vec::new(),
         }
     }
 
-    /// Passed with nothing left unknown and every claim holding, and (when compared) at least as
-    /// alike as its own bar, else `good_enough`.
+    /// Passed with nothing left unknown, nothing unverified and every claim holding, and (when
+    /// compared) at least as alike as its own bar, else `good_enough`.
     pub fn good(&self, good_enough: f64) -> bool {
         self.passed
+            && !self.unverified
             && self.unknowns.is_empty()
             && self.claims.iter().all(|c| c.passed)
             && match (self.similarity, self.good_enough) {
@@ -371,6 +378,8 @@ struct CheckRecord {
     #[serde(default)]
     unknowns: Vec<String>,
     #[serde(default)]
+    unverified: bool,
+    #[serde(default)]
     claims: Vec<Claim>,
 }
 
@@ -389,6 +398,7 @@ impl From<CheckRecord> for CheckResult {
             good_enough: r.good_enough,
             pages: r.pages,
             unknowns: r.unknowns,
+            unverified: r.unverified,
             claims: r.claims,
         }
     }
@@ -1958,6 +1968,24 @@ mod tests {
         let c = CheckResult { claims: vec![held, broken], ..pics };
         assert!(!c.good(0.0), "a failed claim never rolls up into a pass");
         assert_eq!(c.failed_claims().map(|c| c.detail.as_str()).collect::<Vec<_>>(), ["/logo.png (404)"]);
+    }
+
+    /// Nothing ran: not a failure (`passed` stays true) and not good enough either, so Ready can't
+    /// rest on it. The stored form stays as it was when nothing was unverified.
+    #[test]
+    fn a_check_that_never_ran_is_unverified_never_good_and_not_written_until_it_is() {
+        let ran = CheckResult::new(CheckResult::BUILD, 1, true, "Build succeeded.");
+        let never = CheckResult { unverified: true, ..ran.clone() };
+        assert!(never.passed && !never.good(0.0), "nothing failed, and nothing was proved");
+        assert!(ran.good(0.0));
+        assert_eq!(serde_json::to_value(&ran).unwrap().get("unverified"), None, "a verified check is written as it always was");
+        let back: CheckResult = serde_json::from_value(serde_json::to_value(&never).unwrap()).unwrap();
+        assert_eq!(back, never, "an unverified check survives a save and load");
+        let old: CheckResult = serde_json::from_value(
+            serde_json::json!({"round": 1, "check": "build", "passed": true, "similarity": null, "note": "Build succeeded.", "at_ms": 0}),
+        )
+        .unwrap();
+        assert!(!old.unverified, "a project written before the field existed is verified as it was judged then");
     }
 
     #[test]
