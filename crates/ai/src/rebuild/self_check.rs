@@ -83,7 +83,16 @@ pub fn report(checks: &[CheckResult], good_enough: f64, open: &[craft_anything_e
     }
     let mut lines = Vec::new();
     for c in checks {
-        let mut line = format!("{}: {}", c.check, if c.passed { "passed" } else { "failed" });
+        let mut line = format!(
+            "{}: {}",
+            c.check,
+            match c.outcome {
+                Outcome::Passed => "passed",
+                Outcome::Failed => "failed",
+                Outcome::Skipped => "didn't run",
+                Outcome::Unknown => "couldn't run",
+            }
+        );
         if let Some(s) = c.similarity {
             line.push_str(&format!(", {s:.0}% alike (needs {:.0}%)", c.good_enough.unwrap_or(good_enough)));
         }

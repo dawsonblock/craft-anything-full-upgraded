@@ -282,12 +282,13 @@ impl Worker {
         let mut out = Vec::new();
         for (i, c) in checks.iter().enumerate() {
             // Pause, or a round past its limit, stops before this check starts. A check that
-            // couldn't start is a failed result, so its reason reaches the builder and the feed.
+            // couldn't start didn't run, so its reason reaches the builder and the feed without
+            // blaming the build.
             if let Err(e) = cx.stop().check() {
                 if e.code == craft_anything_evidence::ErrorCode::Cancelled {
                     return Err(e);
                 }
-                out.push(CheckResult::new(c.id(), round, false, format!("Not run: {}", e.message)));
+                out.push(CheckResult::unknown(c.id(), round, format!("Not run: {}", e.message)));
                 break;
             }
             // Said before the check runs, so a stall names the check it is in. The builder's own
@@ -295,8 +296,9 @@ impl Worker {
             // the CLI and the progress panel show.
             let (step, doing) = if round == self_check::SELF_CHECK_ROUND { (Step::Build, "Checking its work") } else { (Step::Check, "Checking the build") };
             self.emit(RunEvent::Step { step, text: format!("{doing} ({} of {}): {}…", i + 1, checks.len(), c.id()) });
-            let r = c.run(&mut cx)?;
-            let failed = !r.passed;
+            let mut r = c.run(&mut cx)?;
+            r.required = c.required();
+            let failed = r.failed();
             out.push(r);
             if failed {
                 break;
@@ -312,6 +314,11 @@ pub trait Check: Send + Sync {
     fn id(&self) -> &'static str;
     /// Whether it runs in this run at all (a skipped check leaves no result).
     fn applies(&self, _cx: &CheckCx) -> bool {
+        true
+    }
+    /// Whether the build can be called ready only if this check passed. A person's own tests are
+    /// optional; a build is not.
+    fn required(&self) -> bool {
         true
     }
     fn run(&self, cx: &mut CheckCx) -> Result<CheckResult, ToolError>;
@@ -341,10 +348,10 @@ impl Check for BuildCheck {
         CheckResult::BUILD
     }
     fn run(&self, cx: &mut CheckCx) -> Result<CheckResult, ToolError> {
-        let (passed, note) = build_check(&cx.ws.app_dir(), cx.ws.app_place(), &cx.ws.manifest.stack, cx.editor(), &cx.stop());
+        let (outcome, note) = build_check(&cx.ws.app_dir(), cx.ws.app_place(), &cx.ws.manifest.stack, cx.editor(), &cx.stop());
         // #736: a failed build of an empty app/ says first that nothing was written.
-        let note = if !passed && app_is_empty(cx.ws) { format!("{} {note}", no_files_yet(cx.ws)) } else { note };
-        Ok(CheckResult::new(self.id(), cx.round, passed, note))
+        let note = if outcome == Outcome::Failed && app_is_empty(cx.ws) { format!("{} {note}", no_files_yet(cx.ws)) } else { note };
+        Ok(CheckResult::with_outcome(self.id(), cx.round, outcome, note))
     }
 }
 

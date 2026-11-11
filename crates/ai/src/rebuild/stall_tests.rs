@@ -162,7 +162,6 @@ fn try_again_does_not_restart_a_build_that_never_works() {
         hit_limit |= run_busy_builder(&mut ws, &seen, None).message.contains("isn't working after");
     }
     assert!(hit_limit, "the count is kept across Try again presses and reaches its limit");
-    assert!(hit_limit, "the count is kept across Try again presses and reaches its limit");
     let total = ws.manifest.checks.len();
     assert!(total <= NOT_WORKING_CHECK_LIMIT as usize, "{total} checks over six runs; the build must stop at its limit");
     assert_eq!(ws.manifest.not_working_checks, NOT_WORKING_CHECK_LIMIT, "the count is kept in the project");

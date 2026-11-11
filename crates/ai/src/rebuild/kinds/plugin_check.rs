@@ -58,10 +58,9 @@ impl PluginJudge {
                 let similarity = v.get("similarity").and_then(Value::as_f64).filter(|s| s.is_finite()).map(|s| s.clamp(0.0, 100.0));
                 CheckResult { similarity, ..CheckResult::new(self.check.id, round, passed, format!("{}: {summary}", self.check.title)) }
             }
-            Err(e) => CheckResult::new(
+            Err(e) => CheckResult::unknown(
                 self.check.id,
                 round,
-                false,
                 format!("The {} check couldn't run: {}. Fix or disable the check before marking the build ready.", self.check.title, e.message),
             ),
         }
@@ -149,8 +148,9 @@ mod tests {
             PluginJudge { check: Arc::new(check), kind: "game" }
         };
         let r = judge(Ok(json!({"passed": false, "similarity": 140, "summary": "No title screen."}))).judge(&ws, 1);
-        assert_eq!((r.passed, r.similarity, r.note.as_str()), (false, Some(100.0), "Style: No title screen."));
+        assert_eq!((r.outcome, r.similarity, r.note.as_str()), (Outcome::Failed, Some(100.0), "Style: No title screen."));
         let r = judge(Err(ToolError::invalid("boom"))).judge(&ws, 1);
-        assert!(!r.passed && r.similarity.is_none() && r.note.contains("couldn't run: boom"), "{r:?}");
+        assert_eq!(r.outcome, Outcome::Unknown, "{r:?}");
+        assert!(r.similarity.is_none() && r.note.contains("couldn't run: boom"), "{r:?}");
     }
 }

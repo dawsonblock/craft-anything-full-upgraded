@@ -369,12 +369,12 @@ fn engine_stacks_get_their_own_steps_checks_and_play() {
 
     let d = tempfile::tempdir().unwrap();
     let stop = CheckStop::default();
-    assert_eq!(build_check(d.path(), "app/", "Unity", Some(ed), &stop), (false, "No Unity project found in app/ yet.".into()));
-    assert_eq!(build_check(d.path(), "app/", "Godot", Some(ed), &stop), (false, "No Godot project (project.godot) found in app/ yet.".into()));
+    assert_eq!(build_check(d.path(), "app/", "Unity", Some(ed), &stop), (Outcome::Failed, "No Unity project found in app/ yet.".into()));
+    assert_eq!(build_check(d.path(), "app/", "Godot", Some(ed), &stop), (Outcome::Failed, "No Godot project (project.godot) found in app/ yet.".into()));
     assert!(build_check(d.path(), "app/", "Unreal Engine", Some(ed), &stop).1.contains(".uproject"));
     // #174: an app edited in place is said to be in the project folder, not in an app/ that isn't there.
     let none = build_check(d.path(), "the project folder", "Builder's choice", None, &stop);
-    assert_eq!(none, (false, "No project to build found in the project folder yet.".into()));
+    assert_eq!(none, (Outcome::Failed, "No project to build found in the project folder yet.".into()));
 
     // Play: a Godot project opens in Godot; a packaged Unity build runs its own program.
     std::fs::write(d.path().join("project.godot"), "config_version=5").unwrap();
@@ -1315,7 +1315,7 @@ fn the_website_check_with_no_site_says_where_it_looked() {
         let place = if in_root { "the project folder" } else { "app/" };
         let r = check_worker(&ws, false).run_checks(&ws, &kinds::WebsiteKind, 1).unwrap();
         assert_eq!(r.len(), 1);
-        assert!(!r[0].passed && r[0].check == CheckResult::WEB_VISUAL, "{:?}", r[0]);
+        assert!(r[0].failed() && r[0].check == CheckResult::WEB_VISUAL, "{:?}", r[0]);
         let note = &r[0].note;
         assert!(note.contains(&format!("No built site found in {place} yet")), "{note}");
         assert!(note.contains(&format!("index.html straight in {place}")) && note.contains("dist/, build/ or out/"), "{note}");
@@ -1485,11 +1485,11 @@ fn the_mechanics_sheet_is_required_and_held_against_the_code() {
     let check = |round| w.run_checks(&ws, &SheetKind, round).unwrap().remove(0);
 
     let none = check(1);
-    assert!(!none.passed && none.note.contains("no app/mechanics.json") && none.note.contains("\"version\": 1"), "{}", none.note);
+    assert!(none.failed() && none.note.contains("no app/mechanics.json") && none.note.contains("\"version\": 1"), "{}", none.note);
 
     std::fs::create_dir_all(ws.app_dir().join("src")).unwrap();
     std::fs::write(ws.mechanics_path(), "{ not json").unwrap();
-    assert!(!check(2).passed, "an unreadable sheet fails");
+    assert!(check(2).failed(), "an unreadable sheet fails");
 
     std::fs::write(ws.app_dir().join("src/main.rs"), "const WALK: f32 = 4.5;\nconst GRAVITY: f32 = -9.8;\n").unwrap();
     std::fs::write(
@@ -1503,7 +1503,7 @@ fn the_mechanics_sheet_is_required_and_held_against_the_code() {
     )
     .unwrap();
     let ok = check(3);
-    assert!(ok.passed, "an estimate may stay out of the code: {}", ok.note);
+    assert!(ok.passed(), "an estimate may stay out of the code: {}", ok.note);
     assert!(ok.note.contains("4 values (1 with a source, 2 estimated)"), "{}", ok.note);
     assert!(ok.note.contains("neither a source nor \"estimated\": crouch."), "{}", ok.note);
     assert!(!ok.note.contains("aren't in the code"), "{}", ok.note);
@@ -1521,7 +1521,7 @@ fn the_mechanics_sheet_is_required_and_held_against_the_code() {
     )
     .unwrap();
     let unused = check(4);
-    assert!(!unused.passed, "{}", unused.note);
+    assert!(unused.failed(), "{}", unused.note);
     assert!(unused.note.contains("2 numbers from the original aren't in the code as written: grunt speed (290), guard health (270)."), "{}", unused.note);
     assert!(unused.note.contains("mark it \"estimated\""), "{}", unused.note);
     let failed: Vec<&str> = unused.failed_claims().map(|c| c.title.as_str()).collect();
@@ -2638,7 +2638,11 @@ fn new_python_projects_build_and_save_screenshots_through_their_toolchain() {
     std::fs::write(app.join("fixture.png"), encode_png(&Image { width: 64, height: 36, rgba }).unwrap()).unwrap();
     let worker = check_worker(&ws, false);
     let checks = worker.run_checks(&ws, &AppKind, 1).unwrap();
-    assert_eq!(checks.iter().map(|c| (c.check.as_str(), c.passed)).collect::<Vec<_>>(), [("build", true), ("app-screenshot", true)], "{checks:?}");
+    assert_eq!(
+        checks.iter().map(|c| (c.check.as_str(), c.outcome)).collect::<Vec<_>>(),
+        [("build", Outcome::Passed), ("app-screenshot", Outcome::Passed)],
+        "{checks:?}"
+    );
     let args = std::fs::read_to_string(app.join("build-args.txt")).unwrap();
     assert!(args.starts_with("-m\ncompileall\n-q\n") && args.ends_with(".\n"), "{args}");
     assert_eq!(args.lines().nth(3), Some("-f"), "{args}");
@@ -2648,12 +2652,12 @@ fn new_python_projects_build_and_save_screenshots_through_their_toolchain() {
 
     std::fs::write(app.join("fail-shot"), "").unwrap();
     let checks = worker.run_checks(&ws, &AppKind, 1).unwrap();
-    assert!(checks[0].passed && !checks[1].passed && checks[1].note.contains("code 9"), "{checks:?}");
+    assert!(checks[0].passed() && checks[1].failed() && checks[1].note.contains("code 9"), "{checks:?}");
     assert!(!shot.exists(), "the old screenshot cannot make a failed run pass");
     std::fs::write(app.join("fail-build"), "").unwrap();
     let checks = worker.run_checks(&ws, &AppKind, 2).unwrap();
     assert_eq!(checks.len(), 1);
-    assert!(!checks[0].passed && checks[0].note.contains("fixture compilation failed"), "{checks:?}");
+    assert!(checks[0].failed() && checks[0].note.contains("fixture compilation failed"), "{checks:?}");
 }
 
 /// Opt-in smoke test with a real local Python; all files and bytecode stay in the temp project.
@@ -2680,12 +2684,16 @@ fn real_python_new_project_build_and_screenshot() {
     std::fs::write(app.join(".venv/ignored.py"), "def broken(\n").unwrap();
     let worker = check_worker(&ws, false);
     let checks = worker.run_checks(&ws, &AppKind, 1).unwrap();
-    assert_eq!(checks.iter().map(|c| (c.check.as_str(), c.passed)).collect::<Vec<_>>(), [("build", true), ("app-screenshot", true)], "{checks:?}");
+    assert_eq!(
+        checks.iter().map(|c| (c.check.as_str(), c.outcome)).collect::<Vec<_>>(),
+        [("build", Outcome::Passed), ("app-screenshot", Outcome::Passed)],
+        "{checks:?}"
+    );
     std::fs::write(app.join("main.py"), "def broken(\n").unwrap();
     std::fs::File::open(app.join("main.py")).unwrap().set_modified(same_time).unwrap();
     let checks = worker.run_checks(&ws, &AppKind, 2).unwrap();
     assert_eq!(checks.len(), 1, "{checks:?}");
-    assert!(!checks[0].passed && checks[0].note.contains("SyntaxError"), "{checks:?}");
+    assert!(checks[0].failed() && checks[0].note.contains("SyntaxError"), "{checks:?}");
 }
 
 /// A kind with its checks after the first `.1`, so a test needn't build or start anything.
@@ -2727,7 +2735,7 @@ fn apps_keep_the_sheet_only_when_deep_mode_decompiles_a_program() {
     // Deep mode on a program: the sheet is checked (and missing here).
     let r = check_worker(&prog, true).run_checks(&prog, &APP_SHEET_ONLY, 1).unwrap();
     assert_eq!(r.len(), 1);
-    assert!(r[0].check == "mechanics" && !r[0].passed, "{:?}", r[0]);
+    assert!(r[0].check == "mechanics" && r[0].failed(), "{:?}", r[0]);
     // Clean room, or nothing to decompile: skipped, leaving no result.
     assert!(check_worker(&prog, false).run_checks(&prog, &APP_SHEET_ONLY, 1).unwrap().is_empty());
     let fresh = Workspace::create(d.path(), "Fresh", "A notes app", TargetRef::None).unwrap();
@@ -2754,13 +2762,13 @@ fn a_game_is_ready_only_when_it_plays_and_credits_the_originals_files() {
     let ws = Workspace::create(d.path(), "Caves", "Copy this game", TargetRef::Local { path: d.path().join("game.exe") }).unwrap();
     // The self-test needs a built game to start.
     let r = check_worker(&ws, false).run_checks(&ws, &LaterChecks(&GameKind, 2), 1).unwrap();
-    assert!(r[0].check == "game-self-test" && !r[0].passed && r[0].note == "There's no built program to start yet.", "{:?}", r[0]);
+    assert!(r[0].check == "game-self-test" && r[0].failed() && r[0].note == "There's no built program to start yet.", "{:?}", r[0]);
 
     // Deep mode on a program: the original's files must be credited and the README says they're private.
     const CREDITS_ONLY: LaterChecks = LaterChecks(&GameKind, 4);
     let r = check_worker(&ws, true).run_checks(&ws, &CREDITS_ONLY, 1).unwrap();
     assert_eq!(r.len(), 1);
-    assert!(r[0].check == "credits" && !r[0].passed && r[0].note.contains("app/CREDITS.md") && r[0].note.contains(PRIVATE_USE_NOTE), "{:?}", r[0]);
+    assert!(r[0].check == "credits" && r[0].failed() && r[0].note.contains("app/CREDITS.md") && r[0].note.contains(PRIVATE_USE_NOTE), "{:?}", r[0]);
     std::fs::create_dir_all(ws.app_dir()).unwrap();
     std::fs::write(
         ws.app_dir().join("README.md"),
@@ -2778,7 +2786,7 @@ fn a_game_is_ready_only_when_it_plays_and_credits_the_originals_files() {
 ",
     )
     .unwrap();
-    assert!(check_worker(&ws, true).run_checks(&ws, &CREDITS_ONLY, 2).unwrap()[0].passed);
+    assert!(check_worker(&ws, true).run_checks(&ws, &CREDITS_ONLY, 2).unwrap()[0].passed());
     // Clean room copies none of the original's files, and a game without a target has none: skipped.
     assert!(check_worker(&ws, false).run_checks(&ws, &CREDITS_ONLY, 1).unwrap().is_empty());
     let snake = Workspace::create(d.path(), "Snake", "A snake game", TargetRef::None).unwrap();
@@ -3434,12 +3442,12 @@ fn a_persons_own_project_is_judged_by_its_own_build_and_tests_whatever_its_kind(
     let (_d, ws) = own_folder("index.html", Edit);
     let r = check_worker(&ws, false).run_checks(&ws, &GameKind, 1).unwrap();
     assert_eq!(r.iter().map(|c| c.check.as_str()).collect::<Vec<_>>(), [CheckResult::BUILD, kinds::own::OwnTestsCheck::ID]);
-    assert!(r.iter().all(|c| c.passed), "{r:?}");
+    assert!(r[0].passed() && r[1].outcome == Outcome::Skipped && !r[1].required, "{r:?}");
     assert!(r[1].note.starts_with("No tests ran"), "says what wasn't run: {}", r[1].note);
 }
 
 /// A round of the builder's own checks has a time limit and looks at Pause before each check. A
-/// check that couldn't start is a failed result with the reason, never a silent wait.
+/// check that couldn't start didn't run, and says why, never a silent wait.
 #[test]
 fn a_self_check_round_stops_at_pause_and_at_its_time_limit() {
     use craft_anything_engine::workspace::ExistingFiles::Edit;
@@ -3448,7 +3456,8 @@ fn a_self_check_round_stops_at_pause_and_at_its_time_limit() {
     // Past its limit before the first check: that check is reported as not run, and nothing runs.
     let r = check_worker(&ws, false).run_checks_within(&ws, &GameKind, round, Some(Duration::ZERO)).unwrap();
     assert_eq!(r.len(), 1, "{r:?}");
-    assert!(!r[0].passed && r[0].note.starts_with("Not run:"), "{r:?}");
+    assert_eq!(r[0].outcome, Outcome::Unknown, "{r:?}");
+    assert!(r[0].note.starts_with("Not run:"), "{r:?}");
     // Paused: the round ends with the cancelled error before any check starts.
     let paused = check_worker(&ws, false);
     paused.stop.cancel();
@@ -3457,7 +3466,7 @@ fn a_self_check_round_stops_at_pause_and_at_its_time_limit() {
     // With time left, both checks run as they do without a limit.
     let r = check_worker(&ws, false).run_checks_within(&ws, &GameKind, round, Some(Duration::from_secs(600))).unwrap();
     assert_eq!(r.len(), 2, "{r:?}");
-    assert!(r.iter().all(|c| c.passed), "{r:?}");
+    assert!(r[0].passed() && r[1].outcome == Outcome::Skipped && !r[1].required, "{r:?}");
 }
 
 /// Each check is said before it runs, as a step of its own, so a stall names the check it is in.

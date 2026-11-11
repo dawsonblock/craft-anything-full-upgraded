@@ -94,10 +94,10 @@ fn copy_tree(from: &Path, to: &Path, skip: &dyn Fn(&Path) -> bool, depth: usize)
 }
 
 /// The current `craft.json` format version. Bumping it means appending a step to [`MANIFEST_STEPS`].
-pub const MANIFEST_VERSION: u32 = 4;
+pub const MANIFEST_VERSION: u32 = 5;
 
 /// The steps that bring an older `craft.json` forward; step `i` goes from version `i` to `i + 1`.
-const MANIFEST_STEPS: &[versioned::Step<Value>] = &[manifest_v0_to_v1, manifest_v1_to_v2, manifest_v2_to_v3, manifest_v3_to_v4];
+const MANIFEST_STEPS: &[versioned::Step<Value>] = &[manifest_v0_to_v1, manifest_v1_to_v2, manifest_v2_to_v3, manifest_v3_to_v4, manifest_v4_to_v5];
 const _: () = assert!(MANIFEST_STEPS.len() == MANIFEST_VERSION as usize, "one step per craft.json version");
 
 /// Version 0 (no `version` field) has the same shape as version 1; only the number is new.
@@ -129,6 +129,13 @@ fn manifest_v3_to_v4(doc: &mut Value) -> Result<(), String> {
         obj.insert("agent_session_deep".into(), Value::Bool(true));
     }
     Ok(())
+}
+
+/// Version 5 adds what each check found (`outcome`) and whether it was required. A version-4
+/// manifest's checks keep the pass or failure they recorded. The number is new so an older build,
+/// which would drop both fields when it saves, opens such a project read-only instead.
+fn manifest_v4_to_v5(doc: &mut Value) -> Result<(), String> {
+    if doc.is_object() { Ok(()) } else { Err("the manifest isn't a JSON object".into()) }
 }
 
 /// Read a `craft.json` document of any version this build understands. A newer manifest is read
@@ -247,16 +254,42 @@ impl Step {
     }
 }
 
-/// One check of the build: whether it works and, when it could be compared with the original,
-/// how alike it is. Decisions read `passed` and `similarity`, never `note` (which is for people).
+/// What a check found. Only [`Outcome::Passed`] can make a build ready: a check that didn't run
+/// is not a pass, and one that couldn't look says so rather than blaming the build.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Outcome {
+    /// It ran, and the build works.
+    Passed,
+    /// It ran, and the build doesn't.
+    Failed,
+    /// Nothing ran: Craft Anything knows no build or tests for this kind of project, or the
+    /// project has none to run.
+    Skipped,
+    /// It couldn't look at all (a plugin or a browser that went away), which says nothing about
+    /// the build.
+    Unknown,
+}
+
+fn required_by_default() -> bool {
+    true
+}
+
+/// One check of the build: what it found and, when it could be compared with the original,
+/// how alike it is. Decisions read `outcome`, `required` and `similarity`, never `note` (which is
+/// for people).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(from = "CheckRecord")]
 pub struct CheckResult {
     pub round: u32,
     /// Which check ran: [`CheckResult::BUILD`], [`CheckResult::WEB_VISUAL`], or another check's id.
     pub check: String,
-    /// The build works: it built, or it was served and compared.
-    pub passed: bool,
+    /// What the check found.
+    pub outcome: Outcome,
+    /// Whether the build can be called ready only if this check passed. A person's own tests are
+    /// optional; a build is not.
+    #[serde(default = "required_by_default")]
+    pub required: bool,
     /// 0..=100, higher is closer. `None` when the build wasn't compared.
     pub similarity: Option<f64>,
     pub note: String,
@@ -316,10 +349,15 @@ impl CheckResult {
     pub const WEB_VISUAL: &'static str = "web-visual";
 
     pub fn new(check: &str, round: u32, passed: bool, note: impl Into<String>) -> CheckResult {
+        CheckResult::with_outcome(check, round, if passed { Outcome::Passed } else { Outcome::Failed }, note)
+    }
+
+    pub fn with_outcome(check: &str, round: u32, outcome: Outcome, note: impl Into<String>) -> CheckResult {
         CheckResult {
             round,
             check: check.into(),
-            passed,
+            outcome,
+            required: true,
             similarity: None,
             note: note.into(),
             artifacts: Vec::new(),
@@ -331,10 +369,31 @@ impl CheckResult {
         }
     }
 
+    /// Nothing ran: this kind of project has no build or tests Craft Anything knows, or the
+    /// project has none to run.
+    pub fn skipped(check: &str, round: u32, note: impl Into<String>) -> CheckResult {
+        CheckResult::with_outcome(check, round, Outcome::Skipped, note)
+    }
+
+    /// The check couldn't look at all, which says nothing about the build.
+    pub fn unknown(check: &str, round: u32, note: impl Into<String>) -> CheckResult {
+        CheckResult::with_outcome(check, round, Outcome::Unknown, note)
+    }
+
+    /// Whether the check ran and found the build working.
+    pub fn passed(&self) -> bool {
+        self.outcome == Outcome::Passed
+    }
+
+    /// Whether the check ran and found the build broken.
+    pub fn failed(&self) -> bool {
+        self.outcome == Outcome::Failed
+    }
+
     /// Passed with nothing left unknown and every claim holding, and (when compared) at least as
     /// alike as its own bar, else `good_enough`.
     pub fn good(&self, good_enough: f64) -> bool {
-        self.passed
+        self.passed()
             && self.unknowns.is_empty()
             && self.claims.iter().all(|c| c.passed)
             && match (self.similarity, self.good_enough) {
@@ -352,6 +411,7 @@ impl CheckResult {
 
 /// A check as stored. Projects from before `check` and `passed` existed are read the way their
 /// results were judged then: compared means it worked, else the note said "Build succeeded".
+/// Projects from before `outcome` existed keep the pass or failure they recorded.
 #[derive(Deserialize, JsonSchema)]
 struct CheckRecord {
     round: u32,
@@ -359,6 +419,10 @@ struct CheckRecord {
     check: Option<String>,
     #[serde(default)]
     passed: Option<bool>,
+    #[serde(default)]
+    outcome: Option<Outcome>,
+    #[serde(default)]
+    required: Option<bool>,
     similarity: Option<f64>,
     note: String,
     #[serde(default)]
@@ -378,10 +442,12 @@ impl From<CheckRecord> for CheckResult {
     /// Turn a stored check record into the result the manifest keeps.
     fn from(r: CheckRecord) -> CheckResult {
         let compared = r.similarity.is_some();
+        let passed = r.passed.unwrap_or(compared || r.note.starts_with("Build succeeded"));
         CheckResult {
             round: r.round,
             check: r.check.unwrap_or_else(|| (if compared { CheckResult::WEB_VISUAL } else { CheckResult::BUILD }).into()),
-            passed: r.passed.unwrap_or(compared || r.note.starts_with("Build succeeded")),
+            outcome: r.outcome.unwrap_or(if passed { Outcome::Passed } else { Outcome::Failed }),
+            required: r.required.unwrap_or(true),
             similarity: r.similarity,
             note: r.note,
             artifacts: r.artifacts,
@@ -1815,11 +1881,15 @@ mod tests {
     fn checks_from_older_projects_are_judged_as_they_were() {
         let old = |json: &str| serde_json::from_str::<CheckResult>(json).unwrap();
         let built = old(r#"{"round":1,"similarity":null,"note":"Build succeeded.","at_ms":5}"#);
-        assert!(built.passed && built.check == CheckResult::BUILD && built.artifacts.is_empty());
+        assert!(built.passed() && built.check == CheckResult::BUILD && built.artifacts.is_empty());
+        assert!(built.required, "a check from before outcomes existed was required");
         let failed = old(r#"{"round":2,"similarity":null,"note":"Build failed: error[E0308]","at_ms":5}"#);
-        assert!(!failed.passed);
+        assert!(failed.failed());
         let compared = old(r#"{"round":1,"similarity":71.0,"note":"1440 px: 71% alike","at_ms":5}"#);
-        assert!(compared.passed && compared.check == CheckResult::WEB_VISUAL);
+        assert!(compared.passed() && compared.check == CheckResult::WEB_VISUAL);
+        let skipped = old(r#"{"round":3,"outcome":"skipped","required":false,"note":"No tests ran.","at_ms":5}"#);
+        assert_eq!(skipped.outcome, Outcome::Skipped);
+        assert!(!skipped.required && !skipped.passed());
         // Written back with every field, and read the same.
         let again: CheckResult = serde_json::from_str(&serde_json::to_string(&compared).unwrap()).unwrap();
         assert_eq!(again, compared);
@@ -1858,7 +1928,7 @@ mod tests {
         assert_eq!(ws.manifest.status, Status::Ready);
         assert_eq!(ws.manifest.asset_budget_usd, ASSET_BUDGET_USD);
         assert!(!ws.manifest.generate_assets, "assets are generated only once the person turns it on");
-        assert!(ws.manifest.checks[0].passed && !ws.is_read_only());
+        assert!(ws.manifest.checks[0].passed() && !ws.is_read_only());
         ws.save().unwrap();
         let saved: Value = serde_json::from_slice(&std::fs::read(dir.path().join(MANIFEST)).unwrap()).unwrap();
         assert_eq!(saved["version"], MANIFEST_VERSION);

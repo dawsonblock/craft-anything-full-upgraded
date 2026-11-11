@@ -1,5 +1,18 @@
 # Status
 
+**Native verification and truthful check outcomes (2026-11-11):** On a Mac
+with Rust 1.99.1, `cargo check --workspace --all-targets --locked`,
+`cargo clippy --workspace --all-targets --locked -- -D warnings`,
+`cargo fmt --all -- --check` and the CLI build pass. The workspace suite ran
+2,911 tests: 2 failed, both UI smoke tests that treated an empty engine store
+as "no Ghidra" and failed with a real Homebrew install (fixed on
+`test/r5.1-ui-tests-without-installed-engines`); 18 were ignored. Rebuild
+checks now record `passed`, `failed`, `skipped` or `unknown` instead of a
+boolean, and a skipped or unknown **required** check keeps a build from Ready,
+so an unsupported toolchain no longer claims success. A person's own tests are
+optional; their build is not. `craft.json` is version 5. Live Ghidra runs,
+desktop behaviour and end-to-end builds remain **not run**.
+
 **Independent V25 source-fork note (2026-11-10):** See
 [UPGRADE_REPORT_V25.md](../UPGRADE_REPORT_V25.md). A focused `--profile deep`
 option now runs checksum verification, Python tests, targeted Rust Deep

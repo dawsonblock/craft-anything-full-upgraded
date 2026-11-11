@@ -254,7 +254,11 @@ impl Activity {
             RunEvent::Note { shown, .. } => new.push((LineKind::Note, format!("You added: {shown}"))),
             RunEvent::Ask(r) => new.push((LineKind::Note, format!("Waiting for your answer: {}", r.title))),
             RunEvent::Checked(c) => {
-                let result = if c.passed { LineKind::Done } else { LineKind::Failed };
+                let result = match c.outcome {
+                    Outcome::Passed => LineKind::Done,
+                    Outcome::Failed => LineKind::Failed,
+                    Outcome::Skipped | Outcome::Unknown => LineKind::Note,
+                };
                 new.push((result, format!("Check {}: {}", c.check, c.note)));
             }
             RunEvent::Preview(url) => new.push((LineKind::Note, format!("Preview at {url}"))),
