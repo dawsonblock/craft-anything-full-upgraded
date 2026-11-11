@@ -16,3 +16,7 @@ corpus/
 *.pfx
 *.key
 .claude/settings.local.json
+
+# Python bytecode caches (compiled on the machine that runs the suite)
+__pycache__/
+*.pyc
