@@ -960,6 +960,9 @@ Owner: open · Status: in progress
 - [ ] Hold the self-test to what the check can see too: picture the game after its scripted
       input and require it to differ from the `--screenshot` picture (a report alone is the
       build's own word)
+- [ ] A check that didn't run never counts as a pass: each check records passed, failed, skipped
+      or unknown, and a skipped or unknown required check keeps the build from Ready
+      — claimed: Devin, branch feature/r2.5-readiness-outcomes
 
 ### R2.7 The request decides how to build
 Owner: open · Status: in progress
