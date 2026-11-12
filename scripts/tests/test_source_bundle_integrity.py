@@ -190,6 +190,17 @@ class SourceBundleIntegrityTests(unittest.TestCase):
             with self.assertRaises(IntegrityError):
                 verify_tree(root)
 
+    def test_the_local_devlog_is_ignored_but_nested_logs_are_not(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = self.sample(Path(temp))
+            (root / "log").mkdir()
+            (root / "log" / "devlog.md").write_text("local scratch", encoding="utf-8")
+            self.assertEqual(verify_tree(root)["status"], "verified")
+            (root / "src" / "log").mkdir()
+            (root / "src" / "log" / "app.log").write_text("not source", encoding="utf-8")
+            with self.assertRaises(IntegrityError):
+                verify_tree(root)
+
     def test_tampered_missing_and_extra_tree_files_are_rejected(self):
         with tempfile.TemporaryDirectory() as temp:
             root = self.sample(Path(temp))
