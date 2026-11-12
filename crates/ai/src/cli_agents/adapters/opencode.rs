@@ -100,6 +100,12 @@ impl AgentAdapter for OpenCode {
         false
     }
 
+    /// OpenCode 1.x has no private server: the same `run --format json` events and
+    /// `OPENCODE_CONFIG`, but `--dangerously-skip-permissions` and a plain `session delete`.
+    fn fallback_adapter(&self) -> Option<Arc<dyn AgentAdapter>> {
+        Some(Arc::new(OpenCodeV1))
+    }
+
     /// A turn stopped part-way stays `running` in OpenCode's storage, and its shared service picks
     /// it up the next time it starts and runs the builder's commands again (#1115, seen with 2.2.5).
     /// A private server deletes it without resuming it. Short: the turn waits for it before it ends.
@@ -135,62 +141,148 @@ impl AgentAdapter for OpenCode {
     }
 
     fn parse(&self, p: &mut StreamParser, v: &Value) -> Vec<AgentEvent> {
-        let mut events = Vec::new();
-        if p.run_session.is_none() {
-            p.run_session = v.get("sessionID").and_then(Value::as_str).map(str::to_string);
-        }
-        let part = v.get("part").unwrap_or(&Value::Null);
-        match v.get("type").and_then(Value::as_str) {
-            Some("text") => {
-                if let Some(text) = part.get("text").and_then(Value::as_str) {
-                    events.push(AgentEvent::TextDelta { text: text.into() });
-                }
-            }
-            Some("reasoning") => {
-                if let Some(text) = part.get("text").and_then(Value::as_str) {
-                    events.push(AgentEvent::Status { text: summary_of(text) });
-                }
-            }
-            Some("tool_use") => {
-                // V1 names the call `callID` (its `id` is the part's); V2 names it `id` (beside `partID`).
-                let call = part.get("callID").or_else(|| part.get("id"));
-                if let (Some(id), Some(name), Some(state)) = (call.and_then(Value::as_str), part.get("tool").and_then(Value::as_str), part.get("state")) {
-                    if !p.tool_names.contains_key(id) {
-                        events.push(p.started(id, name, state.get("input").cloned().unwrap_or_else(|| json!({}))));
-                    }
-                    match state.get("status").and_then(Value::as_str) {
-                        Some("completed") => events.push(p.finished(id, true, &content_text(state.get("output").unwrap_or(&Value::Null)))),
-                        Some("error") => events.push(p.finished(id, false, &content_text(state.get("error").unwrap_or(&Value::Null)))),
-                        _ => {}
-                    }
-                }
-            }
-            Some("step_finish") => {
-                let tokens = part.get("tokens").unwrap_or(&Value::Null);
-                let count = |path| tokens.pointer(path).and_then(Value::as_u64).unwrap_or(0);
-                // OpenCode's step-finish counters exclude cache from input and reasoning from
-                // output, so these components make the inclusive totals the feed records.
-                p.input_tokens = p.input_tokens.saturating_add(count("/input")).saturating_add(count("/cache/read")).saturating_add(count("/cache/write"));
-                p.output_tokens = p.output_tokens.saturating_add(count("/output")).saturating_add(count("/reasoning"));
-                if !p.cost_incomplete {
-                    p.cost_usd = part.get("cost").and_then(Value::as_f64).filter(|n| n.is_finite() && *n >= 0.0).and_then(|cost| {
-                        let total = p.cost_usd.unwrap_or(0.0) + cost;
-                        total.is_finite().then_some(total)
-                    });
-                    p.cost_incomplete = p.cost_usd.is_none();
-                }
-            }
-            Some("error") => {
-                let error = v.get("error").unwrap_or(&Value::Null);
-                let why = error_text(error);
-                p.failure = Some(opencode_failure(error));
-                p.saw_result = true;
-                events.push(AgentEvent::Error { message: format!("OpenCode stopped: {why}"), remediation: None, log: None });
-            }
-            _ => {}
-        }
-        events
+        parse_opencode(p, v)
     }
+}
+
+/// OpenCode 1.x: `run --format json` with `--dangerously-skip-permissions` for an unattended
+/// builder, and `session delete <id>`. Its `OPENCODE_CONFIG` file and events are the same.
+pub struct OpenCodeV1;
+
+impl AgentAdapter for OpenCodeV1 {
+    fn ids(&self) -> &'static [&'static str] {
+        &["opencode-v1"]
+    }
+
+    fn check_tool_server(&self, stop: &CancelToken) -> Result<(), ToolError> {
+        OpenCode.check_tool_server(stop)
+    }
+
+    fn mcp_env(&self, mcp: &McpCommand) -> Result<Option<(&'static str, String)>, ToolError> {
+        OpenCode.mcp_env(mcp)
+    }
+
+    fn check_remote_tool_server(&self, host: &str, stop: &CancelToken) -> Result<(), ToolError> {
+        OpenCode.check_remote_tool_server(host, stop)
+    }
+
+    fn remote_tool_server(&self, host: &str, mcp: &McpCommand) -> Result<Option<(&'static str, String)>, ToolError> {
+        OpenCode.remote_tool_server(host, mcp)
+    }
+
+    fn args(&self, cx: &ArgsCx) -> Vec<String> {
+        let mut a = vec!["run".to_string()];
+        if cx.builder {
+            a.push("--dangerously-skip-permissions".into());
+        }
+        if let Some(m) = &cx.options.cli_model {
+            let model = cx.options.cli_thinking.map_or_else(|| m.clone(), |d| format!("{m}#{}", d.as_str()));
+            a.extend(["--model".into(), model]);
+        }
+        a.extend(cx.options.args.iter().cloned());
+        a.extend(["--format".into(), "json".into()]);
+        a.push(format!("{}{}", cx.preamble, cx.prompt));
+        a
+    }
+
+    fn required_flags(&self) -> (&'static [&'static str], &'static [&'static str]) {
+        (&["run", "--help"], &["--format", "--dangerously-skip-permissions"])
+    }
+
+    fn plain_fallback(&self) -> bool {
+        false
+    }
+
+    fn discard_unfinished(&self, program: &str, id: &str, host: Option<&str>) -> Result<(), ToolError> {
+        if id.is_empty() || id.starts_with('-') {
+            return Err(ToolError::invalid(format!("OpenCode named its session {id:?}, which can't be passed to `opencode session delete`."))
+                .with_remediation("Find it with `opencode session list` and delete it with `opencode session delete <id>`."));
+        }
+        let on = host.map(|h| format!(" on {h}")).unwrap_or_default();
+        let by_hand = format!("Delete it yourself{on} with `opencode session delete {id}`.");
+        let args = ["session", "delete", id].map(String::from);
+        let proc = match host {
+            Some(h) => Process::new("ssh").args(crate::ssh::ssh_line_args(h, crate::cli_agents::remote_command(program, args.to_vec(), &[]))),
+            None => self.process(program).args(args),
+        };
+        let out = proc.timeout(std::time::Duration::from_secs(30)).stdout_cap(64 * 1024).run().map_err(|e| e.with_remediation(by_hand.clone()))?;
+        if out.success {
+            Ok(())
+        } else {
+            Err(ToolError::new(
+                ErrorCode::ProgramFailed,
+                format!("opencode session delete exited with {}", out.code.map_or("no code".into(), |c| c.to_string())),
+            )
+            .with_remediation(by_hand))
+        }
+    }
+
+    fn discards_sessions(&self) -> bool {
+        true
+    }
+
+    fn parse(&self, p: &mut StreamParser, v: &Value) -> Vec<AgentEvent> {
+        parse_opencode(p, v)
+    }
+}
+
+/// The events both OpenCode generations write with `--format json`.
+fn parse_opencode(p: &mut StreamParser, v: &Value) -> Vec<AgentEvent> {
+    let mut events = Vec::new();
+    if p.run_session.is_none() {
+        p.run_session = v.get("sessionID").and_then(Value::as_str).map(str::to_string);
+    }
+    let part = v.get("part").unwrap_or(&Value::Null);
+    match v.get("type").and_then(Value::as_str) {
+        Some("text") => {
+            if let Some(text) = part.get("text").and_then(Value::as_str) {
+                events.push(AgentEvent::TextDelta { text: text.into() });
+            }
+        }
+        Some("reasoning") => {
+            if let Some(text) = part.get("text").and_then(Value::as_str) {
+                events.push(AgentEvent::Status { text: summary_of(text) });
+            }
+        }
+        Some("tool_use") => {
+            // V1 names the call `callID` (its `id` is the part's); V2 names it `id` (beside `partID`).
+            let call = part.get("callID").or_else(|| part.get("id"));
+            if let (Some(id), Some(name), Some(state)) = (call.and_then(Value::as_str), part.get("tool").and_then(Value::as_str), part.get("state")) {
+                if !p.tool_names.contains_key(id) {
+                    events.push(p.started(id, name, state.get("input").cloned().unwrap_or_else(|| json!({}))));
+                }
+                match state.get("status").and_then(Value::as_str) {
+                    Some("completed") => events.push(p.finished(id, true, &content_text(state.get("output").unwrap_or(&Value::Null)))),
+                    Some("error") => events.push(p.finished(id, false, &content_text(state.get("error").unwrap_or(&Value::Null)))),
+                    _ => {}
+                }
+            }
+        }
+        Some("step_finish") => {
+            let tokens = part.get("tokens").unwrap_or(&Value::Null);
+            let count = |path| tokens.pointer(path).and_then(Value::as_u64).unwrap_or(0);
+            // OpenCode's step-finish counters exclude cache from input and reasoning from
+            // output, so these components make the inclusive totals the feed records.
+            p.input_tokens = p.input_tokens.saturating_add(count("/input")).saturating_add(count("/cache/read")).saturating_add(count("/cache/write"));
+            p.output_tokens = p.output_tokens.saturating_add(count("/output")).saturating_add(count("/reasoning"));
+            if !p.cost_incomplete {
+                p.cost_usd = part.get("cost").and_then(Value::as_f64).filter(|n| n.is_finite() && *n >= 0.0).and_then(|cost| {
+                    let total = p.cost_usd.unwrap_or(0.0) + cost;
+                    total.is_finite().then_some(total)
+                });
+                p.cost_incomplete = p.cost_usd.is_none();
+            }
+        }
+        Some("error") => {
+            let error = v.get("error").unwrap_or(&Value::Null);
+            let why = error_text(error);
+            p.failure = Some(opencode_failure(error));
+            p.saw_result = true;
+            events.push(AgentEvent::Error { message: format!("OpenCode stopped: {why}"), remediation: None, log: None });
+        }
+        _ => {}
+    }
+    events
 }
 
 /// Our tool server's config for `mcp`: the bytes of the `OPENCODE_CONFIG` file (both local and
@@ -317,6 +409,30 @@ mod tests {
             ["run", "--standalone", "--auto", "--model", "anthropic/claude-sonnet-4-5", "--agent", "build", "--format", "json", "PRE make a game"]
         );
         assert!(AgentAdapters::built_in().for_agent("opencode").ids().contains(&"opencode"), "registered, not the plain adapter");
+    }
+
+    #[test]
+    fn the_current_opencode_generation_gets_its_own_flags() {
+        let mcp = McpCommand { command: "craft-anything-cli".into(), args: vec!["mcp".into()], notes: None };
+        let options = BackendOptions::default();
+        let cx = |builder| ArgsCx {
+            options: &options,
+            prompt: "make a game",
+            preamble: "PRE ",
+            mcp: &mcp,
+            resume: None,
+            builder,
+            reads_checked: false,
+            question: false,
+        };
+        assert_eq!(OpenCodeV1.args(&cx(false)), ["run", "--format", "json", "PRE make a game"]);
+        assert_eq!(
+            OpenCodeV1.args(&cx(true)),
+            ["run", "--dangerously-skip-permissions", "--format", "json", "PRE make a game"],
+            "1.x has no --standalone and spells auto-approval differently"
+        );
+        assert!(OpenCode.fallback_adapter().is_some(), "1.x is used when --standalone is missing");
+        assert!(OpenCodeV1.required_flags().1.contains(&"--dangerously-skip-permissions"));
     }
 
     #[test]

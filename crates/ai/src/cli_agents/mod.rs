@@ -892,15 +892,6 @@ fn run_cli(spec: &CliSpec, text: &str, retry: bool, tx: &Sender<AgentEvent>, sto
         let _ = tx.send(AgentEvent::Error { message: e.message, remediation: e.remediation, log: None });
         return nothing_done(&name);
     }
-    if let Err(e) = adapter.validate_model(&spec.config, &spec.options, spec.project.as_deref(), stop) {
-        let event = if e.code == ErrorCode::Cancelled {
-            AgentEvent::Status { text: "Stopped.".into() }
-        } else {
-            AgentEvent::Error { message: e.message, remediation: e.remediation, log: None }
-        };
-        let _ = tx.send(event);
-        return nothing_done(&name);
-    }
     let (help, needed) = adapter.required_flags();
     if !needed.is_empty() {
         let ok = match remote {
@@ -910,17 +901,40 @@ fn run_cli(spec: &CliSpec, text: &str, retry: bool, tx: &Sender<AgentEvent>, sto
                 *v.get_or_insert_with(|| verify_flags(&program, help, needed))
             }
         };
-        if !ok && adapter.plain_fallback() {
-            let _ = tx.send(AgentEvent::Status {
-                text: format!("{program}'s help doesn't list {} here, so it runs with the plain adapter (prompt in, text out).", needed.join(" / ")),
-            });
-            adapter = Arc::new(adapters::Plain);
-            // A saved session cannot be continued through the adapter that will actually run.
-            // Forget it before retry chooses between the original request and a continuation.
-            *session.lock().unwrap_or_else(PoisonError::into_inner) = None;
-        } else if !ok {
-            let _ = tx.send(AgentEvent::Status { text: format!("Couldn't confirm that {program} has {}; trying it anyway.", needed.join(" / ")) });
+        if !ok {
+            if let Some(next) = adapter.fallback_adapter() {
+                let (help, next_needed) = next.required_flags();
+                let confirmed = next_needed.is_empty() || verify_flags(&program, help, next_needed);
+                let _ = tx.send(AgentEvent::Status {
+                    text: format!("{program}'s help doesn't list {} here, so it runs with the command set it has.", needed.join(" / ")),
+                });
+                if !confirmed {
+                    let _ = tx.send(AgentEvent::Status { text: format!("Couldn't confirm that {program} has {}; trying it anyway.", next_needed.join(" / ")) });
+                }
+                adapter = next;
+                // A saved session cannot be continued through the adapter that will actually run.
+                *session.lock().unwrap_or_else(PoisonError::into_inner) = None;
+            } else if adapter.plain_fallback() {
+                let _ = tx.send(AgentEvent::Status {
+                    text: format!("{program}'s help doesn't list {} here, so it runs with the plain adapter (prompt in, text out).", needed.join(" / ")),
+                });
+                adapter = Arc::new(adapters::Plain);
+                // A saved session cannot be continued through the adapter that will actually run.
+                // Forget it before retry chooses between the original request and a continuation.
+                *session.lock().unwrap_or_else(PoisonError::into_inner) = None;
+            } else {
+                let _ = tx.send(AgentEvent::Status { text: format!("Couldn't confirm that {program} has {}; trying it anyway.", needed.join(" / ")) });
+            }
         }
+    }
+    if let Err(e) = adapter.validate_model(&spec.config, &spec.options, spec.project.as_deref(), stop) {
+        let event = if e.code == ErrorCode::Cancelled {
+            AgentEvent::Status { text: "Stopped.".into() }
+        } else {
+            AgentEvent::Error { message: e.message, remediation: e.remediation, log: None }
+        };
+        let _ = tx.send(event);
+        return nothing_done(&name);
     }
     let preamble = spec.preamble.clone().unwrap_or_else(|| crate::prompt::cli_preamble(spec.beginner));
     let mcp = mcp_for(spec, remote.is_some());
