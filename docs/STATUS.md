@@ -1,17 +1,24 @@
 # Status
 
+**Live Ghidra on macOS (2026-11-11):** Homebrew Ghidra 12.2 was found by
+`engines-list` at `/opt/homebrew/opt/ghidra/libexec/support/analyzeHeadless`.
+In Deep mode, `native_function_pseudocode` on a 34 KB arm64 Mach-O returned
+Ghidra's pseudo-C (`engine: ghidra 12.2`) for `_main`, calling `_add(2,3)` and
+`_printf`. That covers import, analysis and decompilation on this Mac with an
+existing install; Linux, Windows, the managed install and the desktop GUI
+remain unverified.
+
 **Native verification and truthful check outcomes (2026-11-11):** On a Mac
 with Rust 1.99.1, `cargo check --workspace --all-targets --locked`,
 `cargo clippy --workspace --all-targets --locked -- -D warnings`,
-`cargo fmt --all -- --check` and the CLI build pass. The workspace suite ran
-2,911 tests: 2 failed, both UI smoke tests that treated an empty engine store
-as "no Ghidra" and failed with a real Homebrew install (fixed on
-`test/r5.1-ui-tests-without-installed-engines`); 18 were ignored. Rebuild
-checks now record `passed`, `failed`, `skipped` or `unknown` instead of a
-boolean, and a skipped or unknown **required** check keeps a build from Ready,
-so an unsupported toolchain no longer claims success. A person's own tests are
-optional; their build is not. `craft.json` is version 5. Live Ghidra runs,
-desktop behaviour and end-to-end builds remain **not run**.
+`cargo fmt --all -- --check` and the CLI build pass. The workspace suite
+passes (18 ignored), including the two UI smoke tests that failed with a real
+Homebrew Ghidra install (fixed in #8). Rebuild checks now record `passed`,
+`failed`, `skipped` or `unknown` instead of a boolean, and a skipped or
+unknown **required** check keeps a build from Ready, so an unsupported
+toolchain no longer claims success. A person's own tests are optional; their
+build is not. `craft.json` is version 5. Desktop behaviour and end-to-end
+builds remain **not run**; the first live Ghidra run is recorded above.
 
 **Independent V25 source-fork note (2026-11-10):** See
 [UPGRADE_REPORT_V25.md](../UPGRADE_REPORT_V25.md). A focused `--profile deep`

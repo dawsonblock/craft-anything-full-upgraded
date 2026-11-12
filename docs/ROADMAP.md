@@ -600,6 +600,10 @@ yet, and the quick start is how every new person begins.
 - [ ] A live run of a project copied between two real computers with Claude Code (#451, #452); done
       on one Mac with a second `CLAUDE_CONFIG_DIR` standing in for the other computer (STATUS.md)
 - [ ] Ghidra setup tried for real on Linux and macOS (the Java pins were checked by tests only)
+- [x] A live Ghidra decompile on macOS (2026-11-11): Homebrew Ghidra 12.2 at
+      `/opt/homebrew/opt/ghidra/libexec` was found by `engines-list`, and Deep
+      `native_function_pseudocode` on a 34 KB arm64 Mach-O returned `engine: ghidra 12.2`
+      pseudo-C for `_main` (`_add(2,3)`, `_printf`). Linux and the managed install remain untested.
 - [x] A Ghidra with no decompiler program for this computer (public downloads leave out macOS) is
       refused before the long analysis, with the command that builds it; checked on a real Mac
 - [ ] `engines_install` builds Ghidra's native programs on macOS, so a Mac install works unaided
