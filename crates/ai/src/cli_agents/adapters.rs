@@ -935,13 +935,16 @@ impl AgentAdapter for GeminiCli {
         if let Some(m) = &cx.options.cli_model {
             a.extend(["-m".into(), m.clone()]);
         }
+        // A project folder Craft Anything just made is not one Gemini CLI has been trusted in, and
+        // it refuses a headless run there ("not running in a trusted directory") without this.
+        a.push("--skip-trust".into());
         // An empty `-p` keeps it headless and adds nothing to the message on stdin (see `stdin_text`).
         a.extend(["--output-format".into(), "stream-json".into(), "-p".into(), String::new()]);
         a
     }
 
     fn required_flags(&self) -> (&'static [&'static str], &'static [&'static str]) {
-        (&["--help"], &["--output-format", "stream-json"])
+        (&["--help"], &["--output-format", "stream-json", "--skip-trust"])
     }
 
     fn parse(&self, p: &mut StreamParser, v: &Value) -> Vec<AgentEvent> {
