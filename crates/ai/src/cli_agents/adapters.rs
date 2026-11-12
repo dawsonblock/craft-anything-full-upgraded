@@ -150,6 +150,11 @@ pub trait AgentAdapter: Send + Sync {
     fn plain_fallback(&self) -> bool {
         true
     }
+    /// An adapter for another generation of the same CLI, whose command set differs. A failed
+    /// flag check switches to it (and checks its flags too) before the plain fallback is tried.
+    fn fallback_adapter(&self) -> Option<Arc<dyn AgentAdapter>> {
+        None
+    }
     /// The CLI writes one JSON event per line (else its output is the answer text).
     fn streams_json(&self) -> bool {
         true

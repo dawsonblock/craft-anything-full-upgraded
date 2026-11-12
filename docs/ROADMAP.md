@@ -763,8 +763,10 @@ Owner: open · Status: in progress
       Reproduced the old failure on macOS; the AI suite now passes (446 passed, 2 ignored). PR #1018
       — claimed: Codex, branch test/r2.2-posix-remote-helper
 - [x] Find OpenCode's CLI inside its Windows desktop app (`opencode-cli.exe`), for detection and for runs (#1060)
-- [ ] OpenCode 1.4.3 rejects the generated `opencode run --standalone --auto --format json`
-      invocation (prints usage, exits 1): check the adapter's flags against the installed version.
+- [x] OpenCode 1.4.3 rejects the generated `opencode run --standalone --auto --format json`
+      invocation (prints usage, exits 1): the adapter now falls back to the 1.x command set
+      (`run --format json`, `--dangerously-skip-permissions`, `session delete <id>`), chosen when
+      `--standalone` is missing. A live build then reached the model.
       Found by a live Clean room build attempt on 2026-11-11 (R5.7)
 - [x] OpenCode Go gets one session id per installation, saved at startup for any saved Go backend, so
       a restart keeps it (#1225). An OpenCode error without a message shows its name, status and the
