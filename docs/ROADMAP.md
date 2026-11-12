@@ -573,6 +573,10 @@ yet, and the quick start is how every new person begins.
 
 **A signed-in coding agent:**
 - [ ] A live Clean room build of a website and of an app, checked end to end
+- [ ] Tried 2026-11-11 on `example.com`: Codex 0.156.1 stopped before building (`gpt-6.1-terra`
+      is not supported with a ChatGPT account) and OpenCode 1.4.3 exited 1 on the generated
+      `opencode run --standalone --auto --format json` invocation. Neither reached a build; choose
+      a supported Codex model (`ai model Codex`) and check the OpenCode adapter before retrying
 - [ ] A live build in a picked folder each way (edit in place, start from), checked end to end
 - [ ] Thresholds under pressure: a clone that's off by a few pixels (a page with fluid type or
       `clamp()` spacing) to see whether 4 / 2 / 8 px is too strict
@@ -755,6 +759,9 @@ Owner: open · Status: in progress
       Reproduced the old failure on macOS; the AI suite now passes (446 passed, 2 ignored). PR #1018
       — claimed: Codex, branch test/r2.2-posix-remote-helper
 - [x] Find OpenCode's CLI inside its Windows desktop app (`opencode-cli.exe`), for detection and for runs (#1060)
+- [ ] OpenCode 1.4.3 rejects the generated `opencode run --standalone --auto --format json`
+      invocation (prints usage, exits 1): check the adapter's flags against the installed version.
+      Found by a live Clean room build attempt on 2026-11-11 (R5.7)
 - [x] OpenCode Go gets one session id per installation, saved at startup for any saved Go backend, so
       a restart keeps it (#1225). An OpenCode error without a message shows its name, status and the
       start of its response body. Not run live; the run-5 cause in #1225 still needs its log.

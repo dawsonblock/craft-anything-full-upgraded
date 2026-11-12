@@ -20,6 +20,15 @@ toolchain no longer claims success. A person's own tests are optional; their
 build is not. `craft.json` is version 5. Desktop behaviour and end-to-end
 builds remain **not run**; the first live Ghidra run is recorded above.
 
+**Live agent builds tried (2026-11-11):** a Clean room rebuild of
+`example.com` reached the builder but no build with Codex 0.156.1
+(`model_not_found`: the configured `gpt-6.1-terra` is not supported with a
+ChatGPT account) or OpenCode 1.4.3 (exit 1 on the generated
+`opencode run --standalone --auto --format json` flags). Gemini CLI 0.68.0
+then refused the new project folder as an untrusted workspace; the adapter
+now passes `--skip-trust`, and a retry is the next live check. All are
+recorded under R5.7 and R2.2.
+
 **Independent V25 source-fork note (2026-11-10):** See
 [UPGRADE_REPORT_V25.md](../UPGRADE_REPORT_V25.md). A focused `--profile deep`
 option now runs checksum verification, Python tests, targeted Rust Deep
