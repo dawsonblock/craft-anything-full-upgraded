@@ -884,6 +884,9 @@ Owner: open · Status: in progress
       writes ask; part of the approval decision above
 
 **ACP:**
+- [x] Gemini CLI refused every new project folder as an untrusted workspace, so a headless build
+      stopped before its first turn; the adapter now passes `--skip-trust`
+      — claimed: Devin, branch bugfix/r2.2-gemini-skip-trust
 - [ ] Gemini CLI, opencode, goose via ACP or native adapters; each verified live, then turn ACP on
       by default for the ones that pass
 - [x] Over ACP, suppress `session/update` notifications until `session/load` answers, keeping

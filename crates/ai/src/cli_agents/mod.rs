@@ -1830,6 +1830,7 @@ mod tests {
         assert!(!a.iter().any(|x| x.contains("default_tools_approval_mode")));
         let g = build_args(adapter_for("gemini-cli").as_ref(), &BackendOptions::default(), "q", "", &mcp(), None, Access::Analyse);
         assert!(g.windows(2).any(|w| w[0] == "--output-format" && w[1] == "stream-json"));
+        assert!(g.iter().any(|x| x == "--skip-trust"), "a new project folder isn't a trusted workspace: {g:?}");
         let o = BackendOptions { args: vec!["run".into()], ..Default::default() };
         assert_eq!(build_args(adapter_for("no-such-agent").as_ref(), &o, "q", "", &mcp(), None, Access::Analyse), vec!["run".to_string(), "q".to_string()]);
     }
