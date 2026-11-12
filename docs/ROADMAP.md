@@ -52,7 +52,7 @@ The project should be easy to fork and bend. New features land behind a seam, no
 | M0 Foundations | Docs match the code, licences checked, one live end-to-end run | maintainers | Done |
 | M1 Extensibility | Seams for target kinds, checks, builders, asset providers, engines, plugins | maintainers | Done, except engine pins (R1.5) |
 | M2 Product completeness | Every kind of target gets study → build → check → refine with a real check | maintainers | Websites complete; apps and games build and run; API-key builds have never run live (R5.5); agents other than Claude Code are only partly wired (R2.2) |
-| M3 Engine depth | More tools, and the known partial ones | open | 314 tools; the open lane |
+| M3 Engine depth | More tools, and the known partial ones | open | 322 tools; the open lane |
 | M4 Release | Packaging, signing, a managed tier | maintainers | v0.3.0 released, signed, on every platform; a macOS CLI question and the managed tier remain |
 | M5 Works for real people | What people hit now that the project is public | maintainers | Comes first |
 
