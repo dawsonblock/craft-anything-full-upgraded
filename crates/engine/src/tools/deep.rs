@@ -34,21 +34,52 @@ fn bounded_install_sha256(path: &Path, max_bytes: u64) -> Option<String> {
     (bytes.len() as u64 <= max_bytes).then(|| craft_anything_evidence::sha256_hex(&bytes))
 }
 
-/// Inventory the modules that affect Ghidra's import and decompilation results. Inspecting
-/// metadata for JARs/SLA files is inexpensive compared with hashing every multi-megabyte module;
-/// also hash small processor/compiler specification files because a same-size edit matters.
-/// Traversal, buffered signatures and content hashing are bounded even for a broken install.
-/// Symlinks are identified but not followed, so a bad install cannot make us walk outside it.
+/// Hash a file without holding it in memory, up to `max_bytes`; `None` when it is larger.
+fn bounded_file_sha256(path: &Path, max_bytes: u64) -> Option<String> {
+    use sha2::{Digest, Sha256};
+    let file = std::fs::File::open(path).ok()?;
+    if file.metadata().ok()?.len() > max_bytes {
+        return None;
+    }
+    let mut hasher = Sha256::new();
+    let mut reader = std::io::Read::take(file, max_bytes.saturating_add(1));
+    let mut buffer = [0u8; 64 * 1024];
+    let mut total = 0u64;
+    loop {
+        let read = reader.read(&mut buffer).ok()?;
+        if read == 0 {
+            break;
+        }
+        total += read as u64;
+        if total > max_bytes {
+            return None;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Some(hex::encode(hasher.finalize()))
+}
+
+/// Inventory the modules that affect Ghidra's import and decompilation results. Metadata alone
+/// misses a same-size edit whose timestamp was restored, so small specifications and large
+/// JARs/SLA/native modules are content-hashed too, within a bounded budget. Traversal, buffered
+/// signatures and content hashing are bounded even for a broken install; a module the budget
+/// can't hash keeps its metadata. Symlinks are identified but not followed, so a bad install
+/// cannot make us walk outside it.
 fn module_inventory_revision(install: &Path) -> String {
     const MAX_VISITS: usize = 16_384;
     const MAX_DEPTH: usize = 14;
     const MAX_TEXT_HASHES: usize = 256;
     const MAX_TEXT_BYTES: u64 = 2 * 1024 * 1024;
     const PER_TEXT_FILE: u64 = 32 * 1024;
+    // A large Ghidra install's modules run to hundreds of MB; hashing them costs a fraction of a
+    // second, once per Deep analysis. Past the budget the rest keep their metadata.
+    const MAX_MODULE_HASHES: usize = 2_048;
+    const MAX_MODULE_BYTES: u64 = 512 * 1024 * 1024;
     let mut stack: Vec<(PathBuf, usize)> =
         ["Ghidra/Processors", "Ghidra/Features", "Ghidra/Framework"].into_iter().rev().map(|relative| (install.join(relative), 0)).collect();
     let mut signatures = Vec::new();
-    let (mut visits, mut hashed, mut bytes_left) = (0usize, 0usize, MAX_TEXT_BYTES);
+    let (mut visits, mut text_hashed, mut text_bytes_left) = (0usize, 0usize, MAX_TEXT_BYTES);
+    let (mut module_hashed, mut module_bytes_left) = (0usize, MAX_MODULE_BYTES);
     while let Some((path, depth)) = stack.pop() {
         if visits >= MAX_VISITS {
             signatures.push(format!("truncated-at={path:?}"));
@@ -102,11 +133,22 @@ fn module_inventory_revision(install: &Path) -> String {
             continue;
         }
         let modified = metadata.modified().ok().and_then(|time| time.duration_since(UNIX_EPOCH).ok()).map(|d| d.as_nanos());
-        let contents = if is_text_spec && hashed < MAX_TEXT_HASHES && metadata.len() <= PER_TEXT_FILE && bytes_left >= metadata.len() {
-            let digest = bounded_install_sha256(&path, PER_TEXT_FILE);
+        let contents = if is_text_spec {
+            if text_hashed < MAX_TEXT_HASHES && metadata.len() <= PER_TEXT_FILE && text_bytes_left >= metadata.len() {
+                let digest = bounded_install_sha256(&path, PER_TEXT_FILE);
+                if digest.is_some() {
+                    text_hashed += 1;
+                    text_bytes_left -= metadata.len();
+                }
+                digest
+            } else {
+                None
+            }
+        } else if module_hashed < MAX_MODULE_HASHES && module_bytes_left >= metadata.len() {
+            let digest = bounded_file_sha256(&path, metadata.len());
             if digest.is_some() {
-                hashed += 1;
-                bytes_left -= metadata.len();
+                module_hashed += 1;
+                module_bytes_left -= metadata.len();
             }
             digest
         } else {
@@ -1101,5 +1143,25 @@ mod tests {
         assert_eq!(r["result"]["entry"], format!("{:#x}", l.code_va));
         assert!(r["result"].get("engine_entry").is_none(), "{r}");
         assert!(!r["limitations"].as_array().unwrap().iter().any(|x| x["code"] == "engine_rebased"));
+    }
+}
+
+#[cfg(test)]
+mod inventory_tests {
+    use super::*;
+
+    #[test]
+    fn a_same_size_edit_with_a_restored_timestamp_changes_the_revision() {
+        let d = tempfile::tempdir().unwrap();
+        let module = d.path().join("Ghidra/Processors/x.jar");
+        std::fs::create_dir_all(module.parent().unwrap()).unwrap();
+        std::fs::write(&module, b"AAAA").unwrap();
+        let when = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000);
+        std::fs::File::options().write(true).open(&module).unwrap().set_modified(when).unwrap();
+        let before = module_inventory_revision(d.path());
+        assert_eq!(module_inventory_revision(d.path()), before, "the same bytes and timestamp give the same revision");
+        std::fs::write(&module, b"BBBB").unwrap();
+        std::fs::File::options().write(true).open(&module).unwrap().set_modified(when).unwrap();
+        assert_ne!(module_inventory_revision(d.path()), before, "a timestamp-restored edit is still seen");
     }
 }

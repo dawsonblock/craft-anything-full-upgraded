@@ -1071,6 +1071,10 @@ Gaps found while using the app for real projects.
         live Ghidra/desktop functionality as verified.
         Native execution and real Ghidra/UI behavior still need verification,
         including timestamp-restored module edits and inventory-scan latency.
+- [x] Large Ghidra modules are content-hashed within a bounded budget (2,048 files / 512 MiB), so
+      a same-size edit with a restored timestamp changes the analysis key. The scan takes 650 ms
+      on this Mac's 135 MiB install (metadata-only was 96 ms); modules past the budget keep their
+      metadata — claimed: Devin, branch bugfix/r2.8-ghidra-content-hash
 - [x] Each project chooses, per kind of action, what the builder's approvals get (allow, ask or
       refuse): reading the web, commands, files outside the project, pushing and publishing,
       deleting outside the project, system changes, other tools. Unset kinds follow Auto mode as
