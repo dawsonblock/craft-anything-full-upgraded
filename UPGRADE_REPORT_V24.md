@@ -14,6 +14,10 @@ upgrade reports. It is **not** an official release or a compiled application.
    specifications, and identifies symlinks without following them. There are
    explicit limits on directory visits, recursion depth and content hashing.
    The launcher and version-file checks introduced in V23 remain.
+   **Amended after V24:** a later change (`#16`) also content-hashes large
+   JAR, SLA and native modules, streamed within a budget of 2,048 modules and
+   512 MiB; only modules past that budget keep metadata alone. The V24 text
+   above describes the behaviour at the time and is kept for the record.
 
 2. **Manual fresh-analysis generation.** `GhidraSettings::analysis_generation`
    defaults to zero when loading an older `config.toml`. Incrementing it
@@ -35,9 +39,12 @@ upgrade reports. It is **not** an official release or a compiled application.
 
 ## What the revision cannot guarantee
 
-- Large JAR, native and SLA modules are identified by name, size and
-  modification timestamp, **not** by reading every byte. A same-size edit
-  with a restored timestamp can evade automatic detection.
+- At V24, large JAR, native and SLA modules were identified by name, size
+  and modification timestamp, **not** by reading every byte, so a same-size
+  edit with a restored timestamp could evade detection. Change `#16` now
+  streams their contents within the same bounded budget (2,048 modules /
+  512 MiB); modules past that budget are still metadata-only and can still
+  evade detection.
 - Small text file hashing has aggregate and per-file limits. Very large
   installations or directories can exceed the bounded inventory, in which
   case not every module is covered. Check the installation and explicitly
@@ -74,13 +81,14 @@ Run the following in a Rust 1.97 development environment **before release**:
 cargo fmt --all -- --check
 cargo test --locked -p craft-anything-engine deep_settings_
 cargo test --locked -p craft-anything-engine deep_lifecycle_
+cargo test --locked -p craft-anything-engine inventory_tests
 cargo check --locked -p craft-anything-ui-egui
 cargo test --locked --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
 The manual three-OS CI workflow already calls the focused `deep_settings_`,
-`deep_lifecycle_` and desktop check commands. Test additionally with a real
+`deep_lifecycle_`, `inventory_tests` and desktop check commands. Test additionally with a real
 Ghidra installation: replace one processor spec while keeping the launcher
 unchanged; confirm the old analysis is not reopened; then use **Force fresh
 analysis** and verify an explicit new analysis generation. Check settings

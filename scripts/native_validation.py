@@ -50,9 +50,14 @@ DEEP_RUST_CHECKS = (
     ("fmt", ("fmt", "--all", "--", "--check")),
     ("deep_settings", ("test", "--locked", "-p", "craft-anything-engine", "deep_settings_")),
     ("deep_lifecycle", ("test", "--locked", "-p", "craft-anything-engine", "deep_lifecycle_")),
+    ("inventory", ("test", "--locked", "-p", "craft-anything-engine", "inventory_tests")),
     ("target_reopen", ("test", "--locked", "-p", "craft-anything-engine", "target_reopen_")),
     ("ui_typecheck", ("check", "--locked", "-p", "craft-anything-ui-egui")),
 )
+
+# A filter that matches nothing still exits zero with "running 0 tests", so a
+# green exit code cannot tell a real regression run from an empty selection.
+TEST_SUMMARY = re.compile(r"^test result: ok\. (\d+) passed", re.MULTILINE)
 
 
 def stop_process(process: subprocess.Popen) -> None:
@@ -60,7 +65,9 @@ def stop_process(process: subprocess.Popen) -> None:
     if os.name != "nt":
         try:
             os.killpg(process.pid, signal.SIGKILL)
-        except ProcessLookupError:
+        except (ProcessLookupError, PermissionError):
+            # A reaped child's pid can already belong to an unrelated group,
+            # which we must not signal; nothing of our child is left to stop.
             pass
     elif process.poll() is None:
         process.kill()
@@ -232,6 +239,16 @@ def smoke_cli(root: Path, timeout: int) -> dict:
     return result
 
 
+def passed_test_count(output: str) -> int | None:
+    """Sum the tests Cargo reported as passing, or None when it reported none.
+
+    Every test binary prints its own summary, including doc-tests, so the sums
+    cover a filtered package run. None means no summary appeared at all.
+    """
+    counts = [int(match.group(1)) for match in TEST_SUMMARY.finditer(output)]
+    return sum(counts) if counts else None
+
+
 def run_gate(root: Path, timeout: int, cargo: str | None = None, rustc: str | None = None, *, profile: str = "full") -> dict:
     if not 1 <= timeout <= 3600:
         raise ValueError("Per-command timeout must be between 1 and 3600 seconds")
@@ -273,8 +290,17 @@ def run_gate(root: Path, timeout: int, cargo: str | None = None, rustc: str | No
                     "reason": toolchain_problem,
                     "command": ["cargo", *argv],
                 })
-            else:
-                results.append(execute(name, [cargo, *argv], root, timeout))
+                continue
+            is_test = "test" in argv
+            result = execute(name, [cargo, *argv], root, timeout, capture_full_output=is_test)
+            if is_test:
+                # Read the count from full output, then drop it: receipts keep
+                # the excerpt and the number, never the whole test log.
+                result["tests_passed"] = passed_test_count(result.pop("full_output", ""))
+                if result["status"] == "pass" and not result["tests_passed"]:
+                    result["status"] = "fail"
+                    result["reason"] = "no_tests_selected"
+            results.append(result)
         if profile == "full":
             cli_build = next(item for item in results if item["name"] == "cli_build")
             if cli_build["status"] == "pass":

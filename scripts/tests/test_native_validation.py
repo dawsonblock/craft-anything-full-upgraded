@@ -6,6 +6,8 @@ from contextlib import redirect_stdout
 from io import StringIO
 import os
 from pathlib import Path
+import re
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -71,6 +73,19 @@ class NativeValidationTests(unittest.TestCase):
         self.assertEqual(result["status"], "fail")
         self.assertEqual(result["reason"], "timed_out")
 
+    @unittest.skipIf(os.name == "nt", "POSIX process-group cleanup only")
+    def test_stop_process_tolerates_a_group_it_cannot_signal(self) -> None:
+        # A reaped child's pid can belong to another group; EPERM must not
+        # escape as an exception and turn a passing suite into a gate failure.
+        process = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(5)"])
+        try:
+            with patch.object(gate.os, "killpg", side_effect=PermissionError(1, "Operation not permitted")):
+                gate.stop_process(process)
+        finally:
+            process.kill()
+            process.wait()
+        self.assertIsNotNone(process.returncode)
+
     def test_missing_toolchain_is_reported(self) -> None:
         version, reason = gate.check_toolchain(None, None, ROOT)
         self.assertIsNone(version)
@@ -109,8 +124,11 @@ class NativeValidationTests(unittest.TestCase):
         self.assertNotIn("cli_smoke", [item["name"] for item in report["checks"]])
 
     def test_deep_profile_pass_does_not_claim_live_ghidra_or_desktop_execution(self) -> None:
-        def fake_execute(name, command, root, timeout):
-            return {"name": name, "status": "pass", "returncode": 0}
+        def fake_execute(name, command, root, timeout, *, capture_full_output=False):
+            result = {"name": name, "status": "pass", "returncode": 0}
+            if capture_full_output:
+                result["full_output"] = "test result: ok. 1 passed; 0 failed"
+            return result
 
         with patch.object(gate, "verify_tree", return_value={"file_count": 42}), \
                 patch.object(gate, "execute", side_effect=fake_execute), \
@@ -125,8 +143,11 @@ class NativeValidationTests(unittest.TestCase):
         smoke_mock.assert_not_called()
 
     def test_deep_profile_native_failure_is_not_masked(self) -> None:
-        def fake_execute(name, command, root, timeout):
-            return {"name": name, "status": "fail" if name == "deep_lifecycle" else "pass"}
+        def fake_execute(name, command, root, timeout, *, capture_full_output=False):
+            result = {"name": name, "status": "fail" if name == "deep_lifecycle" else "pass"}
+            if capture_full_output:
+                result["full_output"] = "test result: ok. 1 passed; 0 failed"
+            return result
 
         with patch.object(gate, "verify_tree", return_value={"file_count": 42}), \
                 patch.object(gate, "execute", side_effect=fake_execute), \
@@ -134,6 +155,69 @@ class NativeValidationTests(unittest.TestCase):
             report = gate.run_gate(ROOT, 3, cargo="cargo", rustc="rustc", profile="deep")
         self.assertEqual(report["status"], "fail")
         self.assertEqual(next(item for item in report["checks"] if item["name"] == "deep_lifecycle")["status"], "fail")
+
+    def test_zero_test_selection_is_not_green(self) -> None:
+        def fake_execute(name, command, root, timeout, *, capture_full_output=False):
+            result = {"name": name, "status": "pass", "returncode": 0}
+            if capture_full_output:
+                result["full_output"] = "running 0 tests\n\ntest result: ok. 0 passed; 0 failed"
+            return result
+
+        with patch.object(gate, "verify_tree", return_value={"file_count": 42}), \
+                patch.object(gate, "execute", side_effect=fake_execute), \
+                patch.object(gate, "check_toolchain", return_value=("rustc 1.97.0", "")):
+            report = gate.run_gate(ROOT, 3, cargo="cargo", rustc="rustc", profile="deep")
+        self.assertEqual(report["status"], "fail")
+        inventory = next(item for item in report["checks"] if item["name"] == "inventory")
+        self.assertEqual(inventory["status"], "fail")
+        self.assertEqual(inventory["reason"], "no_tests_selected")
+        self.assertEqual(inventory["tests_passed"], 0)
+
+    def test_passing_test_count_is_recorded_without_the_full_log(self) -> None:
+        def fake_execute(name, command, root, timeout, *, capture_full_output=False):
+            result = {"name": name, "status": "pass", "returncode": 0}
+            if capture_full_output:
+                result["full_output"] = (
+                    "running 2 tests\ntest result: ok. 2 passed; 0 failed\n"
+                    "running 1 test\ntest result: ok. 1 passed; 0 failed\n"
+                )
+            return result
+
+        with patch.object(gate, "verify_tree", return_value={"file_count": 42}), \
+                patch.object(gate, "execute", side_effect=fake_execute), \
+                patch.object(gate, "check_toolchain", return_value=("rustc 1.97.0", "")):
+            report = gate.run_gate(ROOT, 3, cargo="cargo", rustc="rustc", profile="deep")
+        self.assertEqual(report["status"], "pass")
+        inventory = next(item for item in report["checks"] if item["name"] == "inventory")
+        self.assertEqual(inventory["tests_passed"], 3)
+        self.assertNotIn("full_output", inventory)
+
+    def test_test_count_without_a_summary_is_none(self) -> None:
+        self.assertIsNone(gate.passed_test_count("no summary here"))
+        self.assertEqual(gate.passed_test_count("test result: ok. 4 passed; 0 failed"), 4)
+
+    def test_deep_profile_selects_the_inventory_regression(self) -> None:
+        commands = [argv for _, argv in gate.DEEP_RUST_CHECKS if "test" in argv]
+        self.assertTrue(any("inventory_tests" in argv for argv in commands))
+
+    def test_every_configured_test_filter_matches_an_authored_test(self) -> None:
+        sources = "\n".join(
+            path.read_text(encoding="utf-8", errors="replace")
+            for base in ("crates", "apps")
+            for path in (ROOT / base).rglob("*.rs")
+        )
+        workflow = (ROOT / ".github/workflows/fork-native-cli-matrix.yml").read_text(encoding="utf-8")
+        filters = {argv[-1] for _, argv in gate.DEEP_RUST_CHECKS if "test" in argv}
+        filters.update(
+            match.group(1)
+            for match in re.finditer(
+                r"cargo test(?: --locked)? -p \S+(?: --bin \S+)? (\w+)", workflow,
+            )
+        )
+        self.assertTrue(filters)
+        for name in sorted(filters):
+            with self.subTest(filter=name):
+                self.assertRegex(sources, rf"\b(?:fn|mod) {re.escape(name)}")
 
     def test_deep_profile_rejects_source_integrity_failure_before_running_code(self) -> None:
         with patch.object(gate, "verify_tree", side_effect=gate.IntegrityError("tampered")), \
@@ -216,9 +300,12 @@ class NativeValidationTests(unittest.TestCase):
         self.assertEqual(result["reason"], "cli_binary_changed_during_smoke")
 
     def test_cli_build_failure_blocks_smoke(self) -> None:
-        def fake_execute(name, command, root, timeout):
+        def fake_execute(name, command, root, timeout, *, capture_full_output=False):
             status = "fail" if name == "cli_build" else "pass"
-            return {"name": name, "status": status, "reason": None}
+            result = {"name": name, "status": status, "reason": None}
+            if capture_full_output:
+                result["full_output"] = "test result: ok. 1 passed; 0 failed"
+            return result
 
         with patch.object(gate, "verify_tree", return_value={"file_count": 42}), \
                 patch.object(gate, "execute", side_effect=fake_execute), \
@@ -231,8 +318,11 @@ class NativeValidationTests(unittest.TestCase):
         smoke_mock.assert_not_called()
 
     def test_green_native_gate_requires_cli_smoke(self) -> None:
-        def fake_execute(name, command, root, timeout):
-            return {"name": name, "status": "pass", "returncode": 0}
+        def fake_execute(name, command, root, timeout, *, capture_full_output=False):
+            result = {"name": name, "status": "pass", "returncode": 0}
+            if capture_full_output:
+                result["full_output"] = "test result: ok. 1 passed; 0 failed"
+            return result
 
         with patch.object(gate, "verify_tree", return_value={"file_count": 42}), \
                 patch.object(gate, "execute", side_effect=fake_execute), \

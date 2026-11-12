@@ -87,6 +87,21 @@ names (`git merge-base --is-ancestor <fix> <release tag>`), and check the messag
 
 ## Tests
 
+**A focused test filter selected nothing and still looked green.** The V25 Deep gate and the
+manual OS matrix ran `deep_settings_`, `deep_lifecycle_` and `target_reopen_`, but the
+restored-timestamp inventory regression lived in `inventory_tests`, which none of them matched;
+`cargo test` exits zero when a filter matches no test.
+- Name every focused filter after a real `fn` or `mod`, and keep a contract test that reads the
+  configured filters and asserts each one matches an authored test in `crates/` or `apps/`.
+- Make the gate fail a test step that reports zero passing tests (`no_tests_selected`), and record
+  the count, so an empty selection can never be reported as a pass.
+
+**A gate reported a passing suite as failed after a child was reaped.** `stop_process` signalled
+the process group by the child's pid; once `wait()` had reaped it, that pid could belong to an
+unrelated group, so `killpg` raised `PermissionError` out of a test and the gate failed.
+- Treat `ProcessLookupError` and `PermissionError` as "nothing left to stop"; a cleanup helper
+  must never raise into the result it is cleaning up after.
+
 **A heartbeat sampled before shutdown raced a successful stop.** A child could write between
 the baseline read and `stop()`, failing the descendant cleanup test even when cleanup worked.
 Probe for exit instead of timing writes: the child holds a file lock the system releases only

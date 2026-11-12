@@ -44,13 +44,17 @@ runtime, so actual native qualification is pending.
 [UPGRADE_REPORT_V24.md](../UPGRADE_REPORT_V24.md). The Ghidra on-disk
 analysis key advances to v5 and the live provider key tracks a bounded
 inventory of processor, feature and framework modules. Small specifications
-have bounded content digests; larger binary modules use filename, size and
-mtime, so malicious or timestamp-restored edits are **not guaranteed** to
-invalidate automatically. A persisted manual analysis generation now forces
-new project keys without erasing previous analyses. Settings → Engines adds
-global processor language/compiler spec fields and a fresh-analysis button.
-New Rust regressions are authored but **native compilation, real Ghidra,
-GUI behavior and scan performance remain unverified** in this environment.
+and large binary modules are content-hashed within a bounded budget (2,048
+modules / 512 MiB), so a same-size edit with a restored timestamp still
+changes the key; modules past the budget keep filename, size and mtime and
+are **not guaranteed** to invalidate automatically. A persisted manual
+analysis generation now forces new project keys without erasing previous
+analyses. Settings → Engines adds global processor language/compiler spec
+fields and a fresh-analysis button. The inventory scan took 650 ms on this
+Mac's 135 MiB install (metadata-only was 96 ms). New Rust regressions are
+authored; the Deep profile selects the inventory regression too, and a
+zero-test selection fails the gate instead of passing. GUI behavior and
+non-macOS platforms remain unverified.
 
 **Independent V23 source-fork note (2026-11-10):** See
 [UPGRADE_REPORT_V23.md](../UPGRADE_REPORT_V23.md). Switching from Deep to

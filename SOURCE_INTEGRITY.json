@@ -53,9 +53,9 @@
       "sha256": "9c9607e9a1a294cf24037542e5d904e362adb9330350b823d95f953dbb263faa"
     },
     {
-      "bytes": 3893,
+      "bytes": 4104,
       "path": ".github/workflows/fork-native-cli-matrix.yml",
-      "sha256": "a14f885268ce5463b39f28293695000de1595d2140ddeac0356f9617f8aa8ce9"
+      "sha256": "1aaa331c79deb9e0cf289b4d335c9e5d22053640d4aa3976aeca7b5a10c55d82"
     },
     {
       "bytes": 1420,
@@ -168,9 +168,9 @@
       "sha256": "9585167e387b8da00344217d41f38ea055a3047d405317bec126bc628f261aa1"
     },
     {
-      "bytes": 36923,
+      "bytes": 36660,
       "path": "README.md",
-      "sha256": "e5443fb24b8078ead9a42cded3c44c8bfbab76e368ab099c6c4f5a626da1c173"
+      "sha256": "b349d7a9e99b9711964b4e03e96fe84eb8c4f4caf5a42eddbf26e0d6fd4f5783"
     },
     {
       "bytes": 30682,
@@ -278,9 +278,9 @@
       "sha256": "21766b3f0704975a2bb8f0085371c7254fb7885e6ea7063f36922de34f8f87af"
     },
     {
-      "bytes": 5332,
+      "bytes": 5902,
       "path": "UPGRADE_REPORT_V24.md",
-      "sha256": "4bb1f0c828e9125c8b12eda3517c45748454849ea214f58bdda32d8f523635ec"
+      "sha256": "873255a984319d708d7b614fe8589fee598334e6ced1d2e51b552af177fc3702"
     },
     {
       "bytes": 3726,
@@ -3678,9 +3678,9 @@
       "sha256": "895006d97218ed54980da7ba02ec3431fd2a9cf542412f2b33e7ddebb44df438"
     },
     {
-      "bytes": 134660,
+      "bytes": 134906,
       "path": "docs/STATUS.md",
-      "sha256": "84845f148eb191a2438f12fbbb6320f8cae8a827a87f1fa1e9454240689acd26"
+      "sha256": "aa3127bb5e13fd726cf4fffe53e1bada16083eb0709618e3d5f6d83a71bee4bf"
     },
     {
       "bytes": 2298,
@@ -3773,9 +3773,9 @@
       "sha256": "0c300b0e7b52b441905b53a1fe97c60a33fe28f1b6d5d0edec142d85f650895f"
     },
     {
-      "bytes": 25960,
+      "bytes": 26480,
       "path": "docs/native-validation.md",
-      "sha256": "de52c7faf15380d6c6f2745114206838620c213a60a6f5ba5613500772f574d0"
+      "sha256": "a3cca6c616b185822eed124c687c87f8e1cdab9d4a8ed7b1313e712d0a82506f"
     },
     {
       "bytes": 9270,
@@ -3783,9 +3783,9 @@
       "sha256": "fb3f445a7bedc93cbbe530bed731ca80396588129cf188f051e542ee514e34a0"
     },
     {
-      "bytes": 72493,
+      "bytes": 73617,
       "path": "docs/pitfalls.md",
-      "sha256": "4dcad846a2fdc4d4e8bd7c10f1a2b5c4dd5b4ec7ec1de44312088c6889484b8f"
+      "sha256": "8cef09717be1880e31c21f5bc76d3186ec1fc8e8e89cce801551cd3b76c81fe8"
     },
     {
       "bytes": 4263,
@@ -4103,9 +4103,9 @@
       "sha256": "602d644ce3bba175ad5d6e80e725d17deaa964742c208adbdf711b53940a5a4f"
     },
     {
-      "bytes": 14350,
+      "bytes": 15805,
       "path": "scripts/native_validation.py",
-      "sha256": "7f9ef5d86f00af9bfcde25bc68477eeafbd3f83a7e52523de19be45c842d49f7"
+      "sha256": "73e2a74cce3452cf4157077801a340a16fe8f7127c3c07bf6a1c654b89b95204"
     },
     {
       "bytes": 11159,
@@ -4148,9 +4148,9 @@
       "sha256": "ff59533c63997e0ad13d2ff5f00fff261bec6d0064c13c316f6ec3e106a33af6"
     },
     {
-      "bytes": 14424,
+      "bytes": 19268,
       "path": "scripts/tests/test_native_validation.py",
-      "sha256": "25487816e1069ba26a3c1c5ff1d85d8b6c65b697409db37cea3efeaf31a5a5c8"
+      "sha256": "89440a2e3601eb225393e4e283826a01a695af7db7ce6933cb657855da3dba47"
     },
     {
       "bytes": 14507,
@@ -4635,5 +4635,5 @@
   ],
   "root": "craft-anything-full-upgraded",
   "schema": 1,
-  "total_bytes": 20509727
+  "total_bytes": 20518434
 }
