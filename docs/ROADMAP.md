@@ -52,7 +52,7 @@ The project should be easy to fork and bend. New features land behind a seam, no
 | M0 Foundations | Docs match the code, licences checked, one live end-to-end run | maintainers | Done |
 | M1 Extensibility | Seams for target kinds, checks, builders, asset providers, engines, plugins | maintainers | Done, except engine pins (R1.5) |
 | M2 Product completeness | Every kind of target gets study → build → check → refine with a real check | maintainers | Websites complete; apps and games build and run; API-key builds have never run live (R5.5); agents other than Claude Code are only partly wired (R2.2) |
-| M3 Engine depth | More tools, and the known partial ones | open | 314 tools; the open lane |
+| M3 Engine depth | More tools, and the known partial ones | open | 322 tools; the open lane |
 | M4 Release | Packaging, signing, a managed tier | maintainers | v0.3.0 released, signed, on every platform; a macOS CLI question and the managed tier remain |
 | M5 Works for real people | What people hit now that the project is public | maintainers | Comes first |
 
@@ -573,6 +573,12 @@ yet, and the quick start is how every new person begins.
 
 **A signed-in coding agent:**
 - [ ] A live Clean room build of a website and of an app, checked end to end
+- [ ] Tried 2026-11-11 on `example.com`: Codex 0.156.1 stopped on `model_not_found`
+      (`gpt-6.1-terra` unsupported with a ChatGPT account), OpenCode 1.4.3 exited 1 on the
+      generated `opencode run --standalone --auto --format json` flags, and Gemini CLI 0.68.0
+      passed the new `--skip-trust` step but its free tier is no longer supported
+      (`IneligibleTierError`). No available account reached a build; a supported Codex model
+      (`ai model Codex`) or a paid Gemini/Antigravity client comes first
 - [ ] A live build in a picked folder each way (edit in place, start from), checked end to end
 - [ ] Thresholds under pressure: a clone that's off by a few pixels (a page with fluid type or
       `clamp()` spacing) to see whether 4 / 2 / 8 px is too strict
@@ -600,6 +606,10 @@ yet, and the quick start is how every new person begins.
 - [ ] A live run of a project copied between two real computers with Claude Code (#451, #452); done
       on one Mac with a second `CLAUDE_CONFIG_DIR` standing in for the other computer (STATUS.md)
 - [ ] Ghidra setup tried for real on Linux and macOS (the Java pins were checked by tests only)
+- [x] A live Ghidra decompile on macOS (2026-11-11): Homebrew Ghidra 12.2 at
+      `/opt/homebrew/opt/ghidra/libexec` was found by `engines-list`, and Deep
+      `native_function_pseudocode` on a 34 KB arm64 Mach-O returned `engine: ghidra 12.2`
+      pseudo-C for `_main` (`_add(2,3)`, `_printf`). Linux and the managed install remain untested.
 - [x] A Ghidra with no decompiler program for this computer (public downloads leave out macOS) is
       refused before the long analysis, with the command that builds it; checked on a real Mac
 - [ ] `engines_install` builds Ghidra's native programs on macOS, so a Mac install works unaided
@@ -751,6 +761,9 @@ Owner: open · Status: in progress
       Reproduced the old failure on macOS; the AI suite now passes (446 passed, 2 ignored). PR #1018
       — claimed: Codex, branch test/r2.2-posix-remote-helper
 - [x] Find OpenCode's CLI inside its Windows desktop app (`opencode-cli.exe`), for detection and for runs (#1060)
+- [ ] OpenCode 1.4.3 rejects the generated `opencode run --standalone --auto --format json`
+      invocation (prints usage, exits 1): check the adapter's flags against the installed version.
+      Found by a live Clean room build attempt on 2026-11-11 (R5.7)
 - [x] OpenCode Go gets one session id per installation, saved at startup for any saved Go backend, so
       a restart keeps it (#1225). An OpenCode error without a message shows its name, status and the
       start of its response body. Not run live; the run-5 cause in #1225 still needs its log.
