@@ -469,3 +469,40 @@ fn restricted_mode_server_options_from_env() {
     assert!(opts.allow_web);
     assert!(opts.allow_capture);
 }
+
+#[test]
+fn the_call_ceiling_comes_from_the_environment_and_is_clamped() {
+    let read = |value: &str| {
+        let value = value.to_string();
+        ServerOptions::from_env_vars(move |k| (k == "CRAFT_ANYTHING_MCP_MAX_CALLS").then(|| value.clone()))
+    };
+    assert_eq!(read("3").max_calls, 3);
+    assert_eq!(read("0").max_calls, MIN_MAX_CALLS);
+    assert_eq!(read("999").max_calls, MAX_MAX_CALLS);
+}
+
+#[test]
+fn the_server_caps_tool_calls_at_once_and_frees_a_place() {
+    let engine = Arc::new(Engine::new(craft_anything_engine::testing::session()));
+    let server = Arc::new(Server::new(engine, ServerOptions { max_calls: 2, ..Default::default() }, Box::new(Buf::default())));
+    let first = server.try_call_slot().expect("the first place");
+    let second = server.try_call_slot().expect("the second place");
+    assert!(server.try_call_slot().is_none(), "the third is refused");
+    drop(first);
+    assert!(server.try_call_slot().is_some(), "a finished call frees its place");
+    drop(second);
+}
+
+#[test]
+fn an_overloaded_server_refuses_a_tool_call_in_words() {
+    let buf = Buf::default();
+    let engine = Arc::new(Engine::new(craft_anything_engine::testing::session()));
+    let server = Arc::new(Server::new(engine, ServerOptions { max_calls: 1, ..Default::default() }, Box::new(buf.clone())));
+    let held = server.try_call_slot().expect("the only place");
+    let line = serde_json::to_string(&req(7, "tools/call", json!({"name": "core_session_show", "arguments": {}}))).unwrap();
+    assert!(server.clone().handle_line(&line).is_none(), "no worker starts");
+    let out = String::from_utf8(buf.0.lock().unwrap().clone()).unwrap();
+    assert!(out.contains("server is busy") && out.contains("\"id\":7"), "{out}");
+    drop(held);
+    assert!(server.try_call_slot().is_some(), "the place is free again");
+}
