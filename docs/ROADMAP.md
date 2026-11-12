@@ -863,6 +863,11 @@ Owner: open · Status: in progress
       differs by agent: Claude Code asks our approval tool; OpenCode's builder runs with `--auto`;
       Hermes's `-z` turns its approvals off on every run, chats included. Clean room's approval
       rule doesn't reach an agent that never asks us
+- [ ] **decision** What confines a build's generated code: nothing today beyond the agent's own
+      sandbox (Codex's workspace-write) or our approvals, so a builder can read the person's files
+      and credentials and reach the network. Decide whether Craft Anything adds an OS-level sandbox
+      (macOS sandbox-exec, Linux bubblewrap, Windows AppContainer), requires one from the agent, and
+      what a build may reach by default
 - [x] Clean room outside builds (#564): a chat or question with Claude Code refuses the agent's own
       file, shell and web tools outright (`--disallowedTools`), not through its defaults; an ACP chat
       refuses them through an approver instead of a consent card (`docs/claude-code.md`)
