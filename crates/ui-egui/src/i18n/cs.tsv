@@ -214,6 +214,7 @@ Call path	Cesta volání
 Call the build done	Označit sestavení za hotové
 Called done. A new message carries on from here.	Označeno za hotové. Nová zpráva naváže na tento stav.
 Cancel	Zrušit
+Cancel fresh analysis	Zrušit novou analýzu
 Cancel: don't use this folder	Zrušit: nepoužívat tuto složku
 Capture a website for rebuilding	Zachytit web pro rekonstrukci
 Capture inventories	Inventáře záznamu paketů
@@ -281,6 +282,7 @@ Compare two runs	Porovnat dva běhy
 Compare two screenshots	Porovnat dva snímky obrazovky
 Comparing and rebuilding	Porovnávání a rekonstrukce
 Compiled Python file	Zkompilovaný soubor jazyka Python
+Confirm reanalysis	Potvrdit opakovanou analýzu
 Connect	Připojit
 Connect agent apps	Připojit aplikace agentů
 Connect to a browser	Připojit k prohlížeči
@@ -440,6 +442,7 @@ For example: a website for my bakery	Například: web pro mou pekárnu
 For example: recreate this website	Například: znovu vytvořit tento web
 For example: the same app, but simpler	Například: stejná aplikace, ale jednodušší
 For example: the same game, with a high-score table	Například: stejná hra s tabulkou nejlepších skóre
+Force fresh analysis	Vynutit novou analýzu
 Force-stop an app	Vynutit ukončení aplikace
 Forget the key	Zapomenout klíč
 Found on this computer	Nalezeno v tomto počítači

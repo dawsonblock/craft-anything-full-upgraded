@@ -214,6 +214,7 @@ Call path	호출 경로
 Call the build done	빌드 완료 처리
 Called done. A new message carries on from here.	완료로 처리했습니다. 새 메시지를 보내면 여기서부터 이어집니다.
 Cancel	취소
+Cancel fresh analysis	새 분석 취소
 Cancel: don't use this folder	취소: 이 폴더 사용 안 함
 Capture a website for rebuilding	다시 만들 웹사이트 캡처
 Capture inventories	캡처 내역
@@ -281,6 +282,7 @@ Compare two runs	실행 두 번 비교
 Compare two screenshots	스크린숏 두 장 비교
 Comparing and rebuilding	비교와 다시 만들기
 Compiled Python file	컴파일된 Python 파일
+Confirm reanalysis	재분석 확인
 Connect	연결
 Connect agent apps	에이전트 앱 연결
 Connect to a browser	브라우저에 연결
@@ -440,6 +442,7 @@ For example: a website for my bakery	예: 우리 빵집 웹사이트
 For example: recreate this website	예: 이 웹사이트 다시 만들기
 For example: the same app, but simpler	예: 같은 앱을 더 간단하게
 For example: the same game, with a high-score table	예: 같은 게임에 최고 점수표 추가
+Force fresh analysis	새 분석 강제 실행
 Force-stop an app	앱 강제 종료
 Forget the key	키 지우기
 Found on this computer	이 컴퓨터에서 찾음

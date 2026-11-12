@@ -214,6 +214,7 @@ Call path	Kutseahel
 Call the build done	Kuuluta ehitus valmis
 Called done. A new message carries on from here.	Valmis kuulutatud. Uus sõnum jätkab siit.
 Cancel	Tühista
+Cancel fresh analysis	Tühista uus analüüs
 Cancel: don't use this folder	Tühista: ära kasuta seda kausta
 Capture a website for rebuilding	Salvesta veebileht taasehituseks
 Capture inventories	Salvesta loendid
@@ -281,6 +282,7 @@ Compare two runs	Võrdle kahte käivitust
 Compare two screenshots	Võrdle kahte ekraanipilti
 Comparing and rebuilding	Võrdlemine ja taasehitamine
 Compiled Python file	Kompileeritud Pythoni fail
+Confirm reanalysis	Kinnita kordananalüüs
 Connect	Ühenda
 Connect agent apps	Ühenda agendirakendused
 Connect to a browser	Ühenda brauseriga
@@ -440,6 +442,7 @@ For example: a website for my bakery	Näiteks: veebileht minu pagaritöökojale
 For example: recreate this website	Näiteks: loo see veebileht uuesti
 For example: the same app, but simpler	Näiteks: sama rakendus, aga lihtsam
 For example: the same game, with a high-score table	Näiteks: sama mäng, aga edetabeliga
+Force fresh analysis	Sunni uus analüüs
 Force-stop an app	Peata rakendus sundkorras
 Forget the key	Unusta võti
 Found on this computer	Leitud sellest arvutist
