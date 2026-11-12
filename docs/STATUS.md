@@ -25,9 +25,10 @@ builds remain **not run**; the first live Ghidra run is recorded above.
 (`model_not_found`: the configured `gpt-6.1-terra` is not supported with a
 ChatGPT account) or OpenCode 1.4.3 (exit 1 on the generated
 `opencode run --standalone --auto --format json` flags). Gemini CLI 0.68.0
-then refused the new project folder as an untrusted workspace; the adapter
-now passes `--skip-trust`, and a retry is the next live check. All are
-recorded under R5.7 and R2.2.
+first refused the new project folder as an untrusted workspace (the adapter
+now passes `--skip-trust`), then stopped with `IneligibleTierError`: its free
+tier is no longer supported for this client. No available account reached a
+build. All are recorded under R5.7 and R2.2.
 
 **Independent V25 source-fork note (2026-11-10):** See
 [UPGRADE_REPORT_V25.md](../UPGRADE_REPORT_V25.md). A focused `--profile deep`

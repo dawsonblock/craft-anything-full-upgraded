@@ -573,10 +573,12 @@ yet, and the quick start is how every new person begins.
 
 **A signed-in coding agent:**
 - [ ] A live Clean room build of a website and of an app, checked end to end
-- [ ] Tried 2026-11-11 on `example.com`: Codex 0.156.1 stopped before building (`gpt-6.1-terra`
-      is not supported with a ChatGPT account) and OpenCode 1.4.3 exited 1 on the generated
-      `opencode run --standalone --auto --format json` invocation. Neither reached a build; choose
-      a supported Codex model (`ai model Codex`) and check the OpenCode adapter before retrying
+- [ ] Tried 2026-11-11 on `example.com`: Codex 0.156.1 stopped on `model_not_found`
+      (`gpt-6.1-terra` unsupported with a ChatGPT account), OpenCode 1.4.3 exited 1 on the
+      generated `opencode run --standalone --auto --format json` flags, and Gemini CLI 0.68.0
+      passed the new `--skip-trust` step but its free tier is no longer supported
+      (`IneligibleTierError`). No available account reached a build; a supported Codex model
+      (`ai model Codex`) or a paid Gemini/Antigravity client comes first
 - [ ] A live build in a picked folder each way (edit in place, start from), checked end to end
 - [ ] Thresholds under pressure: a clone that's off by a few pixels (a page with fluid type or
       `clamp()` spacing) to see whether 4 / 2 / 8 px is too strict
