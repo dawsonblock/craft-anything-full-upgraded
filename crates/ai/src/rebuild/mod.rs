@@ -23,7 +23,7 @@ use craft_anything_engine::inbox::{Answer, Inbox, InboxDir, Request};
 use craft_anything_engine::project::{Project, Purpose};
 use craft_anything_engine::questions::AskedQuestion;
 use craft_anything_engine::workspace::progress::{AppFingerprintCache, BuildProgress};
-use craft_anything_engine::workspace::{CheckResult, ProjectUsage, Status, TargetRef, Workspace};
+use craft_anything_engine::workspace::{CheckResult, Outcome, ProjectUsage, Status, TargetRef, Workspace};
 use craft_anything_engine::{CallOptions, Caller, CancelToken, Engine, ToolOutput};
 use craft_anything_engines::game;
 use craft_anything_evidence::{ErrorCode, ToolError};
@@ -974,10 +974,7 @@ impl Worker {
             let checks = self.checks_with_a_retry(ws, kind, round)?;
             ws.manifest.checks.extend(checks.iter().cloned());
             ws.manifest.awaiting_check = false;
-            // A round with missing evidence or failed functional claims is not verified as
-            // working, even when its top-level `passed` bit was true. Low visual likeness
-            // alone does not count as a broken executable.
-            let working = checks.iter().all(|c| c.passed && c.unknowns.is_empty() && c.claims.iter().all(|claim| claim.passed));
+            let working = round_is_working(&checks);
             ws.manifest.not_working_checks = if working { 0 } else { ws.manifest.not_working_checks.saturating_add(1) };
             ws.save()?;
             for c in &checks {
@@ -991,7 +988,7 @@ impl Worker {
                 prompt = p;
                 continue;
             }
-            let not_good = checks.iter().find(|c| !c.good(opts.good_enough));
+            let not_good = checks.iter().find(|c| needs_fixing(c, opts.good_enough));
             if not_good.is_some() && progress_available && progress.stalled() {
                 // A check-only resume skipped the builder's before-turn scan. A real edit
                 // while the project was closed (or during this check) still starts an attempt.
@@ -1366,6 +1363,20 @@ fn run_outcome(result: Result<Result<String, ToolError>, Box<dyn std::any::Any +
     }
 }
 
+/// Whether a round's checks show the build working: every required check ran and passed, with no
+/// missing evidence and no failed claims. A check the build can do without (a person's own tests)
+/// that didn't run is not held against it; one that ran and failed still is.
+fn round_is_working(checks: &[CheckResult]) -> bool {
+    checks.iter().all(|c| (!c.required && c.did_not_run()) || (c.passed() && c.unknowns.is_empty() && c.claims.iter().all(|claim| claim.passed)))
+}
+
+/// A check the builder can do something about: it failed, its claims don't hold, or the evidence
+/// it needed is missing. A check that didn't run is not one: refining it would only ask the
+/// builder for what the check already said nothing can do.
+fn needs_fixing(c: &CheckResult, good_enough: f64) -> bool {
+    !c.good(good_enough) && !matches!(c.outcome, Outcome::Skipped | Outcome::Unknown)
+}
+
 /// A Ready status is a claim about the *whole* latest round, not merely the final check.
 /// A build that works but misses a requested similarity bar remains NeedsYou through
 /// `run_outcome`; the person may explicitly accept it with `project_build_finish`.
@@ -1375,14 +1386,25 @@ fn checked_round_is_ready(checks: &[CheckResult], good_enough: f64) -> Result<()
     }
     let broken: Vec<_> = checks
         .iter()
-        .filter(|c| !c.passed || !c.unknowns.is_empty() || c.claims.iter().any(|claim| !claim.passed))
+        .filter(|c| c.failed() || !c.unknowns.is_empty() || c.claims.iter().any(|claim| !claim.passed))
         .map(|c| format!("{}: {}", c.check, c.note))
         .collect();
     if !broken.is_empty() {
         return Err(ToolError::new(ErrorCode::ProgramFailed, format!("The build is not verified: {}", broken.join(" | ")))
             .with_remediation("Fix the failing or unverified checks, then run them again. A later passing check does not override an earlier failure."));
     }
-    let below_bar: Vec<_> = checks.iter().filter(|c| !c.good(good_enough)).map(|c| c.check.as_str()).collect();
+    // A check that didn't run is not a pass. One that says nothing was there to run still blocks
+    // a required check; a person's own tests are optional, so their absence doesn't.
+    let not_run: Vec<_> =
+        checks.iter().filter(|c| matches!(c.outcome, Outcome::Skipped | Outcome::Unknown) && c.required).map(|c| format!("{}: {}", c.check, c.note)).collect();
+    if !not_run.is_empty() {
+        return Err(ToolError::new(
+            ErrorCode::ProgramFailed,
+            format!("The build isn't verified: these checks didn't run: {}", not_run.join(" | ")),
+        )
+        .with_remediation("Make the check run (install the toolchain it needs, or fix what stopped it), or call the build done yourself with project_build_finish if you accept the result unverified."));
+    }
+    let below_bar: Vec<_> = checks.iter().filter(|c| c.passed() && !c.good(good_enough)).map(|c| c.check.as_str()).collect();
     if !below_bar.is_empty() {
         return Err(ToolError::new(
             ErrorCode::ProgramFailed,
@@ -1414,6 +1436,40 @@ mod ready_regressions {
         let mut claim = CheckResult::new("mechanics", 2, true, "controls checked");
         claim.claims.push(Claim::new("jump", false, "no movement"));
         assert!(checked_round_is_ready(&[claim], 70.0).is_err());
+    }
+
+    #[test]
+    fn a_required_check_that_did_not_run_is_never_ready() {
+        let skipped = CheckResult::skipped("build", 2, "Nothing was built: Craft Anything doesn't know how to build this kind of project.");
+        let error = checked_round_is_ready(&[skipped], 70.0).unwrap_err();
+        assert!(error.message.contains("didn't run") && error.message.contains("Nothing was built"), "{error:?}");
+        let unknown = CheckResult::unknown("game-self-test", 2, "Not run: the round ran out of time");
+        assert!(checked_round_is_ready(&[unknown], 70.0).is_err());
+    }
+
+    #[test]
+    fn an_optional_check_that_did_not_run_is_not_counted_as_not_working() {
+        let build = CheckResult::new("build", 1, true, "Build succeeded.");
+        let tests = CheckResult { required: false, ..CheckResult::skipped("own-tests", 1, "No tests ran.") };
+        assert!(round_is_working(&[build.clone(), tests]), "a passing build with no tests is not a broken build");
+        let failing = CheckResult { required: false, ..CheckResult::new("own-tests", 1, false, "The project's tests failed") };
+        assert!(!round_is_working(&[build, failing]), "a real test failure still counts");
+    }
+
+    #[test]
+    fn a_check_that_did_not_run_is_not_something_to_fix() {
+        let skipped = CheckResult::skipped("own-tests", 1, "No tests ran.");
+        assert!(!needs_fixing(&skipped, 90.0), "there is nothing to fix");
+        assert!(needs_fixing(&CheckResult::new("build", 1, false, "Build failed"), 90.0));
+        let blind = CheckResult { unknowns: vec!["/about couldn't be pictured".into()], ..CheckResult::new("web-visual", 1, true, "") };
+        assert!(needs_fixing(&blind, 90.0), "missing evidence is still something to fix");
+    }
+
+    #[test]
+    fn an_optional_check_that_did_not_run_leaves_a_verified_build_ready() {
+        let build = CheckResult::new("build", 2, true, "Build succeeded.");
+        let tests = CheckResult { required: false, ..CheckResult::skipped("own-tests", 2, "No tests ran: the project has none.") };
+        assert!(checked_round_is_ready(&[build, tests], 70.0).is_ok());
     }
 
     #[test]

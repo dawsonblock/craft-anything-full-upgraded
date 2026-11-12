@@ -185,7 +185,7 @@
       ]
     },
     "CheckResult": {
-      "description": "One check of the build: whether it works and, when it could be compared with the original,\nhow alike it is. Decisions read `passed` and `similarity`, never `note` (which is for people).",
+      "description": "One check of the build: what it found and, when it could be compared with the original,\nhow alike it is. Decisions read `outcome`, `required` and `similarity`, never `note` (which is\nfor people).",
       "type": "object",
       "properties": {
         "artifacts": {
@@ -225,6 +225,17 @@
         "note": {
           "type": "string"
         },
+        "outcome": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Outcome"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "pages": {
           "type": "array",
           "default": [],
@@ -233,6 +244,13 @@
           }
         },
         "passed": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "default": null
+        },
+        "required": {
           "type": [
             "boolean",
             "null"
@@ -283,6 +301,31 @@
       "required": [
         "title",
         "passed"
+      ]
+    },
+    "Outcome": {
+      "description": "What a check found. Only [`Outcome::Passed`] can make a build ready: a check that didn't run\nis not a pass, and one that couldn't look says so rather than blaming the build.",
+      "oneOf": [
+        {
+          "description": "It ran, and the build works.",
+          "type": "string",
+          "const": "passed"
+        },
+        {
+          "description": "It ran, and the build doesn't.",
+          "type": "string",
+          "const": "failed"
+        },
+        {
+          "description": "Nothing ran: Craft Anything knows no build or tests for this kind of project, or the\nproject has none to run.",
+          "type": "string",
+          "const": "skipped"
+        },
+        {
+          "description": "It couldn't look at all (a plugin or a browser that went away), which says nothing about\nthe build.",
+          "type": "string",
+          "const": "unknown"
+        }
       ]
     },
     "PageLikeness": {
