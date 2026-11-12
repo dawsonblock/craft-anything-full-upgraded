@@ -34,6 +34,12 @@ pub const PROTOCOL_VERSIONS: &[&str] = &["2025-06-18", "2025-03-26", "2024-11-05
 pub const SERVER_NAME: &str = "craft-anything";
 /// Default response budget (bytes of one JSON-RPC response line).
 pub const DEFAULT_MAX_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
+
+/// How many tool calls may run at once. A client that asks for more is told the server is busy
+/// rather than growing a thread per call without bound.
+pub const DEFAULT_MAX_CALLS: usize = 16;
+pub const MIN_MAX_CALLS: usize = 1;
+pub const MAX_MAX_CALLS: usize = 64;
 /// Smallest budget accepted from the environment.
 pub const MIN_MAX_RESPONSE_BYTES: usize = 64 * 1024;
 /// The response budget for Claude Code, whose own limit on a tool's output is about 25k tokens by
@@ -66,6 +72,8 @@ pub struct ServerOptions {
     /// Allow website capture tools (`web_site_capture`, `web_page_states_capture`) in restricted mode.
     pub allow_capture: bool,
     pub max_response_bytes: usize,
+    /// How many tool calls may run at once; more are refused as busy.
+    pub max_calls: usize,
     /// Lower the budget for a client known to take less (Claude Code), from its name in
     /// `initialize`. Off when the budget was set explicitly.
     pub budget_for_client: bool,
@@ -83,6 +91,7 @@ impl Default for ServerOptions {
             allow_web: false,
             allow_capture: false,
             max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
+            max_calls: DEFAULT_MAX_CALLS,
             budget_for_client: true,
         }
     }
@@ -95,6 +104,7 @@ impl ServerOptions {
     /// - `CRAFT_ANYTHING_MCP_ALLOW_WEB=1`
     /// - `CRAFT_ANYTHING_MCP_ALLOW_CAPTURE=1`
     /// - `CRAFT_ANYTHING_MCP_MAX_RESPONSE_BYTES`
+    /// - `CRAFT_ANYTHING_MCP_MAX_CALLS`
     pub fn from_env() -> Self {
         Self::from_env_vars(|k| std::env::var(k).ok())
     }
@@ -119,6 +129,9 @@ impl ServerOptions {
             o.max_response_bytes = n.max(MIN_MAX_RESPONSE_BYTES);
             o.budget_for_client = false;
         }
+        if let Some(n) = lookup("CRAFT_ANYTHING_MCP_MAX_CALLS").and_then(|v| v.trim().parse::<usize>().ok()) {
+            o.max_calls = n.clamp(MIN_MAX_CALLS, MAX_MAX_CALLS);
+        }
         o
     }
 }
@@ -132,8 +145,19 @@ pub struct Server {
     enabled: Mutex<BTreeSet<Toolset>>,
     /// This connection's response budget in bytes (the client's own limit can lower it).
     budget: std::sync::atomic::AtomicUsize,
+    /// Tool calls running now, against [`ServerOptions::max_calls`].
+    calls: std::sync::atomic::AtomicUsize,
     inflight: Mutex<HashMap<String, CancelToken>>,
     out: Writer,
+}
+
+/// One running tool call's place, released when the call ends (even if it panics).
+struct CallSlot(Arc<Server>);
+
+impl Drop for CallSlot {
+    fn drop(&mut self) {
+        self.0.calls.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
 }
 
 /// Serve on this process's stdin/stdout until stdin closes.
@@ -223,6 +247,7 @@ impl Server {
             opts,
             enabled: Mutex::new(BTreeSet::from([Toolset::Core])),
             budget,
+            calls: std::sync::atomic::AtomicUsize::new(0),
             inflight: Mutex::new(HashMap::new()),
             out: Arc::new(Mutex::new(writer)),
         }
@@ -231,6 +256,22 @@ impl Server {
     /// This connection's response budget in bytes.
     fn budget(&self) -> usize {
         self.budget.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// Take a place for one tool call, or `None` when the ceiling is reached.
+    fn try_call_slot(self: &Arc<Self>) -> Option<CallSlot> {
+        use std::sync::atomic::Ordering::SeqCst;
+        let max = self.opts.max_calls.max(MIN_MAX_CALLS);
+        let mut now = self.calls.load(SeqCst);
+        loop {
+            if now >= max {
+                return None;
+            }
+            match self.calls.compare_exchange(now, now + 1, SeqCst, SeqCst) {
+                Ok(_) => return Some(CallSlot(self.clone())),
+                Err(actual) => now = actual,
+            }
+        }
     }
 
     fn send(&self, msg: &Value) {
@@ -267,10 +308,19 @@ impl Server {
             return None;
         };
         if method == "tools/call" {
+            let Some(slot) = self.try_call_slot() else {
+                self.send(&error_response(
+                    id,
+                    -32603,
+                    &format!("The server is busy: {} tool calls are already running. Retry when one finishes.", self.opts.max_calls),
+                ));
+                return None;
+            };
             let token = CancelToken::default();
             self.inflight.lock().unwrap_or_else(PoisonError::into_inner).insert(id_key(&id), token.clone());
             let me = self.clone();
             let spawned = std::thread::Builder::new().name("mcp-call".into()).spawn(move || {
+                let _slot = slot;
                 let resp = me.tools_call(&id, &params, &token);
                 me.inflight.lock().unwrap_or_else(PoisonError::into_inner).remove(&id_key(&id));
                 if !token.is_cancelled() {
