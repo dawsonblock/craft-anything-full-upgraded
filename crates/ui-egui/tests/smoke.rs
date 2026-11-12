@@ -217,6 +217,7 @@ fn deep_mode_without_ghidra_asks_to_get_it_before_using_it() {
         demo::fill_projects(&mut a);
         // An empty engine store: no Ghidra here.
         a.settings.engines.store_dir = Some(store);
+        a.settings.engines.only_configured = true;
         a.state.make.target = TargetRef::Local { path: game };
         a.state.make.game = true;
         a.state.make.request = "Recreate this game".into();
@@ -913,6 +914,7 @@ fn mode_switch_and_deep_toggle() {
     let mut h = harness(move || {
         let mut a = demo::app(demo::engine(Mode::Beginner, true));
         a.settings.engines.store_dir = Some(empty);
+        a.settings.engines.only_configured = true;
         a
     });
     h.run_steps(3);

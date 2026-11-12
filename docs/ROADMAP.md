@@ -167,6 +167,9 @@ cheapest help we can give anyone, so nothing below should hold it up for long.
       they don't stay open marked `fixed` — PR #1006; claimed: doubektomas,
       branch docs/r5.1-post-release-tickets. The checklist is documented; closing tickets waits
       for publication of the release containing their fixes.
+- [ ] The UI smoke tests pass on a machine with Ghidra installed: two tests treated an empty engine
+      store as "no Ghidra", so a real Homebrew install made them fail
+      — claimed: Devin, branch test/r5.1-ui-tests-without-installed-engines
 
 ### R5.2 Keeping contributions moving
 Owner: maintainers · Status: in progress
