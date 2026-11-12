@@ -14,6 +14,11 @@ pub struct SelfTestReport {
     /// The format version ([`SELF_TEST_VERSION`]); missing means 1.
     #[serde(default = "version")]
     pub version: u32,
+    /// A picture the game saved after its scripted input, as a path relative to where it ran.
+    /// Craft Anything compares it with the `--screenshot` picture: a screen that did not change
+    /// is a report the check cannot trust.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub picture: Option<String>,
     /// The core loop's steps ("move", "act", "hud") as the game measured them.
     pub steps: Vec<SelfTestStep>,
 }
@@ -49,5 +54,6 @@ mod tests {
         assert!(schema.contains("\"steps\"") && schema.contains("\"passed\""), "{schema}");
         let r: SelfTestReport = serde_json::from_str(r#"{"steps": [{"step": "move", "passed": true}]}"#).unwrap();
         assert_eq!((r.version, r.steps[0].detail.as_str()), (SELF_TEST_VERSION, ""), "no version means 1, no detail means empty");
+        assert!(r.picture.is_none() && schema.contains("\"picture\""), "an old report has no picture, and the schema names one");
     }
 }

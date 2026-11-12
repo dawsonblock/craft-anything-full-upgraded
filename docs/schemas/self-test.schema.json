@@ -4,6 +4,13 @@
   "description": "A self-test report.",
   "type": "object",
   "properties": {
+    "picture": {
+      "description": "A picture the game saved after its scripted input, as a path relative to where it ran.\nCraft Anything compares it with the `--screenshot` picture: a screen that did not change\nis a report the check cannot trust.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "steps": {
       "description": "The core loop's steps (\"move\", \"act\", \"hud\") as the game measured them.",
       "type": "array",
