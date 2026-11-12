@@ -170,6 +170,9 @@ cheapest help we can give anyone, so nothing below should hold it up for long.
 - [ ] The UI smoke tests pass on a machine with Ghidra installed: two tests treated an empty engine
       store as "no Ghidra", so a real Homebrew install made them fail
       — claimed: Devin, branch test/r5.1-ui-tests-without-installed-engines
+- [ ] The MCP server caps how many tool calls run at once: an overload says so instead of starting
+      unbounded threads, and cancellation still works under load
+      — claimed: Devin, branch bugfix/r5.1-mcp-call-ceiling
 
 ### R5.2 Keeping contributions moving
 Owner: maintainers · Status: in progress
