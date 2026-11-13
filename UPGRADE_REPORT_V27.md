@@ -156,6 +156,7 @@ On macOS with Python 3.12 and Rust 1.99.1 (the workspace minimum is 1.97.0):
 | `cargo xtask secrets` | Passed |
 | Engine tests | 603 passed |
 | UI tests | 208 passed |
+| Focused Deep profile | 4 settings, 3 lifecycle, 1 inventory and 8 target-reopen tests passed; UI typecheck passed |
 | `cargo clippy --workspace --all-targets --locked -- -D warnings` | Passed |
 | CLI build | Passed |
 | CLI `--help` smoke test | Passed |
@@ -174,8 +175,9 @@ file is inside the archive).
   The GitHub workflows have not run against a real release; the first live run
   is still owed.
 - **Gate B — native application release:** the automated macOS gate passes
-  (engine, UI, clippy, format, CLI build and smoke). Windows and Linux native
-  runs, live Ghidra integration and desktop behaviour were not run.
+  (engine, UI, focused Deep profile, clippy, format, CLI build and smoke).
+  Windows and Linux native runs, live Ghidra integration and desktop behaviour
+  were not run.
 - **Gate C — autonomous execution readiness:** not established. Craft
   Anything's approval and process supervision do not provide an OS-level
   filesystem and network boundary for coding agents. This remains a separate

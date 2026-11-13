@@ -313,9 +313,9 @@
       "sha256": "cd36c7fb9b87608ed1a2957c00023a51e1f14e3ad0cea5238244876671c3fdf4"
     },
     {
-      "bytes": 11321,
+      "bytes": 11463,
       "path": "UPGRADE_REPORT_V27.md",
-      "sha256": "249f54ad2ac29fcf2e242bd7baa75bb70048b29fd76d1d07e5ade0eeb52e7fa6"
+      "sha256": "94d45c30c50f622578df2ae4107bd753519b2de17149ef49da78367e942fd831"
     },
     {
       "bytes": 5733,
@@ -4675,5 +4675,5 @@
   ],
   "root": "craft-anything-full-upgraded",
   "schema": 1,
-  "total_bytes": 20618234
+  "total_bytes": 20618376
 }
