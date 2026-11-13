@@ -179,6 +179,7 @@ cheapest help we can give anyone, so nothing below should hold it up for long.
       source-portability workflow now packages, verifies and extracts a new ZIP with
       `--require-declared-root`, and packaging creates its destination exclusively; no release
       step runs it against the artifact people download
+      — claimed: Devin, branch feature/r5.1-release-source-check
 
 ### R5.2 Keeping contributions moving
 Owner: maintainers · Status: in progress
