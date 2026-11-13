@@ -8,6 +8,7 @@ It uses only the Python standard library and never executes bundled source.
 from __future__ import annotations
 
 import argparse
+from contextlib import nullcontext
 import hashlib
 import json
 import os
@@ -299,6 +300,16 @@ def verify_zip(archive: Path | BinaryIO, *, require_declared_root: bool = False)
         raise IntegrityError(f"ZIP cannot be read safely: {exc}") from exc
 
 
+def write_zip_member(zf: zipfile.ZipFile, path: Path, name: str) -> None:
+    """Write one member with normalized metadata so equal trees make equal ZIPs."""
+    info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+    info.compress_type = zipfile.ZIP_DEFLATED
+    info.create_system = 3
+    info.external_attr = 0o644 << 16
+    with path.open("rb") as source, zf.open(info, "w") as destination:
+        shutil.copyfileobj(source, destination, length=1024 * 1024)
+
+
 def package_zip(root: Path, archive: Path) -> dict:
     """Write a ZIP at the manifest's declared root and verify the produced file."""
     if archive.exists() or archive.is_symlink():
@@ -320,9 +331,9 @@ def package_zip(root: Path, archive: Path) -> dict:
     try:
         with zipfile.ZipFile(staged, "w", zipfile.ZIP_DEFLATED) as zf:
             prefix = manifest["root"] + "/"
-            zf.write(manifest_file, prefix + MANIFEST_NAME)
+            write_zip_member(zf, manifest_file, prefix + MANIFEST_NAME)
             for row in manifest["files"]:
-                zf.write(root / row["path"], prefix + row["path"])
+                write_zip_member(zf, root / row["path"], prefix + row["path"])
         verify_zip(staged, require_declared_root=True)
         with tempfile.TemporaryDirectory(prefix=".package-check-", dir=parent) as check_parent:
             extract_verified_zip(staged, Path(check_parent), require_declared_root=True)
@@ -364,20 +375,23 @@ def package_zip(root: Path, archive: Path) -> dict:
             staged.unlink()
 
 
-def extract_verified_zip(archive: Path, output_parent: Path, *,
+def extract_verified_zip(archive: Path | BinaryIO, output_parent: Path, *,
                          require_declared_root: bool = False) -> dict:
     """Verify, stage, rehash and install a ZIP without touching existing output.
 
-    All reads of the archive use one open descriptor: replacing its pathname
-    between verification and extraction cannot redirect the second read.
-    Extraction uses a private directory beside the eventual source root.
-    Do not use a shared output directory with adversarial concurrent writers.
+    All reads use one open descriptor, or the caller's seekable stream:
+    replacing the pathname between verification and extraction cannot redirect
+    the second read. Extraction uses a private directory beside the eventual
+    source root. Do not use a shared output directory with adversarial
+    concurrent writers.
     """
     if output_parent.is_symlink() or not output_parent.is_dir():
         raise IntegrityError("Output parent must be an existing, non-symlink directory")
     output_parent = output_parent.resolve()
+    source_context = (archive.open("rb") if isinstance(archive, (str, os.PathLike))
+                      else nullcontext(archive))
     try:
-        with archive.open("rb") as source:
+        with source_context as source:
             verified = verify_zip(source, require_declared_root=require_declared_root)
             source.seek(0)
             with zipfile.ZipFile(source, "r") as zf:

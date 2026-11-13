@@ -1,5 +1,6 @@
 """Independent, synthetic source-inventory and ZIP validation regressions."""
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -119,6 +120,33 @@ class SourceBundleIntegrityTests(unittest.TestCase):
             self.assertFalse(any(parent.glob(".source-zip-*")))
             with self.assertRaisesRegex(IntegrityError, "outside the source root"):
                 package_zip(root, root / "artifact.zip")
+
+    def test_package_zip_normalizes_metadata(self):
+        with tempfile.TemporaryDirectory() as temp:
+            parent = Path(temp)
+            root = self.sample(parent)
+            first = parent / "first.zip"
+            package_zip(root, first)
+            first_digest = hashlib.sha256(first.read_bytes()).hexdigest()
+            os.utime(root / "README.md", (1_600_000_000, 1_600_000_000))
+            os.utime(root / "src" / "app.rs", (1_500_000_000, 1_500_000_000))
+            second = parent / "second.zip"
+            package_zip(root, second)
+            self.assertEqual(hashlib.sha256(second.read_bytes()).hexdigest(),
+                             first_digest)
+
+    def test_extract_verified_zip_accepts_an_open_stream(self):
+        with tempfile.TemporaryDirectory() as temp:
+            parent = Path(temp)
+            root = self.sample(parent)
+            archive = parent / "source.zip"
+            self.package(root, archive)
+            install = parent / "install"
+            install.mkdir()
+            with archive.open("rb") as stream:
+                receipt = extract_verified_zip(stream, install)
+            self.assertEqual(receipt["status"], "extracted")
+            self.assertTrue((install / root.name / "README.md").is_file())
 
     def test_package_zip_runs_a_full_extraction_check_before_creating_output(self):
         with tempfile.TemporaryDirectory() as temp:

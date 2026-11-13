@@ -12,10 +12,14 @@ from __future__ import annotations
 import argparse
 import datetime
 import json
+import os
 from pathlib import Path
+import re
+import stat
 import subprocess
 import sys
 import tempfile
+from typing import BinaryIO
 
 from source_bundle_integrity import (
     MAX_MANIFEST_SIZE, MAX_TOTAL_SIZE, IntegrityError, extract_verified_zip,
@@ -27,16 +31,42 @@ MAX_ARCHIVE_BYTES = MAX_TOTAL_SIZE + MAX_MANIFEST_SIZE
 DEFAULT_ASSET = "*source*.zip"
 DOWNLOAD_TIMEOUT_SECONDS = 600
 ERROR_EXCERPT = 4000
+REPO_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$")
+TAG_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+/-]{0,255}$")
+ASSET_PATTERN = re.compile(r"^[A-Za-z0-9*?][A-Za-z0-9._*?\[\]-]{0,255}$")
 
 
-def sha256_file(path: Path) -> str:
-    with path.open("rb") as stream:
-        _, digest = sha256_stream(stream, MAX_ARCHIVE_BYTES)
-    return digest
+def validate_release_identity(repo: str, tag: str, asset: str) -> None:
+    """Reject values that could be mistaken for options or shell syntax."""
+    if not REPO_PATTERN.fullmatch(repo):
+        raise IntegrityError(
+            "Repository must be OWNER/NAME with only letters, digits, '.', '_' or '-'"
+        )
+    if not TAG_PATTERN.fullmatch(tag):
+        raise IntegrityError("Release tag has unsupported characters")
+    if not ASSET_PATTERN.fullmatch(asset):
+        raise IntegrityError("Asset pattern has unsupported characters")
+
+
+def open_regular_archive(path: Path) -> BinaryIO:
+    """Open one archive inode without following a symlink where supported."""
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as exc:
+        raise IntegrityError(
+            f"Cannot open the release source ZIP: {exc.strerror or exc}"
+        ) from exc
+    info = os.fstat(descriptor)
+    if not stat.S_ISREG(info.st_mode):
+        os.close(descriptor)
+        raise IntegrityError("The release source ZIP must be a regular file")
+    return os.fdopen(descriptor, "rb")
 
 
 def download_release(repo: str, tag: str, asset: str, destination: Path) -> Path:
     """Download exactly one matching release asset with the GitHub CLI."""
+    validate_release_identity(repo, tag, asset)
     command = [
         "gh", "release", "download", tag, "--repo", repo,
         "--pattern", asset, "--dir", str(destination),
@@ -72,17 +102,17 @@ def verify_release_archive(
     asset: str | None = None,
 ) -> dict:
     """Verify one release ZIP, re-verify its extracted tree and describe it."""
-    if archive.is_symlink() or not archive.is_file():
+    if archive.is_symlink():
         raise IntegrityError("The release source ZIP must be a regular file")
-    archive_bytes = archive.stat().st_size
-    if archive_bytes > MAX_ARCHIVE_BYTES:
-        raise IntegrityError("The release source ZIP exceeds the archive size limit")
-    archive_digest = sha256_file(archive)
-    verified = verify_zip(archive, require_declared_root=True)
-    with tempfile.TemporaryDirectory(prefix=".release-source-") as install:
-        extracted = extract_verified_zip(
-            archive, Path(install), require_declared_root=True,
-        )
+    with open_regular_archive(archive) as source:
+        archive_bytes, archive_digest = sha256_stream(source, MAX_ARCHIVE_BYTES)
+        source.seek(0)
+        verified = verify_zip(source, require_declared_root=True)
+        source.seek(0)
+        with tempfile.TemporaryDirectory(prefix=".release-source-") as install:
+            extracted = extract_verified_zip(
+                source, Path(install), require_declared_root=True,
+            )
     if (extracted["file_count"] != verified["file_count"]
             or extracted["manifest_sha256"] != verified["manifest_sha256"]):
         raise IntegrityError("Extracted source does not match the verified release ZIP")

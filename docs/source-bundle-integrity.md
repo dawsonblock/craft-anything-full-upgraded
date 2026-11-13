@@ -53,10 +53,12 @@ and always requires the canonical root. It creates the destination exclusively
 (`O_CREAT | O_EXCL`), so a file another process creates during packaging is
 never overwritten; it then verifies the bytes written to that descriptor, not a
 separate path. Before creating the destination it also verifies the staged ZIP
-and extracts it into a private folder, rehashing every file. Its result
-includes the whole archive's SHA-256. The source-portability workflow runs this
-package, verify and extract round-trip with `--require-declared-root` on every
-operating system it tests.
+and extracts it into a private folder, rehashing every file. Every member is
+written with a fixed 1980 timestamp and mode, so identical source produces an
+identical ZIP regardless of checkout times. Its result includes the whole
+archive's SHA-256. The source-portability workflow runs this package, verify
+and extract round-trip with `--require-declared-root` on every operating system
+it tests.
 
 ## Verify a published release artifact
 
@@ -69,13 +71,18 @@ Check the file people actually download, not a fresh ZIP built in CI:
 The script downloads exactly one matching asset with the GitHub CLI, requires
 the canonical root, checks every member without extracting it, unpacks it into
 a private temporary folder and rehashes the tree. An already downloaded file
-can be checked with `--archive`. The receipt records the release identity, the
-archive's SHA-256, the manifest's SHA-256, the file count and total bytes; it is
-created exclusively, never overwritten, and must stay outside the checkout. A
-release that attaches no source ZIP, or attaches a GitHub-generated archive
-without `SOURCE_INTEGRITY.json`, fails with a plain error. The **Release Source
-Artifact Check** workflow runs this when a release is published and on manual
-dispatch, and uploads the receipt.
+can be checked with `--archive`. The archive is opened once without following
+a symbolic link, and the same descriptor is hashed, verified and extracted, so
+the receipt's SHA-256 always describes the bytes that were verified even if the
+path is replaced meanwhile. Repository, tag and asset inputs are validated
+before `gh` runs. The receipt records the release identity, the archive's
+SHA-256, the manifest's SHA-256, the file count and total bytes; it is created
+exclusively, never overwritten, and must stay outside the checkout. A release
+that attaches no source ZIP, or attaches a GitHub-generated archive without
+`SOURCE_INTEGRITY.json`, fails with a plain error. The **Release Source
+Artifact Check** workflow passes those values through environment variables
+rather than inserting expressions into its shell, runs this when a release is
+published and on manual dispatch, and uploads the receipt.
 
 ## Verified extraction (V7)
 

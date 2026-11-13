@@ -181,8 +181,17 @@ cheapest help we can give anyone, so nothing below should hold it up for long.
       Check workflow runs it on publication and on dispatch. Checked against the distributed V25
       ZIP (926 files, 20,469,740 bytes, archive `05f67371…`, manifest `376836e1…`); the generated
       source archive for upstream v0.6.1 has no `SOURCE_INTEGRITY.json` and is refused
+- [x] Fix the two release-check findings: the workflow passes the repository, tag and asset through
+      environment variables and rejects unsafe characters instead of interpolating expressions into
+      shell, and the checker hashes, verifies and extracts one open descriptor so the receipt is
+      bound to the bytes that were verified. Packaging normalizes member timestamps and modes, so
+      equal source produces an equal ZIP
 - [ ] Run the release source check against the first published release that attaches a
       manifest-bearing source ZIP
+- [ ] Verify the final source ZIP before a release is published, not only after, and bind it to the
+      intended commit with a signed checksum or provenance record. The published-asset check stays
+      the backstop; the release workflow is a reusable external workflow, so the pre-publish step
+      needs a decision on where it runs
 
 ### R5.2 Keeping contributions moving
 Owner: maintainers · Status: in progress

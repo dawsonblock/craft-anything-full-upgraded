@@ -1,7 +1,9 @@
 """Release source-artifact verification and receipt regressions."""
 
+import hashlib
 import io
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -169,6 +171,54 @@ class VerifyReleaseSourceTests(unittest.TestCase):
                         "storytold/craft-anything", "v0.6.1", "*source*.zip",
                         Path(temp),
                     )
+
+    def test_identity_validation_rejects_shell_syntax(self):
+        with tempfile.TemporaryDirectory() as temp:
+            destination = Path(temp)
+            with patch.object(verify_release_source.subprocess, "run") as run:
+                for repo, tag, asset in (
+                    ("owner/repo; rm -rf /", "v1", "*source*.zip"),
+                    ("owner/repo", "v1$(touch pwned)", "*source*.zip"),
+                    ("owner/repo", "v1", "*; touch pwned"),
+                    ("owner/repo/extra", "v1", "*source*.zip"),
+                    ("owner/repo", "v1\nsecond=value", "*source*.zip"),
+                ):
+                    with self.assertRaises(IntegrityError):
+                        verify_release_source.download_release(
+                            repo, tag, asset, destination,
+                        )
+                run.assert_not_called()
+
+    def test_receipt_binds_the_bytes_that_were_verified(self):
+        with tempfile.TemporaryDirectory() as temp:
+            parent = Path(temp)
+            root = self.sample(parent)
+            archive = parent / "release-source.zip"
+            package_zip(root, archive)
+            original = archive.read_bytes()
+
+            tampered = parent / "tampered.zip"
+            manifest = (root / MANIFEST_NAME).read_bytes()
+            with zipfile.ZipFile(tampered, "w", zipfile.ZIP_DEFLATED) as zf:
+                zf.writestr(f"{root.name}/{MANIFEST_NAME}", manifest)
+                zf.writestr(f"{root.name}/README.md", "tampered\n")
+                zf.writestr(f"{root.name}/src/app.rs", "fn main() {}\n")
+
+            real_verify = verify_release_source.verify_zip
+
+            def replace_then_verify(target, **kwargs):
+                os.replace(tampered, archive)
+                if hasattr(target, "seek"):
+                    target.seek(0)
+                return real_verify(target, **kwargs)
+
+            with patch.object(verify_release_source, "verify_zip",
+                              side_effect=replace_then_verify):
+                receipt = verify_release_source.verify_release_archive(archive)
+            self.assertEqual(receipt["status"], "verified")
+            self.assertEqual(receipt["archive_bytes"], len(original))
+            self.assertEqual(receipt["archive_sha256"],
+                             hashlib.sha256(original).hexdigest())
 
     def test_download_requires_exactly_one_matching_asset(self):
         with tempfile.TemporaryDirectory() as temp:
