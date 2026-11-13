@@ -20,6 +20,16 @@ toolchain no longer claims success. A person's own tests are optional; their
 build is not. `craft.json` is version 5. Desktop behaviour and end-to-end
 builds remain **not run**; the first live Ghidra run is recorded above.
 
+**Release source preflight (2026-11-13):** `release.yml` now runs
+`fork-release-source-preflight.yml` before the platform jobs: it verifies the
+source tree, packages the canonical source ZIP, verifies and extracts it,
+writes a receipt bound to the release commit, and attests the ZIP. A
+`source-verify` job then compares the source ZIP attached to the draft with
+that receipt before a person publishes it. The checker can bind a published
+asset to the receipt, resolve the tag's commit and verify the GitHub artifact
+attestation. Python regressions pass; the workflows have not run on GitHub and
+no release has used them.
+
 **Live agent builds tried (2026-11-11):** a Clean room rebuild of
 `example.com` reached the builder but no build with Codex 0.156.1
 (`model_not_found`: the configured `gpt-6.1-terra` is not supported with a

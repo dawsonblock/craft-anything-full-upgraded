@@ -215,6 +215,7 @@ def verify_tree(root: Path, *, require_declared_root: bool = False) -> dict:
         "total_bytes": manifest["total_bytes"],
         "manifest_sha256": hashlib.sha256(manifest_file.read_bytes()).hexdigest(),
         "declared_root": manifest["root"], "source_root": root.name,
+        "root_policy": "strict" if require_declared_root else "compatible",
         "root_renamed": root.name != manifest["root"],
     }
 
@@ -294,6 +295,7 @@ def verify_zip(archive: Path | BinaryIO, *, require_declared_root: bool = False)
                 "total_bytes": manifest["total_bytes"],
                 "manifest_sha256": hashlib.sha256(manifest_raw).hexdigest(),
                 "declared_root": manifest["root"], "source_root": source_root,
+                "root_policy": "strict" if require_declared_root else "compatible",
                 "root_renamed": source_root != manifest["root"],
             }
     except (zipfile.BadZipFile, RuntimeError, EOFError, zlib.error) as exc:
@@ -368,6 +370,7 @@ def package_zip(root: Path, archive: Path) -> dict:
             "file_count": verified["file_count"], "total_bytes": verified["total_bytes"],
             "manifest_sha256": verified["manifest_sha256"],
             "declared_root": verified["declared_root"], "source_root": verified["source_root"],
+            "root_policy": "strict",
             "root_renamed": verified["root_renamed"],
         }
     finally:
@@ -444,6 +447,7 @@ def extract_verified_zip(archive: Path | BinaryIO, output_parent: Path, *,
                         "status": "extracted", "source_root": str(final_root),
                         "file_count": unpacked["file_count"],
                         "manifest_sha256": unpacked["manifest_sha256"],
+                        "root_policy": "strict" if require_declared_root else "compatible",
                         "root_renamed": unpacked["root_renamed"],
                     }
     except (zipfile.BadZipFile, RuntimeError, EOFError, zlib.error) as exc:

@@ -34,7 +34,8 @@ names, traversal paths, symbolic links, extra files, missing files, a manifest
 outside a single top-level folder, a nested source root, malformed manifest
 data, source size limits and portable filename collisions. The top-level folder
 may be renamed (as GitHub branch archives do); the result reports
-`declared_root`, the actual `source_root` and `root_renamed`. Add
+`declared_root`, the actual `source_root`, `root_policy` (`strict` or
+`compatible`) and `root_renamed`. Add
 `--require-declared-root` to refuse a renamed folder. The V7 rules also reject
 Windows device names, control characters, non-normalized Unicode, unsafe
 filename punctuation and trailing dots/spaces.
@@ -71,18 +72,62 @@ Check the file people actually download, not a fresh ZIP built in CI:
 The script downloads exactly one matching asset with the GitHub CLI, requires
 the canonical root, checks every member without extracting it, unpacks it into
 a private temporary folder and rehashes the tree. An already downloaded file
-can be checked with `--archive`. The archive is opened once without following
-a symbolic link, and the same descriptor is hashed, verified and extracted, so
-the receipt's SHA-256 always describes the bytes that were verified even if the
-path is replaced meanwhile. Repository, tag and asset inputs are validated
-before `gh` runs. The receipt records the release identity, the archive's
-SHA-256, the manifest's SHA-256, the file count and total bytes; it is created
-exclusively, never overwritten, and must stay outside the checkout. A release
-that attaches no source ZIP, or attaches a GitHub-generated archive without
+can be checked with `--archive`. The archive is copied through a bounded stream
+into a private staging file and hashed while it is copied; that staged copy is
+re-hashed, verified and extracted, and is re-hashed again afterwards. The
+receipt's SHA-256 therefore describes exactly the bytes that were verified,
+even if the original path is replaced or changed meanwhile. Repository, tag and
+asset inputs are validated before `gh` runs. The receipt records the release
+identity, the archive's SHA-256, the manifest's SHA-256, the file count, total
+bytes and the root policy (`strict` here); it is created exclusively, never
+overwritten, and must stay outside the checkout. A release that attaches no
+source ZIP, or attaches a GitHub-generated archive without
 `SOURCE_INTEGRITY.json`, fails with a plain error. The **Release Source
 Artifact Check** workflow passes those values through environment variables
 rather than inserting expressions into its shell, runs this when a release is
 published and on manual dispatch, and uploads the receipt.
+
+## Bind a published asset to a preflight receipt
+
+`fork-release-source-preflight.yml` runs before the platform release jobs (and
+on manual dispatch). It verifies the source tree, packages the canonical ZIP,
+verifies and extracts it, writes a receipt bound to the release commit, and
+attests the ZIP with GitHub's artifact attestation. `release.yml` gates the
+platform jobs on it, then downloads the source ZIP attached to the resulting
+draft release and checks it against that receipt. Draft releases do not create
+their Git tag until publication, so the draft check addresses the release by
+ID and verifies a local archive.
+
+Check a draft asset (the `source-verify` job does this automatically):
+
+    python3 scripts/verify_release_source.py \
+      --archive /path/to/draft-source.zip \
+      --provenance /path/to/release-source-preflight.json \
+      --verify-attestation OWNER/NAME \
+      --report /path/outside/the/checkout/receipt.json
+
+After publication, check the tag as well:
+
+    python3 scripts/verify_release_source.py \
+      --repo OWNER/NAME --tag vX.Y.Z \
+      --provenance /path/to/release-source-preflight.json \
+      --verify-attestation \
+      --report /path/outside/the/checkout/receipt.json
+
+`--provenance` requires the asset's SHA-256 to equal the preflight receipt's.
+In remote mode, `--commit` (or the commit recorded in the receipt) must equal
+the commit the release tag resolves to. `--verify-attestation` asks
+`gh attestation verify` to check the ZIP's signed GitHub artifact attestation,
+enforces that source commit, and requires the attestation's subject digest to
+be the same SHA-256. The default signer is
+`OWNER/NAME/.github/workflows/fork-release-source-preflight.yml`; pass
+`--signer-workflow` when a release uses another workflow. A local archive can
+also be checked with `--archive --expect-archive-sha256`.
+
+The attestation proves which repository and workflow produced the ZIP and which
+commit it came from. It does not prove that the code was reviewed, that the
+build is reproducible, or that someone with release access could not replace
+both the manifest and the source; those remain release-process checks.
 
 ## Verified extraction (V7)
 
@@ -125,7 +170,7 @@ From the extracted source directory (its name may differ from the manifest's
     python3 scripts/source_bundle_integrity.py verify-tree --root .
 
 Add `--require-declared-root` to refuse a directory whose name differs from the
-manifest's `root`.
+manifest's `root`; the result reports `root_policy` (`strict` or `compatible`).
 
 The command recomputes every source digest and rejects unexpected files.
 It deliberately ignores Python's `__pycache__` and `.pyc` test artifacts,

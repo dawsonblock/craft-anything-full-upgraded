@@ -188,10 +188,15 @@ cheapest help we can give anyone, so nothing below should hold it up for long.
       equal source produces an equal ZIP
 - [ ] Run the release source check against the first published release that attaches a
       manifest-bearing source ZIP
-- [ ] Verify the final source ZIP before a release is published, not only after, and bind it to the
-      intended commit with a signed checksum or provenance record. The published-asset check stays
-      the backstop; the release workflow is a reusable external workflow, so the pre-publish step
-      needs a decision on where it runs
+- [x] Verify the final source ZIP before a release is published, not only after, and bind it to the
+      intended commit with a signed provenance record: `fork-release-source-preflight.yml` verifies,
+      packages, extracts and attests the source at the release commit, `release.yml` gates the
+      platform jobs on it, and a `source-verify` job compares the source ZIP attached to the draft
+      with the preflight receipt. The published-asset check stays the backstop. The external
+      reusable workflow still decides which ZIP it attaches, so the draft check fails if it is not
+      the preflight artifact
+- [ ] Run the preflight gate and the draft source check on the first real release, and confirm the
+      external release workflow attaches the preflight source ZIP (or replace it before publishing)
 
 ### R5.2 Keeping contributions moving
 Owner: maintainers · Status: in progress

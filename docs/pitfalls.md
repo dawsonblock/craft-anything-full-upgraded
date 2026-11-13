@@ -989,3 +989,9 @@ different branches reused the same package output path and one saw the other bra
 Give every worktree its own `CARGO_TARGET_DIR`, even when one agent manages both. Cleaning
 the shared engine cache then removed 11.6 GiB of compiled artifacts: avoid shared-cache
 cleanup as a recovery shortcut; use an isolated target directory for further verification.
+
+**A draft release addressed by its tag.** A draft release can record a tag name before the Git tag
+exists; GitHub creates the tag only when the release is published. `gh release download <tag>` and
+`repos/{repo}/commits/{tag}` therefore fail for a new draft. Address a draft by its release ID
+(`repos/{repo}/releases/{id}`), verify the downloaded asset against the preflight receipt, and
+resolve the tag only after publication.

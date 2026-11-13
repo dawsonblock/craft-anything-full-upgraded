@@ -47,6 +47,31 @@ class SourceBundleIntegrityTests(unittest.TestCase):
             self.package(root, archive)
             self.assertEqual(verify_zip(archive)["status"], "verified")
 
+    def test_root_policy_is_visible_in_every_result(self):
+        with tempfile.TemporaryDirectory() as temp:
+            parent = Path(temp)
+            root = self.sample(parent)
+            self.assertEqual(verify_tree(root)["root_policy"], "compatible")
+            self.assertEqual(
+                verify_tree(root, require_declared_root=True)["root_policy"],
+                "strict",
+            )
+            archive = parent / "source.zip"
+            self.package(root, archive)
+            self.assertEqual(verify_zip(archive)["root_policy"], "compatible")
+            self.assertEqual(
+                verify_zip(archive, require_declared_root=True)["root_policy"],
+                "strict",
+            )
+            artifact = parent / "artifact.zip"
+            self.assertEqual(package_zip(root, artifact)["root_policy"], "strict")
+            install = parent / "install"
+            install.mkdir()
+            self.assertEqual(
+                extract_verified_zip(artifact, install)["root_policy"],
+                "compatible",
+            )
+
     def test_renamed_root_zip_and_tree_are_accepted(self):
         with tempfile.TemporaryDirectory() as temp:
             parent = Path(temp)

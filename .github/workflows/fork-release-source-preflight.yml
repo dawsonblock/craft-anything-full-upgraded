@@ -1,0 +1,68 @@
+name: Release Source Preflight
+
+# Builds, verifies and attests the canonical source ZIP for the commit being
+# released. release.yml runs this before the platform release jobs, so a source
+# problem stops publication; the published-asset check remains the backstop.
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
+jobs:
+  source-preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: craft-anything-full-upgraded
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verify the source inventory
+        working-directory: craft-anything-full-upgraded
+        run: python scripts/source_bundle_integrity.py verify-tree --root . --require-declared-root
+      - name: Package the source ZIP
+        working-directory: craft-anything-full-upgraded
+        env:
+          ARCHIVE: ${{ runner.temp }}/source-artifact.zip
+        run: python scripts/source_bundle_integrity.py package-zip --root . --archive "$ARCHIVE"
+      - name: Verify and extract the packaged ZIP
+        working-directory: craft-anything-full-upgraded
+        env:
+          ARCHIVE: ${{ runner.temp }}/source-artifact.zip
+          INSTALL: ${{ runner.temp }}/source-install
+        run: |
+          python scripts/source_bundle_integrity.py verify-zip --archive "$ARCHIVE" --require-declared-root
+          mkdir "$INSTALL"
+          python scripts/source_bundle_integrity.py extract-zip --archive "$ARCHIVE" --output-parent "$INSTALL" --require-declared-root
+      - name: Write the preflight receipt
+        working-directory: craft-anything-full-upgraded
+        env:
+          ARCHIVE: ${{ runner.temp }}/source-artifact.zip
+          RECEIPT: ${{ runner.temp }}/release-source-preflight.json
+          SOURCE_COMMIT: ${{ github.sha }}
+        run: |
+          python scripts/verify_release_source.py \
+            --archive "$ARCHIVE" \
+            --report "$RECEIPT" \
+            --root . \
+            --commit "$SOURCE_COMMIT"
+      - name: Attest the source ZIP
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: ${{ runner.temp }}/source-artifact.zip
+      - name: Show the preflight receipt
+        run: cat "$RUNNER_TEMP/release-source-preflight.json" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload the source ZIP and receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-source-preflight
+          path: |
+            ${{ runner.temp }}/source-artifact.zip
+            ${{ runner.temp }}/release-source-preflight.json
+          if-no-files-found: error
