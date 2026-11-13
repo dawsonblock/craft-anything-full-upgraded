@@ -998,6 +998,7 @@ resolve the tag only after publication.
 
 **A workspace test gate without its helper binary.** `cargo test --workspace` on a clean checkout
 ran the two `crates/ai` rebuild tests before `craft-anything-cli` existed in `target/debug`, so
-they failed with "Craft Anything's helper program (craft-anything-cli) is missing". `find_cli`
-looks one level above `target/debug/deps`; build `-p craft-anything-cli` before the workspace tests
-in the gate.
+they failed with "Craft Anything's helper program (craft-anything-cli) is missing". Build
+`-p craft-anything-cli` before the workspace tests in the gate, and have `find_cli` check the
+`target/<profile>` root: the CI ran the AI test binary from
+`target/debug/build/<crate>/<hash>/out`, not `target/debug/deps`.

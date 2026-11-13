@@ -313,9 +313,9 @@
       "sha256": "cd36c7fb9b87608ed1a2957c00023a51e1f14e3ad0cea5238244876671c3fdf4"
     },
     {
-      "bytes": 11734,
+      "bytes": 12144,
       "path": "UPGRADE_REPORT_V27.md",
-      "sha256": "e87fc2885f332186f1e72be39e31b6f2fa1fe348779ff148ec4a565032fe9376"
+      "sha256": "a80a9e2fa74447cba57a9277f2cff790151bc6235953d20f1fb183c1a714e82e"
     },
     {
       "bytes": 5733,
@@ -3188,9 +3188,9 @@
       "sha256": "869b854833b6d8ad3916978a849ede11279a999a8bdfa6260437207b478faeea"
     },
     {
-      "bytes": 40607,
+      "bytes": 41842,
       "path": "crates/platform/src/which.rs",
-      "sha256": "f012cfb6c3de58ee53786f426f3e777bc0a84c2e3e0e61db0580d25fe4de0afd"
+      "sha256": "fe57bc21b0f8e2a99383bfdbc0585f8a1d9f6fbadd3f30d566af86fadf8139d9"
     },
     {
       "bytes": 5560,
@@ -3813,9 +3813,9 @@
       "sha256": "fb3f445a7bedc93cbbe530bed731ca80396588129cf188f051e542ee514e34a0"
     },
     {
-      "bytes": 75320,
+      "bytes": 75422,
       "path": "docs/pitfalls.md",
-      "sha256": "06dfa3155e6643cfe5905c90962d0111d766c4c25b6879266b90ced7c52f2798"
+      "sha256": "c68c1cbd09162815af552cf8128162968b6928f02209ba442fab831c2498c94f"
     },
     {
       "bytes": 4263,
@@ -4675,5 +4675,5 @@
   ],
   "root": "craft-anything-full-upgraded",
   "schema": 1,
-  "total_bytes": 20619296
+  "total_bytes": 20621043
 }

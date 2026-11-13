@@ -38,6 +38,7 @@ retained, not replaced:
 | `scripts/native_validation.py`, `scripts/native_cli_matrix.py` | Changed by R5.1 | `--locked` native commands and truthful blocked/fail statuses |
 | `scripts/tests/test_native_validation.py` | Changed by R5.1 | Locked-command and status regressions |
 | `xtask/src/main.rs` | Changed by V27 | Builds the CLI helper before the workspace tests so a clean CI checkout has it |
+| `crates/platform/src/which.rs` | Changed by V27 | Finds the CLI at the Cargo profile root from `deps` or a build script's `out/` directory |
 | `docs/source-bundle-integrity.md` | Changed by R5.1/V27 | Packaging, root modes, staged verification and provenance |
 | `docs/releasing.md` | Changed by V27 | Preflight, draft check and post-publication check |
 | `docs/ROADMAP.md`, `docs/STATUS.md` | Changed by R5.1/V27 | What landed and what still waits for a real release |
@@ -166,9 +167,12 @@ On macOS with Python 3.12 and Rust 1.99.1 (the workspace minimum is 1.97.0):
 
 The machine-readable native receipt is `craft_native_validation_v27.json`; the
 CI gate log is `v27_xtask_ci.log`; the packaging receipt is
-`CraftAnything_V27_FULL_SOURCE_VERIFIED.receipt.json`. The final archive
-SHA-256 is recorded in that receipt, not in this file (the file is inside the
-archive).
+`CraftAnything_V27_FULL_SOURCE_VERIFIED.receipt.json`. `find_cli` now checks
+the Cargo profile root, so the CLI helper is found from both
+`target/<profile>/deps` and `target/<profile>/build/<crate>/<hash>/out`; the
+clean CI workspace test previously failed the two `crates/ai` rebuild tests in
+the second layout. The final archive SHA-256 is recorded in the packaging
+receipt, not in this file (the file is inside the archive).
 
 ## Readiness gates
 
