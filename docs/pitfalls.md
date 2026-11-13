@@ -87,6 +87,12 @@ names (`git merge-base --is-ancestor <fix> <release tag>`), and check the messag
 
 ## Tests
 
+**A source manifest tied to its folder name.** `SOURCE_INTEGRITY.json` recorded
+`craft-anything-full-upgraded`, and `verify-zip` required the archive's top-level folder to match.
+GitHub's branch and tag archives name it `<repository>-<branch>`, so the project's own archive
+failed its own verifier. Verify content relative to the single top-level folder and report both
+names; the folder name is packaging, not hashed data.
+
 **A focused test filter selected nothing and still looked green.** The V25 Deep gate and the
 manual OS matrix ran `deep_settings_`, `deep_lifecycle_` and `target_reopen_`, but the
 restored-timestamp inventory regression lived in `inventory_tests`, which none of them matched;

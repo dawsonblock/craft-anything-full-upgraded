@@ -16,7 +16,7 @@ SCRIPTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS))
 from source_bundle_integrity import (
     IntegrityError, MANIFEST_NAME, extract_verified_zip, make_manifest,
-    parse_manifest, permitted_path, verify_tree, verify_zip,
+    package_zip, parse_manifest, permitted_path, verify_tree, verify_zip,
 )
 
 
@@ -45,6 +45,66 @@ class SourceBundleIntegrityTests(unittest.TestCase):
             archive = parent / "source.zip"
             self.package(root, archive)
             self.assertEqual(verify_zip(archive)["status"], "verified")
+
+    def test_renamed_root_zip_and_tree_are_accepted(self):
+        with tempfile.TemporaryDirectory() as temp:
+            parent = Path(temp)
+            root = self.sample(parent)
+            renamed = "craft-anything-full-upgraded-bugfix-deep-gate-inventory-tests-and-doc-drift"
+            archive = parent / "branch.zip"
+            with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as zf:
+                for path in sorted(root.rglob("*")):
+                    if path.is_file():
+                        zf.write(path, arcname=f"{renamed}/{path.relative_to(root).as_posix()}")
+            verified = verify_zip(archive)
+            self.assertEqual(verified["status"], "verified")
+            self.assertEqual(verified["declared_root"], root.name)
+            self.assertEqual(verified["source_root"], renamed)
+            install = parent / "install"
+            install.mkdir()
+            receipt = extract_verified_zip(archive, install)
+            self.assertEqual(receipt["status"], "extracted")
+            installed = install / renamed
+            checked = verify_tree(installed)
+            self.assertEqual(checked["file_count"], 2)
+            self.assertEqual(checked["declared_root"], root.name)
+            self.assertEqual(checked["source_root"], renamed)
+
+    def test_zip_with_nested_source_root_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temp:
+            parent = Path(temp)
+            root = self.sample(parent)
+            archive = parent / "nested-root.zip"
+            with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as zf:
+                for path in sorted(root.rglob("*")):
+                    if path.is_file():
+                        zf.write(path, arcname=f"outer/{root.name}/{path.relative_to(root).as_posix()}")
+            with self.assertRaisesRegex(IntegrityError, "source root is invalid"):
+                verify_zip(archive)
+
+    def test_package_zip_verifies_the_artifact_and_refuses_overwrite(self):
+        with tempfile.TemporaryDirectory() as temp:
+            parent = Path(temp)
+            root = self.sample(parent)
+            archive = parent / "artifact.zip"
+            receipt = package_zip(root, archive)
+            self.assertEqual(receipt["status"], "packaged")
+            self.assertEqual(receipt["source_root"], root.name)
+            self.assertEqual(len(receipt["archive_sha256"]), 64)
+            self.assertEqual(verify_zip(archive)["status"], "verified")
+            install = parent / "install"
+            install.mkdir()
+            self.assertEqual(extract_verified_zip(archive, install)["status"], "extracted")
+            self.assertTrue((install / root.name / "README.md").is_file())
+            self.assertFalse(any(parent.glob(".source-zip-*")))
+            with self.assertRaisesRegex(IntegrityError, "Refusing to overwrite"):
+                package_zip(root, archive)
+            (root / "extra.txt").write_text("unexpected", encoding="utf-8")
+            with self.assertRaisesRegex(IntegrityError, "missing, changed or extra"):
+                package_zip(root, parent / "stale.zip")
+            self.assertFalse(any(parent.glob(".source-zip-*")))
+            with self.assertRaisesRegex(IntegrityError, "outside the source root"):
+                package_zip(root, root / "artifact.zip")
 
     def test_verified_extraction_installs_exact_source_without_running_it(self):
         with tempfile.TemporaryDirectory() as temp:

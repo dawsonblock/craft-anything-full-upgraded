@@ -29,3 +29,10 @@ jobs:
       - name: Test portable ZIP validation and extraction
         working-directory: craft-anything-full-upgraded
         run: python -m unittest discover -s scripts/tests -p test_source_bundle_integrity.py -v
+      - name: Package, verify and extract the source ZIP artifact
+        working-directory: craft-anything-full-upgraded
+        run: |
+          python scripts/source_bundle_integrity.py package-zip --root . --archive ../source-artifact.zip
+          python scripts/source_bundle_integrity.py verify-zip --archive ../source-artifact.zip
+          mkdir ../source-install
+          python scripts/source_bundle_integrity.py extract-zip --archive ../source-artifact.zip --output-parent ../source-install

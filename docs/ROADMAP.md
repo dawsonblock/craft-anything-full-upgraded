@@ -175,6 +175,10 @@ cheapest help we can give anyone, so nothing below should hold it up for long.
       local path, so `cargo xtask secrets` fails) are removed and ignored, the local devlog is
       left out of the inventory, and `SOURCE_INTEGRITY.json` is regenerated from the edited tree
       — PR #10
+- [ ] Verify the source ZIP attached to a release, not only a fresh one built in CI. The
+      source-portability workflow now packages, verifies and extracts a new ZIP, and the verifier
+      accepts GitHub's renamed branch folders; no release step runs it against the artifact people
+      download
 
 ### R5.2 Keeping contributions moving
 Owner: maintainers · Status: in progress

@@ -203,8 +203,6 @@ def verify_tree(root: Path) -> dict:
     if manifest_file.stat().st_size > MAX_MANIFEST_SIZE:
         raise IntegrityError("Source manifest is too large")
     manifest = parse_manifest(manifest_file.read_bytes())
-    if root.name != manifest["root"]:
-        raise IntegrityError("Source root differs from manifest root")
     actual = source_records(root)
     if actual != manifest["files"]:
         raise IntegrityError("Source files are missing, changed or extra")
@@ -212,6 +210,7 @@ def verify_tree(root: Path) -> dict:
         "status": "verified", "file_count": manifest["file_count"],
         "total_bytes": manifest["total_bytes"],
         "manifest_sha256": hashlib.sha256(manifest_file.read_bytes()).hexdigest(),
+        "declared_root": manifest["root"], "source_root": root.name,
     }
 
 
@@ -260,14 +259,15 @@ def verify_zip(archive: Path | BinaryIO) -> dict:
             with zf.open(regular[manifest_name], "r") as stream:
                 manifest_raw = stream.read(MAX_MANIFEST_SIZE + 1)
             manifest = parse_manifest(manifest_raw)
-            prefix = manifest["root"] + "/"
-            if manifest_name != prefix + MANIFEST_NAME:
-                raise IntegrityError("ZIP manifest is not at the declared source root")
+            source_root = manifest_name[:-len(MANIFEST_NAME)].rstrip("/")
+            if "/" in source_root or not permitted_path(source_root):
+                raise IntegrityError("ZIP source root is invalid")
+            prefix = source_root + "/"
             if any(
                 item.is_dir() and item.filename != prefix and not item.filename.startswith(prefix)
                 for item in entries
             ):
-                raise IntegrityError("ZIP contains a directory outside the declared source root")
+                raise IntegrityError("ZIP contains a directory outside its source root")
             observed = {}
             for name, item in regular.items():
                 if name == manifest_name:
@@ -286,9 +286,52 @@ def verify_zip(archive: Path | BinaryIO) -> dict:
                 "status": "verified", "file_count": manifest["file_count"],
                 "total_bytes": manifest["total_bytes"],
                 "manifest_sha256": hashlib.sha256(manifest_raw).hexdigest(),
+                "declared_root": manifest["root"], "source_root": source_root,
             }
     except (zipfile.BadZipFile, RuntimeError, EOFError, zlib.error) as exc:
         raise IntegrityError(f"ZIP cannot be read safely: {exc}") from exc
+
+
+def package_zip(root: Path, archive: Path) -> dict:
+    """Write a ZIP at the manifest's declared root and verify the produced file."""
+    if archive.exists() or archive.is_symlink():
+        raise IntegrityError(f"Refusing to overwrite an existing archive: {archive}")
+    parent = archive.parent
+    if parent.is_symlink() or not parent.is_dir():
+        raise IntegrityError("Archive parent must be an existing, non-symlink directory")
+    if archive.resolve().is_relative_to(root.resolve()):
+        raise IntegrityError("Archive must be outside the source root")
+    manifest_file = root / MANIFEST_NAME
+    if manifest_file.is_symlink() or not manifest_file.is_file():
+        raise IntegrityError("Source manifest is missing or is a symbolic link")
+    manifest = parse_manifest(manifest_file.read_bytes())
+    if source_records(root) != manifest["files"]:
+        raise IntegrityError("Source files are missing, changed or extra")
+    descriptor, temporary = tempfile.mkstemp(prefix=".source-zip-", dir=parent)
+    os.close(descriptor)
+    staged = Path(temporary)
+    try:
+        with zipfile.ZipFile(staged, "w", zipfile.ZIP_DEFLATED) as zf:
+            prefix = manifest["root"] + "/"
+            zf.write(manifest_file, prefix + MANIFEST_NAME)
+            for row in manifest["files"]:
+                zf.write(root / row["path"], prefix + row["path"])
+        verified = verify_zip(staged)
+        with staged.open("rb") as stream:
+            _, archive_digest = sha256_stream(stream, MAX_TOTAL_SIZE + MAX_MANIFEST_SIZE)
+        if archive.exists() or archive.is_symlink():
+            raise IntegrityError("Archive appeared during packaging")
+        os.rename(staged, archive)
+        return {
+            "status": "packaged", "archive": str(archive),
+            "archive_sha256": archive_digest,
+            "file_count": verified["file_count"], "total_bytes": verified["total_bytes"],
+            "manifest_sha256": verified["manifest_sha256"],
+            "declared_root": verified["declared_root"], "source_root": verified["source_root"],
+        }
+    finally:
+        if staged.exists():
+            staged.unlink()
 
 
 def extract_verified_zip(archive: Path, output_parent: Path) -> dict:
@@ -369,6 +412,10 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--root", type=Path, required=True)
     pzip = modes.add_parser("verify-zip")
     pzip.add_argument("--archive", type=Path, required=True)
+    ppackage = modes.add_parser("package-zip")
+    ppackage.add_argument("--root", type=Path, required=True)
+    ppackage.add_argument("--archive", type=Path, required=True,
+                          help="New ZIP path; an existing archive is never overwritten")
     pextract = modes.add_parser("extract-zip")
     pextract.add_argument("--archive", type=Path, required=True)
     pextract.add_argument("--output-parent", type=Path, required=True,
@@ -388,6 +435,8 @@ def main(argv: list[str] | None = None) -> int:
             result["action"] = "created"
         elif args.mode == "verify-tree":
             result = verify_tree(args.root.absolute())
+        elif args.mode == "package-zip":
+            result = package_zip(args.root.absolute(), args.archive.absolute())
         elif args.mode == "verify-zip":
             result = verify_zip(args.archive)
         else:
@@ -395,7 +444,7 @@ def main(argv: list[str] | None = None) -> int:
     except (IntegrityError, OSError, ValueError) as exc:
         result = {"status": "error", "error": str(exc)}
     print(json.dumps(result, indent=2, sort_keys=True))
-    return 0 if result["status"] in ("verified", "extracted") else 1
+    return 0 if result["status"] in ("verified", "packaged", "extracted") else 1
 
 
 if __name__ == "__main__":
