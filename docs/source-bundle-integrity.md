@@ -58,6 +58,25 @@ includes the whole archive's SHA-256. The source-portability workflow runs this
 package, verify and extract round-trip with `--require-declared-root` on every
 operating system it tests.
 
+## Verify a published release artifact
+
+Check the file people actually download, not a fresh ZIP built in CI:
+
+    python3 scripts/verify_release_source.py \
+      --repo OWNER/NAME --tag vX.Y.Z --asset '*source*.zip' \
+      --report /path/outside/the/checkout/receipt.json
+
+The script downloads exactly one matching asset with the GitHub CLI, requires
+the canonical root, checks every member without extracting it, unpacks it into
+a private temporary folder and rehashes the tree. An already downloaded file
+can be checked with `--archive`. The receipt records the release identity, the
+archive's SHA-256, the manifest's SHA-256, the file count and total bytes; it is
+created exclusively, never overwritten, and must stay outside the checkout. A
+release that attaches no source ZIP, or attaches a GitHub-generated archive
+without `SOURCE_INTEGRITY.json`, fails with a plain error. The **Release Source
+Artifact Check** workflow runs this when a release is published and on manual
+dispatch, and uploads the receipt.
+
 ## Verified extraction (V7)
 
 Use a **separately trusted copy** of this script. Never execute a verifier

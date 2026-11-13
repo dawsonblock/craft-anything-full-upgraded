@@ -175,11 +175,14 @@ cheapest help we can give anyone, so nothing below should hold it up for long.
       local path, so `cargo xtask secrets` fails) are removed and ignored, the local devlog is
       left out of the inventory, and `SOURCE_INTEGRITY.json` is regenerated from the edited tree
       — PR #10
-- [ ] Verify the source ZIP attached to a release, not only a fresh one built in CI. The
-      source-portability workflow now packages, verifies and extracts a new ZIP with
-      `--require-declared-root`, and packaging creates its destination exclusively; no release
-      step runs it against the artifact people download
-      — claimed: Devin, branch feature/r5.1-release-source-check
+- [x] Add a release step that verifies the source ZIP attached to a release, not only a fresh one
+      built in CI: `scripts/verify_release_source.py` downloads the asset with `gh`, requires the
+      canonical root, extracts it and writes an exclusive receipt, and the Release Source Artifact
+      Check workflow runs it on publication and on dispatch. Checked against the distributed V25
+      ZIP (926 files, 20,469,740 bytes, archive `05f67371…`, manifest `376836e1…`); the generated
+      source archive for upstream v0.6.1 has no `SOURCE_INTEGRITY.json` and is refused
+- [ ] Run the release source check against the first published release that attaches a
+      manifest-bearing source ZIP
 
 ### R5.2 Keeping contributions moving
 Owner: maintainers · Status: in progress
