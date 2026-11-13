@@ -200,6 +200,13 @@ class NativeValidationTests(unittest.TestCase):
         commands = [argv for _, argv in gate.DEEP_RUST_CHECKS if "test" in argv]
         self.assertTrue(any("inventory_tests" in argv for argv in commands))
 
+    def test_full_profile_locks_dependency_resolution(self) -> None:
+        for name, argv in gate.RUST_CHECKS:
+            if name == "fmt":
+                continue
+            with self.subTest(check=name):
+                self.assertIn("--locked", argv)
+
     def test_every_configured_test_filter_matches_an_authored_test(self) -> None:
         sources = "\n".join(
             path.read_text(encoding="utf-8", errors="replace")

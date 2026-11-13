@@ -32,15 +32,15 @@ CLI_HELP_TIMEOUT = 20
 
 RUST_CHECKS = (
     ("fmt", ("fmt", "--all", "--", "--check")),
-    ("i18n", ("xtask", "i18n-coverage")),
-    ("tools", ("xtask", "tools", "--check")),
-    ("schemas", ("xtask", "schemas", "--check")),
-    ("layers", ("xtask", "layers")),
-    ("locks", ("xtask", "locks")),
-    ("engine_tests", ("test", "-p", "craft-anything-engine")),
-    ("ui_tests", ("test", "-p", "craft-anything-ui-egui")),
-    ("clippy", ("clippy", "--workspace", "--all-targets", "--", "-D", "warnings")),
-    ("cli_build", ("build", "-p", "craft-anything-cli")),
+    ("i18n", ("--locked", "xtask", "i18n-coverage")),
+    ("tools", ("--locked", "xtask", "tools", "--check")),
+    ("schemas", ("--locked", "xtask", "schemas", "--check")),
+    ("layers", ("--locked", "xtask", "layers")),
+    ("locks", ("--locked", "xtask", "locks")),
+    ("engine_tests", ("test", "--locked", "-p", "craft-anything-engine")),
+    ("ui_tests", ("test", "--locked", "-p", "craft-anything-ui-egui")),
+    ("clippy", ("clippy", "--locked", "--workspace", "--all-targets", "--", "-D", "warnings")),
+    ("cli_build", ("build", "--locked", "-p", "craft-anything-cli")),
 )
 
 # A shorter, actionable gate for Deep-mode Ghidra configuration and cache changes.
@@ -259,7 +259,7 @@ def run_gate(root: Path, timeout: int, cargo: str | None = None, rustc: str | No
     rust_checks = DEEP_RUST_CHECKS if profile == "deep" else RUST_CHECKS
     results = []
     try:
-        manifest = verify_tree(root)
+        manifest = verify_tree(root, require_declared_root=True)
         results.append({"name": "source_integrity", "status": "pass", "file_count": manifest["file_count"]})
     except (IntegrityError, OSError, ValueError) as exc:
         results.append({"name": "source_integrity", "status": "fail", "reason": str(exc)})

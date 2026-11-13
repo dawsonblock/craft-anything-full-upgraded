@@ -93,6 +93,12 @@ GitHub's branch and tag archives name it `<repository>-<branch>`, so the project
 failed its own verifier. Verify content relative to the single top-level folder and report both
 names; the folder name is packaging, not hashed data.
 
+**A check-then-rename overwrite race.** `package_zip` checked that the destination did not exist
+and later called `os.rename`, which replaces an existing file on POSIX; another process could
+create the destination in between, have it overwritten, and still see `packaged`. Create the final
+file exclusively (`O_CREAT | O_EXCL`), write the verified bytes into that descriptor, and verify
+those bytes; a pre-check is not a no-overwrite guarantee.
+
 **A focused test filter selected nothing and still looked green.** The V25 Deep gate and the
 manual OS matrix ran `deep_settings_`, `deep_lifecycle_` and `target_reopen_`, but the
 restored-timestamp inventory regression lived in `inventory_tests`, which none of them matched;

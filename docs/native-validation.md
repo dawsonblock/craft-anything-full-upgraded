@@ -4,9 +4,11 @@ This procedure checks the **source and optional native toolchain** without
 claiming to have run a desktop application. It is independent of the upstream
 shared CI workflow and uses only Python's standard library for orchestration.
 
-The extracted folder should be named `craft-anything-full-upgraded`. Keep the
-generated JSON receipt **outside** that folder: the source integrity manifest
-would otherwise become stale.
+The extracted folder should be named `craft-anything-full-upgraded`. The
+native gate enforces that name; a renamed GitHub branch folder is for
+inspection, not release qualification. Keep the generated JSON receipt
+**outside** that folder: the source integrity manifest would otherwise become
+stale.
 
 ## V25: Focused Deep test profile with protected receipts
 

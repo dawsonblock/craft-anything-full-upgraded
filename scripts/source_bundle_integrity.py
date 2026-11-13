@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
 import stat
 import sys
 import tempfile
@@ -196,13 +197,15 @@ def parse_manifest(raw: bytes) -> dict:
     return result
 
 
-def verify_tree(root: Path) -> dict:
+def verify_tree(root: Path, *, require_declared_root: bool = False) -> dict:
     manifest_file = root / MANIFEST_NAME
     if manifest_file.is_symlink() or not manifest_file.is_file():
         raise IntegrityError("Source manifest is missing or is a symbolic link")
     if manifest_file.stat().st_size > MAX_MANIFEST_SIZE:
         raise IntegrityError("Source manifest is too large")
     manifest = parse_manifest(manifest_file.read_bytes())
+    if require_declared_root and root.name != manifest["root"]:
+        raise IntegrityError("Source root differs from manifest root")
     actual = source_records(root)
     if actual != manifest["files"]:
         raise IntegrityError("Source files are missing, changed or extra")
@@ -211,10 +214,11 @@ def verify_tree(root: Path) -> dict:
         "total_bytes": manifest["total_bytes"],
         "manifest_sha256": hashlib.sha256(manifest_file.read_bytes()).hexdigest(),
         "declared_root": manifest["root"], "source_root": root.name,
+        "root_renamed": root.name != manifest["root"],
     }
 
 
-def verify_zip(archive: Path | BinaryIO) -> dict:
+def verify_zip(archive: Path | BinaryIO, *, require_declared_root: bool = False) -> dict:
     try:
         with zipfile.ZipFile(archive, "r") as zf:
             entries = zf.infolist()
@@ -262,6 +266,8 @@ def verify_zip(archive: Path | BinaryIO) -> dict:
             source_root = manifest_name[:-len(MANIFEST_NAME)].rstrip("/")
             if "/" in source_root or not permitted_path(source_root):
                 raise IntegrityError("ZIP source root is invalid")
+            if require_declared_root and source_root != manifest["root"]:
+                raise IntegrityError("ZIP manifest is not at the declared source root")
             prefix = source_root + "/"
             if any(
                 item.is_dir() and item.filename != prefix and not item.filename.startswith(prefix)
@@ -287,6 +293,7 @@ def verify_zip(archive: Path | BinaryIO) -> dict:
                 "total_bytes": manifest["total_bytes"],
                 "manifest_sha256": hashlib.sha256(manifest_raw).hexdigest(),
                 "declared_root": manifest["root"], "source_root": source_root,
+                "root_renamed": source_root != manifest["root"],
             }
     except (zipfile.BadZipFile, RuntimeError, EOFError, zlib.error) as exc:
         raise IntegrityError(f"ZIP cannot be read safely: {exc}") from exc
@@ -316,25 +323,49 @@ def package_zip(root: Path, archive: Path) -> dict:
             zf.write(manifest_file, prefix + MANIFEST_NAME)
             for row in manifest["files"]:
                 zf.write(root / row["path"], prefix + row["path"])
-        verified = verify_zip(staged)
-        with staged.open("rb") as stream:
-            _, archive_digest = sha256_stream(stream, MAX_TOTAL_SIZE + MAX_MANIFEST_SIZE)
-        if archive.exists() or archive.is_symlink():
-            raise IntegrityError("Archive appeared during packaging")
-        os.rename(staged, archive)
+        verify_zip(staged, require_declared_root=True)
+        with tempfile.TemporaryDirectory(prefix=".package-check-", dir=parent) as check_parent:
+            extract_verified_zip(staged, Path(check_parent), require_declared_root=True)
+        try:
+            destination_fd = os.open(archive, os.O_CREAT | os.O_EXCL | os.O_RDWR, 0o666)
+        except FileExistsError as exc:
+            raise IntegrityError(f"Refusing to overwrite an existing archive: {archive}") from exc
+        destination = os.fdopen(destination_fd, "w+b")
+        try:
+            with staged.open("rb") as source:
+                shutil.copyfileobj(source, destination, length=1024 * 1024)
+            destination.flush()
+            os.fsync(destination.fileno())
+            destination.seek(0)
+            verified = verify_zip(destination, require_declared_root=True)
+            destination.seek(0)
+            _, archive_digest = sha256_stream(destination, MAX_TOTAL_SIZE + MAX_MANIFEST_SIZE)
+        except BaseException:
+            try:
+                destination.close()
+            except OSError:
+                pass
+            try:
+                archive.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise
+        destination.close()
         return {
             "status": "packaged", "archive": str(archive),
             "archive_sha256": archive_digest,
             "file_count": verified["file_count"], "total_bytes": verified["total_bytes"],
             "manifest_sha256": verified["manifest_sha256"],
             "declared_root": verified["declared_root"], "source_root": verified["source_root"],
+            "root_renamed": verified["root_renamed"],
         }
     finally:
         if staged.exists():
             staged.unlink()
 
 
-def extract_verified_zip(archive: Path, output_parent: Path) -> dict:
+def extract_verified_zip(archive: Path, output_parent: Path, *,
+                         require_declared_root: bool = False) -> dict:
     """Verify, stage, rehash and install a ZIP without touching existing output.
 
     All reads of the archive use one open descriptor: replacing its pathname
@@ -347,7 +378,7 @@ def extract_verified_zip(archive: Path, output_parent: Path) -> dict:
     output_parent = output_parent.resolve()
     try:
         with archive.open("rb") as source:
-            verified = verify_zip(source)
+            verified = verify_zip(source, require_declared_root=require_declared_root)
             source.seek(0)
             with zipfile.ZipFile(source, "r") as zf:
                 manifest_paths = [
@@ -388,7 +419,7 @@ def extract_verified_zip(archive: Path, output_parent: Path) -> dict:
                                 dst.write(chunk)
                         if length != info.file_size:
                             raise IntegrityError("ZIP member size changed during extraction")
-                    unpacked = verify_tree(staged_root)
+                    unpacked = verify_tree(staged_root, require_declared_root=require_declared_root)
                     if (unpacked["file_count"] != verified["file_count"]
                             or unpacked["manifest_sha256"] != verified["manifest_sha256"]):
                         raise IntegrityError("Extracted source does not match verified ZIP")
@@ -399,6 +430,7 @@ def extract_verified_zip(archive: Path, output_parent: Path) -> dict:
                         "status": "extracted", "source_root": str(final_root),
                         "file_count": unpacked["file_count"],
                         "manifest_sha256": unpacked["manifest_sha256"],
+                        "root_renamed": unpacked["root_renamed"],
                     }
     except (zipfile.BadZipFile, RuntimeError, EOFError, zlib.error) as exc:
         raise IntegrityError(f"ZIP extraction failed: {exc}") from exc
@@ -410,8 +442,13 @@ def main(argv: list[str] | None = None) -> int:
     for mode in ("create", "verify-tree"):
         p = modes.add_parser(mode)
         p.add_argument("--root", type=Path, required=True)
+        if mode == "verify-tree":
+            p.add_argument("--require-declared-root", action="store_true",
+                           help="Refuse a folder whose name differs from the manifest root")
     pzip = modes.add_parser("verify-zip")
     pzip.add_argument("--archive", type=Path, required=True)
+    pzip.add_argument("--require-declared-root", action="store_true",
+                      help="Refuse an archive whose top-level folder differs from the manifest root")
     ppackage = modes.add_parser("package-zip")
     ppackage.add_argument("--root", type=Path, required=True)
     ppackage.add_argument("--archive", type=Path, required=True,
@@ -420,6 +457,8 @@ def main(argv: list[str] | None = None) -> int:
     pextract.add_argument("--archive", type=Path, required=True)
     pextract.add_argument("--output-parent", type=Path, required=True,
                           help="Existing directory for the new source root; never overwrites a root")
+    pextract.add_argument("--require-declared-root", action="store_true",
+                          help="Refuse an archive whose top-level folder differs from the manifest root")
     args = parser.parse_args(argv)
     try:
         if args.mode == "create":
@@ -434,13 +473,15 @@ def main(argv: list[str] | None = None) -> int:
             result = verify_tree(root)
             result["action"] = "created"
         elif args.mode == "verify-tree":
-            result = verify_tree(args.root.absolute())
+            result = verify_tree(args.root.absolute(),
+                                 require_declared_root=args.require_declared_root)
         elif args.mode == "package-zip":
             result = package_zip(args.root.absolute(), args.archive.absolute())
         elif args.mode == "verify-zip":
-            result = verify_zip(args.archive)
+            result = verify_zip(args.archive, require_declared_root=args.require_declared_root)
         else:
-            result = extract_verified_zip(args.archive, args.output_parent)
+            result = extract_verified_zip(args.archive, args.output_parent,
+                                          require_declared_root=args.require_declared_root)
     except (IntegrityError, OSError, ValueError) as exc:
         result = {"status": "error", "error": str(exc)}
     print(json.dumps(result, indent=2, sort_keys=True))

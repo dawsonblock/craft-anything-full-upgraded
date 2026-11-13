@@ -8,7 +8,9 @@ The manifest's `root` field records the folder name used when it was written.
 It is a label, not part of the content hashes: GitHub's branch and tag archives
 name the top-level folder `<repository>-<branch>`, so verification accepts any
 single safe top-level folder and reports both names. Every file is still
-checked against the manifest's relative paths.
+checked against the manifest's relative paths. Release gates pass
+`--require-declared-root` to require the canonical name; the default keeps
+GitHub downloads verifiable.
 
 This inventory detects accidental omissions, additions and modifications after
 extraction. It does **not** compile the application, prove that the code is
@@ -32,9 +34,10 @@ names, traversal paths, symbolic links, extra files, missing files, a manifest
 outside a single top-level folder, a nested source root, malformed manifest
 data, source size limits and portable filename collisions. The top-level folder
 may be renamed (as GitHub branch archives do); the result reports
-`declared_root` and the actual `source_root`. The V7 rules also reject Windows
-device names, control characters, non-normalized Unicode, unsafe filename
-punctuation and trailing dots/spaces.
+`declared_root`, the actual `source_root` and `root_renamed`. Add
+`--require-declared-root` to refuse a renamed folder. The V7 rules also reject
+Windows device names, control characters, non-normalized Unicode, unsafe
+filename punctuation and trailing dots/spaces.
 
 ## Package a source ZIP and verify the artifact (V26)
 
@@ -46,10 +49,14 @@ written rather than a checked-out directory:
 
 The command refuses a stale tree, writes every manifest entry plus the manifest
 itself under the manifest's `root`, refuses an archive inside the source tree,
-never overwrites an existing archive, and verifies the produced ZIP before
-installing it at the destination. Its result includes the whole archive's
-SHA-256. The source-portability workflow runs this package, verify and extract
-round-trip on every operating system it tests.
+and always requires the canonical root. It creates the destination exclusively
+(`O_CREAT | O_EXCL`), so a file another process creates during packaging is
+never overwritten; it then verifies the bytes written to that descriptor, not a
+separate path. Before creating the destination it also verifies the staged ZIP
+and extracts it into a private folder, rehashing every file. Its result
+includes the whole archive's SHA-256. The source-portability workflow runs this
+package, verify and extract round-trip with `--require-declared-root` on every
+operating system it tests.
 
 ## Verified extraction (V7)
 
@@ -67,12 +74,13 @@ The command creates the archive's single top-level folder under
 `empty-install-parent` only after both pre-extraction ZIP validation and
 post-extraction source hashing pass. It keeps that folder's name, so a GitHub
 branch archive installs as `<repository>-<branch>` and a release ZIP installs as
-`craft-anything-full-upgraded`. It does not run any file from the archive.
-Existing destination files or folders are not intentionally overwritten.
-Errors clean the private staging folder; keep the output parent **private**, as
-concurrent writers are outside the protection of this cross-platform rename
-procedure. Run it again only after choosing another empty output parent or
-moving your existing tree.
+`craft-anything-full-upgraded`. Pass `--require-declared-root` to refuse a
+renamed archive before anything is extracted. It does not run any file from the
+archive. Existing destination files or folders are not intentionally
+overwritten. Errors clean the private staging folder; keep the output parent
+**private**, as concurrent writers are outside the protection of this
+cross-platform rename procedure. Run it again only after choosing another empty
+output parent or moving your existing tree.
 
 To test the extraction rules separately on three operating systems, trigger
 the manually dispatched **Independent Fork Source Portability** workflow in
@@ -89,6 +97,9 @@ From the extracted source directory (its name may differ from the manifest's
 `root`, for example after a GitHub branch download):
 
     python3 scripts/source_bundle_integrity.py verify-tree --root .
+
+Add `--require-declared-root` to refuse a directory whose name differs from the
+manifest's `root`.
 
 The command recomputes every source digest and rejects unexpected files.
 It deliberately ignores Python's `__pycache__` and `.pyc` test artifacts,
