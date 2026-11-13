@@ -995,3 +995,9 @@ exists; GitHub creates the tag only when the release is published. `gh release d
 `repos/{repo}/commits/{tag}` therefore fail for a new draft. Address a draft by its release ID
 (`repos/{repo}/releases/{id}`), verify the downloaded asset against the preflight receipt, and
 resolve the tag only after publication.
+
+**A workspace test gate without its helper binary.** `cargo test --workspace` on a clean checkout
+ran the two `crates/ai` rebuild tests before `craft-anything-cli` existed in `target/debug`, so
+they failed with "Craft Anything's helper program (craft-anything-cli) is missing". `find_cli`
+looks one level above `target/debug/deps`; build `-p craft-anything-cli` before the workspace tests
+in the gate.

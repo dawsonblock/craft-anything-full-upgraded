@@ -37,6 +37,7 @@ retained, not replaced:
 | `scripts/tests/test_source_bundle_integrity.py` | Changed by R5.1/V27 | Packaging, root-policy and extraction regressions |
 | `scripts/native_validation.py`, `scripts/native_cli_matrix.py` | Changed by R5.1 | `--locked` native commands and truthful blocked/fail statuses |
 | `scripts/tests/test_native_validation.py` | Changed by R5.1 | Locked-command and status regressions |
+| `xtask/src/main.rs` | Changed by V27 | Builds the CLI helper before the workspace tests so a clean CI checkout has it |
 | `docs/source-bundle-integrity.md` | Changed by R5.1/V27 | Packaging, root modes, staged verification and provenance |
 | `docs/releasing.md` | Changed by V27 | Preflight, draft check and post-publication check |
 | `docs/ROADMAP.md`, `docs/STATUS.md` | Changed by R5.1/V27 | What landed and what still waits for a real release |
@@ -158,14 +159,16 @@ On macOS with Python 3.12 and Rust 1.99.1 (the workspace minimum is 1.97.0):
 | UI tests | 208 passed |
 | Focused Deep profile | 4 settings, 3 lifecycle, 1 inventory and 8 target-reopen tests passed; UI typecheck passed |
 | `cargo clippy --workspace --all-targets --locked -- -D warnings` | Passed |
+| `cargo xtask ci` (the CI gate) | Passed locally: workspace clippy and tests, CLI helper build, wasm check |
 | CLI build | Passed |
 | CLI `--help` smoke test | Passed |
 | Package, verify and extract round trip | Passed |
 
 The machine-readable native receipt is `craft_native_validation_v27.json`; the
-packaging receipt is `CraftAnything_V27_FULL_SOURCE_VERIFIED.receipt.json`.
-The final archive SHA-256 is recorded in that receipt, not in this file (the
-file is inside the archive).
+CI gate log is `v27_xtask_ci.log`; the packaging receipt is
+`CraftAnything_V27_FULL_SOURCE_VERIFIED.receipt.json`. The final archive
+SHA-256 is recorded in that receipt, not in this file (the file is inside the
+archive).
 
 ## Readiness gates
 
