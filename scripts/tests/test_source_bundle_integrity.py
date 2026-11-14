@@ -16,7 +16,7 @@ from unittest.mock import patch
 SCRIPTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS))
 from source_bundle_integrity import (
-    IntegrityError, MANIFEST_NAME, extract_verified_zip, git_tracked, make_manifest,
+    IntegrityError, MANIFEST_NAME, extract_verified_zip, git_tracked, ignored, make_manifest,
     package_zip, parse_manifest, permitted_path, source_records, verify_tree, verify_zip,
 )
 
@@ -517,6 +517,32 @@ class SourceBundleIntegrityTests(unittest.TestCase):
             with self.assertRaises(IntegrityError):
                 verify_tree(root)
 
+    def test_a_manifest_that_names_a_cache_file_still_verifies(self):
+        """An archive recorded before caches were excluded must still verify and extract."""
+        with tempfile.TemporaryDirectory() as temp:
+            parent = Path(temp)
+            root = parent / "craft-anything-full-upgraded"
+            (root / ".ruff_cache").mkdir(parents=True)
+            (root / "README.md").write_text("hello\n", encoding="utf-8")
+            (root / ".ruff_cache" / "CACHEDIR.TAG").write_text("cache\n", encoding="utf-8")
+            manifest = {
+                "schema": 1, "root": root.name, "algorithm": "sha256",
+                "file_count": 2, "total_bytes": 12,
+                "files": [
+                    {"path": ".ruff_cache/CACHEDIR.TAG", "bytes": 6,
+                     "sha256": hashlib.sha256(b"cache\n").hexdigest()},
+                    {"path": "README.md", "bytes": 6,
+                     "sha256": hashlib.sha256(b"hello\n").hexdigest()},
+                ],
+            }
+            (root / MANIFEST_NAME).write_text(json.dumps(manifest), encoding="utf-8")
+            self.assertEqual(verify_tree(root)["file_count"], 2)
+            archive = parent / "legacy.zip"
+            self.package(root, archive)
+            install = parent / "install"
+            install.mkdir()
+            self.assertEqual(extract_verified_zip(archive, install)["file_count"], 2)
+
     def test_create_in_a_work_tree_records_only_tracked_files(self):
         with tempfile.TemporaryDirectory() as temp:
             root = self.git_sample(Path(temp))
@@ -537,8 +563,35 @@ class SourceBundleIntegrityTests(unittest.TestCase):
             (root / "stray.txt").write_text("not committed", encoding="utf-8")
             result = self.run_cli("create", "--root", str(root))
             self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-            self.assertIn("Tracked files and the working tree differ", result.stdout)
+            self.assertIn("Git does not track", result.stdout)
+            self.assertIn("stray.txt", result.stdout)
             self.assertFalse((root / MANIFEST_NAME).exists())
+
+    def test_local_scratch_does_not_block_regenerating_the_manifest(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = self.git_sample(Path(temp))
+            (root / "plan").mkdir()
+            (root / "plan" / "notes.md").write_text("private", encoding="utf-8")
+            (root / ".env").write_text("TOKEN=local\n", encoding="utf-8")
+            (root / "local.pem").write_text("secret\n", encoding="utf-8")
+            (root / "screenshots").mkdir()
+            (root / "screenshots" / "shot.png").write_bytes(b"png")
+            result = self.run_cli("create", "--root", str(root))
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            manifest = parse_manifest((root / MANIFEST_NAME).read_bytes())
+            self.assertEqual([row["path"] for row in manifest["files"]],
+                             ["README.md", "src/app.rs"])
+
+    def test_the_inventory_ignores_every_simple_gitignore_entry(self):
+        patterns = []
+        for line in (SCRIPTS.parent / ".gitignore").read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or any(ch in line for ch in "*?["):
+                continue
+            patterns.append(line.lstrip("/").rstrip("/"))
+        self.assertTrue(patterns)
+        for name in patterns:
+            self.assertTrue(ignored(Path(name)), f".gitignore entry is not ignored: {name}")
 
     def test_no_tracked_walks_the_tree(self):
         with tempfile.TemporaryDirectory() as temp:

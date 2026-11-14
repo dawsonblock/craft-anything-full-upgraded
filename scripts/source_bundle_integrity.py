@@ -39,6 +39,16 @@ GIT_TIMEOUT_SECONDS = 60
 CACHE_DIRECTORIES = frozenset({
     "__pycache__", ".ruff_cache", ".pytest_cache", ".mypy_cache", ".tox", ".nox",
 })
+# Root-level folders that are local scratch, not source. They match the
+# repository's `.gitignore`, so a maintainer's private notes or build output
+# cannot block verification or slip into a release ZIP.
+LOCAL_SCRATCH_DIRECTORIES = frozenset({
+    "target", "log", "plan", "plans", "screenshots", "corpus", "dist",
+})
+# Local secret material. Git refuses to commit it and `cargo xtask secrets`
+# rejects it, so a stray copy beside the code must never enter a manifest or a
+# published source ZIP.
+SECRET_SUFFIXES = frozenset({".pem", ".p12", ".pfx", ".key"})
 WINDOWS_DEVICES = frozenset(
     {"con", "prn", "aux", "nul"}
     | {f"com{i}" for i in range(1, 10)}
@@ -98,10 +108,19 @@ def ignored(rel: Path) -> bool:
     # code they read: `ruff` leaves `.ruff_cache` at the root of a Python tree
     # and its own `.gitignore` keeps the directory out of version control, so a
     # manifest that recorded it could never be rebuilt from a clean clone.
-    return (".git" in rel.parts
-            or rel.suffix == ".pyc" or rel.name == ".DS_Store"
-            or any(part in CACHE_DIRECTORIES for part in rel.parts)
-            or (bool(rel.parts) and rel.parts[0] in ("target", "log")))
+    parts = rel.parts
+    if (".git" in parts or rel.suffix == ".pyc" or rel.suffix.lower() in SECRET_SUFFIXES
+            or rel.name == ".DS_Store" or rel.name.endswith("~")
+            or rel.name == ".env" or rel.name.startswith(".env.")
+            or any(part in CACHE_DIRECTORIES for part in parts)):
+        return True
+    if not parts:
+        return False
+    if parts[0] in LOCAL_SCRATCH_DIRECTORIES:
+        return True
+    # Tool settings Git ignores inside a directory the source does ship.
+    return parts[0] == ".claude" and (
+        parts[1:2] == ("worktrees",) or rel.as_posix() == ".claude/settings.local.json")
 
 
 def sha256_stream(stream, limit: int) -> tuple[int, str]:
@@ -148,7 +167,8 @@ def git_tracked(root: Path) -> list[str] | None:
     return [name for name in names if name]
 
 
-def source_records(root: Path, tracked: list[str] | None = None) -> list[dict]:
+def source_records(root: Path, tracked: list[str] | None = None,
+                   keep: frozenset[str] = frozenset()) -> list[dict]:
     if not root.is_dir() or root.is_symlink():
         raise IntegrityError("Source root must be a real directory")
     result = []
@@ -159,8 +179,11 @@ def source_records(root: Path, tracked: list[str] | None = None) -> list[dict]:
         candidates = []
         for path in root.rglob("*"):
             rel = path.relative_to(root)
-            if not ignored(rel):
-                candidates.append((path, rel))
+            # A path the manifest names is always checked: the exclusions only
+            # decide what an inventory skips, never what a recorded file means.
+            if rel.as_posix() not in keep and ignored(rel):
+                continue
+            candidates.append((path, rel))
     else:
         candidates = []
         for name in tracked:
@@ -270,7 +293,7 @@ def verify_tree(root: Path, *, require_declared_root: bool = False) -> dict:
     manifest = parse_manifest(manifest_file.read_bytes())
     if require_declared_root and root.name != manifest["root"]:
         raise IntegrityError("Source root differs from manifest root")
-    actual = source_records(root)
+    actual = source_records(root, keep=frozenset(row["path"] for row in manifest["files"]))
     if actual != manifest["files"]:
         raise IntegrityError("Source files are missing, changed or extra")
     return {
@@ -388,7 +411,7 @@ def package_zip(root: Path, archive: Path) -> dict:
     if manifest_file.is_symlink() or not manifest_file.is_file():
         raise IntegrityError("Source manifest is missing or is a symbolic link")
     manifest = parse_manifest(manifest_file.read_bytes())
-    if source_records(root) != manifest["files"]:
+    if source_records(root, keep=frozenset(row["path"] for row in manifest["files"])) != manifest["files"]:
         raise IntegrityError("Source files are missing, changed or extra")
     descriptor, temporary = tempfile.mkstemp(prefix=".source-zip-", dir=parent)
     os.close(descriptor)
@@ -557,10 +580,14 @@ def main(argv: list[str] | None = None) -> int:
                 if tracked is None:
                     raise IntegrityError("--tracked needs a Git work tree root")
             manifest = make_manifest(root, tracked)
-            if tracked is not None and source_records(root) != manifest["files"]:
-                raise IntegrityError(
-                    "Tracked files and the working tree differ; commit, ignore or remove the "
-                    "extra files before regenerating the manifest")
+            if tracked is not None:
+                recorded = {row["path"] for row in manifest["files"]}
+                extra = sorted({row["path"] for row in source_records(root)} - recorded)
+                if extra:
+                    shown = ", ".join(extra[:5])
+                    raise IntegrityError(
+                        f"Working tree has files Git does not track, so verification would "
+                        f"reject the tree: {shown}; commit, ignore or remove them")
             content = (json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode("utf-8")
             if len(content) > MAX_MANIFEST_SIZE:
                 raise IntegrityError("Generated manifest is too large")

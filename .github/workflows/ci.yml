@@ -40,6 +40,11 @@ jobs:
           cp SOURCE_INTEGRITY.json "$RUNNER_TEMP/committed.json"
           python scripts/source_bundle_integrity.py create --root .
           cmp "$RUNNER_TEMP/committed.json" SOURCE_INTEGRITY.json
+      - name: Package and verify a source ZIP
+        working-directory: craft-anything-full-upgraded
+        run: |
+          python scripts/source_bundle_integrity.py package-zip --root . --archive "$RUNNER_TEMP/source.zip"
+          python scripts/source_bundle_integrity.py verify-zip --archive "$RUNNER_TEMP/source.zip" --require-declared-root
       - name: Run the source inventory regressions
         working-directory: craft-anything-full-upgraded
         run: python -m unittest discover -s scripts/tests -p test_source_bundle_integrity.py -v

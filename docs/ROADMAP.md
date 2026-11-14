@@ -201,8 +201,9 @@ cheapest help we can give anyone, so nothing below should hold it up for long.
       `.ruff_cache` files that Git ignores, so `verify-tree` failed on every clone (934 files
       recorded, 931 tracked) and the manifest could not be reproduced from version control.
       `create` now builds from `git ls-files` and refuses a working tree that verification would
-      reject, the inventory skips tool caches, and CI verifies the checkout, rebuilds the manifest
-      and runs the regressions on every push and pull request instead of only at release time
+      reject, the inventory skips caches, local scratch and secret files, and CI verifies the
+      checkout, rebuilds the manifest, packages a ZIP and runs the regressions on every push and
+      pull request instead of only at release time
       — claimed: Devin, branch bugfix/r5.1-source-manifest-reproducible
 
 ### R5.2 Keeping contributions moving
