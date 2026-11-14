@@ -7,10 +7,10 @@ real screenshot PNG bytes. It checks that movement, an action and the HUD all
 change. Deliberately broken fixtures show that the checker rejects some common
 false successes.
 
-This is a limited, optional evidence layer. The current Rust rebuild checker
-does **not** automatically launch this script or cause games to implement its
-protocol. Game adapters and safe process isolation must be built before it
-becomes a default readiness gate.
+This is a limited, optional evidence layer. A builder can run it with the
+`build_probe_run` tool; it is **not** a default readiness gate, and games are
+not required to implement its protocol. Game adapters and safe process
+isolation must be built before it becomes one.
 
 ## Run the fixture and regression tests
 
@@ -105,13 +105,18 @@ adapter must drive inputs independently (OS/input APIs), synchronize frame
 capture independently, measure time, compare against original-game baselines,
 and run the untrusted target inside an OS sandbox or isolated virtual machine.
 
-## Planned integration
+## Integration
 
-1. Build a game-engine adapter for one target stack (e.g. Godot) that injects
+1. Done: `build_probe_run` (a builder tool) writes this probe into the project's `checks/` folder,
+   drives the game with a bounded subprocess and accepts only a fresh `status: "pass"` report whose
+   `capture_folder` is the run's own. The result carries the case file's SHA-256, the report's
+   SHA-256 and the probe's own digest of the parsed case; none of them is a signature, and a
+   cooperating game can still forge telemetry.
+2. Still planned: a game-engine adapter for one target stack (e.g. Godot) that injects
    scripted inputs and collects telemetry/frame captures independently.
-2. Define target-specific expectations and replay timings in saved, versioned
+3. Still planned: target-specific expectations and replay timings in saved, versioned
    test cases instead of assuming "Right" and "Space" apply to every game.
-3. Have the Rust checker run the opt-in probe with a bounded subprocess and
-   only accept an explicit passing, fresh report tied to the exact build hash.
-4. Extend regression tests to honest games with real observed success/failure,
+4. Still planned: regression tests on honest games with real observed success/failure,
    cross-platform capture, timeouts and sandbox escape attempts.
+5. Not done: the probe is not a default readiness gate, and it is not sandboxed — it runs the
+   built program to look at it, which needs a display.

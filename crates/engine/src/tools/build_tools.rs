@@ -7,9 +7,10 @@
 //! what's never done unasked). Ids follow docs/tool-ids.md.
 
 use super::interaction_tools::{approve, inbox, inside, really_inside, resolve, workspace_of};
+use crate::settings::SandboxMode;
 use crate::tool::{Ctx, Effects, Requires, ToolOutput, ToolSpec, Toolset, parse_params, schema_of};
 use crate::workspace::Workspace;
-use craft_anything_evidence::{ErrorCode, ToolError};
+use craft_anything_evidence::{ErrorCode, ToolError, sha256_hex};
 use craft_anything_platform::process::Process;
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -95,7 +96,136 @@ pub fn specs() -> Vec<ToolSpec> {
             schema_of::<CommandParams>,
             build_command_run,
         ),
+        spec(
+            "build_probe_run",
+            "Probe the built game",
+            "Drive the built game through the independent replay probe: it sends scripted steps, reads the game's telemetry and separately decodes the screenshots it took, and passes only when movement, an action and the HUD all change. A game's own self-test is self-reported evidence; this is a second opinion. Needs Python 3.",
+            "Checks that the game really moves, acts and shows a score, instead of taking its own word for it.",
+            Effects::LAUNCHES_PROCESS.union(Effects::WRITES_FILESYSTEM).union(Effects::EXECUTES_FOREIGN_CODE),
+            schema_of::<ProbeParams>,
+            build_probe_run,
+        ),
     ]
+}
+
+/// The probe as it ships: embedded so a packaged app doesn't need the source tree.
+const PROBE: &str = include_str!("../../../../scripts/independent_game_probe.py");
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ProbeParams {
+    /// Replay case (protocol 1 JSON) relative to the project folder.
+    pub case: String,
+    /// The built game to drive, as an argument list (program first). No shell is involved.
+    pub program: Vec<String>,
+    /// Seconds the game gets for the whole replay (default 60, at most 600).
+    pub timeout_secs: Option<u64>,
+}
+
+fn build_probe_run(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolError> {
+    let p: ProbeParams = parse_params(params)?;
+    let ws = workspace(ctx)?;
+    let Some((program, rest)) = p.program.split_first() else {
+        return Err(
+            ToolError::invalid("Name the built game to drive.").with_remediation("Pass program: [\"godot\", \"--path\", \"app\"], or the executable to run.")
+        );
+    };
+    if program.trim().is_empty() {
+        return Err(ToolError::invalid("The game program is empty."));
+    }
+    let python = craft_anything_platform::which("python3").or_else(|| craft_anything_platform::which("python")).ok_or_else(|| {
+        ToolError::new(ErrorCode::EngineMissing, "The independent probe needs Python 3, which isn't installed.")
+            .with_remediation("Install Python 3 from python.org or your package manager, then try again.")
+    })?;
+    approve(ctx, "Bash", &json!({"command": p.program.join(" ")}))?.map_err(refused)?;
+    let case = in_project(&ws, &p.case)?;
+    if !case.is_file() {
+        return Err(ToolError::invalid(format!("There's no replay case at {}.", p.case))
+            .with_remediation("Write a protocol 1 case first; scripts/game_probe_example.json is the shape."));
+    }
+    let checks = ws.root.join("checks");
+    std::fs::create_dir_all(&checks).map_err(|e| ToolError::io(checks.display(), e))?;
+    // The probe runs from app/, which a workspace that hasn't built yet doesn't have; a missing
+    // working directory makes `spawn` fail with ENOENT and look like a broken interpreter.
+    let app = ws.app_dir();
+    std::fs::create_dir_all(&app).map_err(|e| ToolError::io(app.display(), e))?;
+    let script = checks.join("independent_game_probe.py");
+    craft_anything_platform::write_atomic(&script, PROBE.as_bytes())?;
+    let output = checks.join("probe");
+    std::fs::create_dir_all(&output).map_err(|e| ToolError::io(output.display(), e))?;
+    let report = checks.join("probe-report.json");
+    // A report that survives from an earlier run would let stale evidence count.
+    match std::fs::remove_file(&report) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(ToolError::io(report.display(), e)),
+    }
+    let replay = Duration::from_secs(p.timeout_secs.unwrap_or(60).clamp(5, 600));
+    let cancel = ctx.cancel.clone();
+    ctx.report(None, "Probing the built game".to_string());
+    let mut args: Vec<String> = vec![
+        script.to_string_lossy().into_owned(),
+        "--case".into(),
+        case.to_string_lossy().into_owned(),
+        "--output-folder".into(),
+        output.to_string_lossy().into_owned(),
+        "--report".into(),
+        report.to_string_lossy().into_owned(),
+        "--timeout".into(),
+        replay.as_secs().to_string(),
+        "--".into(),
+    ];
+    args.push(program.to_string());
+    args.extend(rest.iter().cloned());
+    let out = Process::new(&python)
+        .args(args)
+        .cwd(&app)
+        .timeout(replay + Duration::from_secs(30))
+        .stdout_cap(1024 * 1024)
+        .stderr_cap(256 * 1024)
+        .cancel_when(move || cancel.is_cancelled())
+        .label("the independent game probe")
+        .run()?;
+    // The probe writes this report itself, so its presence after a fresh run is the run's own word
+    // about what it saw. It is not signed, and a cooperating game can forge telemetry.
+    let written = std::fs::read(&report).ok();
+    let parsed: Option<Value> = written.as_deref().and_then(|b| serde_json::from_slice(b).ok());
+    let status = parsed.as_ref().and_then(|r| r.get("status")).and_then(Value::as_str).unwrap_or("missing");
+    let capture = parsed.as_ref().and_then(|r| r.get("capture_folder")).and_then(Value::as_str).unwrap_or("");
+    // macOS reaches the same folder as /var/... and /private/var/..., so compare resolved paths.
+    let inside = match (std::fs::canonicalize(&output), std::fs::canonicalize(capture)) {
+        (Ok(out_dir), Ok(run_dir)) => run_dir.starts_with(&out_dir),
+        _ => false,
+    };
+    let passed = out.success && status == "pass" && inside;
+    let tail = |s: String| -> String {
+        let skip = s.len().saturating_sub(8 * 1024);
+        let mut start = skip;
+        while !s.is_char_boundary(start) {
+            start += 1;
+        }
+        s.get(start..).unwrap_or_default().to_string()
+    };
+    let mut v = json!({
+        "passed": passed,
+        "status": status,
+        "case": shown(&ws, &case),
+        // The file's bytes, not the probe's digest of the parsed case: both are reported, and
+        // neither is a signature.
+        "case_file_sha256": sha256_hex(&std::fs::read(&case).map_err(|e| ToolError::io(case.display(), e))?),
+        "report_case_sha256": parsed.as_ref().and_then(|r| r.get("case_sha256")).and_then(Value::as_str).unwrap_or(""),
+        "report_sha256": written.as_deref().map(sha256_hex),
+        "capture_folder": if inside { capture } else { "" },
+        "exit_code": out.code,
+        "stdout": tail(out.stdout_text()),
+        "stderr": tail(out.stderr_text()),
+    });
+    if !passed {
+        v["note"] = json!(
+            "The probe did not pass: read its output for which step failed (movement, action, HUD or a screenshot). A report outside this run's folder is ignored."
+        );
+    }
+    Ok(ToolOutput::Value(v))
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -359,16 +489,28 @@ fn build_command_run(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, Too
     let had_inner = inner.is_dir();
     let (shell, flag) = if cfg!(windows) { ("cmd", "/C") } else { ("sh", "-c") };
     let cancel = ctx.cancel.clone();
+    let timeout = Duration::from_secs(p.timeout_secs.unwrap_or(600).clamp(1, 7200));
+    let sandboxed = ctx.session.settings.build.sandbox == SandboxMode::Docker;
     ctx.report(None, format!("Running {}", p.command.chars().take(120).collect::<String>()));
-    let out = Process::new(shell)
-        .args([flag, p.command.as_str()])
-        .cwd(&app)
-        .timeout(Duration::from_secs(p.timeout_secs.unwrap_or(600).clamp(1, 7200)))
-        .stdout_cap(4 * 1024 * 1024)
-        .stderr_cap(4 * 1024 * 1024)
-        .cancel_when(move || cancel.is_cancelled())
-        .label("the build command")
-        .run()?;
+    let out = if sandboxed {
+        let spec = craft_anything_platform::sandbox::Spec {
+            image: ctx.session.settings.build.sandbox_image.clone(),
+            project: app.clone(),
+            network: ctx.session.settings.build.sandbox_network,
+            ..Default::default()
+        };
+        craft_anything_platform::sandbox::run(&spec, &p.command, timeout, Some(std::sync::Arc::new(move || cancel.is_cancelled())))?
+    } else {
+        Process::new(shell)
+            .args([flag, p.command.as_str()])
+            .cwd(&app)
+            .timeout(timeout)
+            .stdout_cap(4 * 1024 * 1024)
+            .stderr_cap(4 * 1024 * 1024)
+            .cancel_when(move || cancel.is_cancelled())
+            .label("the build command")
+            .run()?
+    };
     let tail = |s: String| -> String {
         let skip = s.len().saturating_sub(OUTPUT_TAIL);
         let mut start = skip;
@@ -380,6 +522,7 @@ fn build_command_run(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, Too
     let mut v = json!({
         "command": p.command,
         "ran_in": ws.app_place(),
+        "sandbox": if sandboxed { "docker" } else { "off" },
         "exit_code": out.code,
         "succeeded": out.success,
         "stdout": tail(out.stdout_text()),
@@ -612,6 +755,59 @@ mod tests {
         // Dev servers never exit: refused before anything runs.
         let err = call(&e, "build_command_run", json!({"command": "npm run dev"})).unwrap_err();
         assert!(err.message.contains("dev servers"), "{}", err.message);
+    }
+
+    #[test]
+    fn a_sandboxed_command_refuses_a_bad_image_before_running_anything() {
+        let mut s = crate::testing::session();
+        s.settings.build.sandbox = SandboxMode::Docker;
+        s.settings.build.sandbox_image = "-rm".to_string();
+        let dir = s.config_dir();
+        let ws = Workspace::create(&dir, "Snake", "A snake game", TargetRef::None).unwrap();
+        s.ext.insert(Arc::new(InboxDir(ws.inbox_dir())));
+        let e = Engine::new(s);
+        let err = call(&e, "build_command_run", json!({"command": "echo built"})).unwrap_err();
+        assert_eq!(err.code, ErrorCode::BadInput, "{}", err.message);
+        assert!(err.message.contains("isn't a Docker image name"), "{}", err.message);
+    }
+
+    #[test]
+    fn a_command_says_whether_it_was_sandboxed() {
+        let (_d, _ws, e) = building();
+        let v = call(&e, "build_command_run", json!({"command": "echo built"})).unwrap();
+        assert_eq!(v["sandbox"], "off");
+    }
+
+    #[test]
+    fn a_probe_needs_a_program_to_drive() {
+        let (_d, _ws, e) = building();
+        let err = call(&e, "build_probe_run", json!({"case": "case.json", "program": []})).unwrap_err();
+        assert_eq!(err.code, ErrorCode::BadInput, "{}", err.message);
+    }
+
+    /// Opt-in: needs Python 3. `cargo test -p craft-anything-engine --lib probe -- --ignored`
+    #[test]
+    #[ignore]
+    fn the_probe_drives_a_fixture_game_and_passes() {
+        let (_d, ws, e) = building();
+        let scripts = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts");
+        std::fs::copy(scripts.join("game_probe_example.json"), ws.root.join("case.json")).unwrap();
+        let python = craft_anything_platform::which("python3").expect("python3 on PATH");
+        let v = call(
+            &e,
+            "build_probe_run",
+            json!({
+                "case": "case.json",
+                "program": [
+                    python.to_string_lossy(),
+                    scripts.join("tests/fixture_probe_game.py").to_string_lossy(),
+                ],
+            }),
+        )
+        .unwrap();
+        assert_eq!(v["passed"], true, "{v}");
+        assert_eq!(v["status"], "pass", "{v}");
+        assert!(v["report_sha256"].as_str().is_some_and(|h| h.len() == 64), "{v}");
     }
 
     /// R5.4: a local model ran `cd app && cargo build` from inside app/, reading file paths and

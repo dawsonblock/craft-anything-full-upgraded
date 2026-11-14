@@ -155,11 +155,42 @@ pub struct BuildSettings {
     pub picture_good_enough: Option<f64>,
     /// Projects that may build at the same time; more wait their turn (at least 1).
     pub parallel: usize,
+    /// How a build's shell commands run (`sandbox = "docker"` in `[build]`). Off runs them on this
+    /// computer; Docker runs them in a container that sees only the project folder.
+    pub sandbox: SandboxMode,
+    /// Image a sandboxed build runs in. A build that needs Node, Rust or Python needs an image
+    /// that has it.
+    pub sandbox_image: String,
+    /// Whether a sandboxed build may reach the network. Package installs need it; a build that
+    /// only compiles what it already has doesn't.
+    pub sandbox_network: bool,
+}
+
+/// How a build's commands run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SandboxMode {
+    /// On this computer, with the person's approvals as before.
+    #[default]
+    Off,
+    /// In a Docker container: only the project folder is mounted, and the network is off unless
+    /// [`BuildSettings::sandbox_network`] allows it.
+    Docker,
 }
 
 impl Default for BuildSettings {
     fn default() -> Self {
-        BuildSettings { good_enough: 90.0, max_rounds: 6, web_widths: vec![1440, 768, 390], max_pages: 4, picture_good_enough: None, parallel: 2 }
+        BuildSettings {
+            good_enough: 90.0,
+            max_rounds: 6,
+            web_widths: vec![1440, 768, 390],
+            max_pages: 4,
+            picture_good_enough: None,
+            parallel: 2,
+            sandbox: SandboxMode::Off,
+            sandbox_image: craft_anything_platform::sandbox::DEFAULT_IMAGE.to_string(),
+            sandbox_network: true,
+        }
     }
 }
 
@@ -488,6 +519,24 @@ auto_mode = true
     }
 
     use super::*;
+
+    #[test]
+    fn a_build_is_not_sandboxed_until_the_person_asks() {
+        assert_eq!(Settings::default().build.sandbox, SandboxMode::Off);
+        let old: Settings = toml::from_str("version = 1\n").unwrap();
+        assert_eq!(old.build.sandbox, SandboxMode::Off, "configs written before the sandbox load as off");
+        let asked: Settings = toml::from_str(
+            "[build]
+sandbox = \"docker\"
+sandbox_image = \"node:22\"
+sandbox_network = false
+",
+        )
+        .unwrap();
+        assert_eq!(asked.build.sandbox, SandboxMode::Docker);
+        assert_eq!(asked.build.sandbox_image, "node:22");
+        assert!(!asked.build.sandbox_network);
+    }
 
     #[test]
     fn only_configured_finds_no_engine_from_this_computer_but_keeps_the_ones_set() {
