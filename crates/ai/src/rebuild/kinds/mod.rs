@@ -242,6 +242,12 @@ impl CheckCx<'_> {
         self.worker.engine.session().settings.build.clone()
     }
 
+    /// A sentence for this check's note when the sandbox is on but the check runs on the host.
+    pub(super) fn outside_sandbox(&self, route: craft_anything_engine::execution::Route) -> Option<String> {
+        let policy = craft_anything_engine::execution::Policy::of(&self.build_settings());
+        craft_anything_engine::execution::outside_note(policy, route)
+    }
+
     /// Deep mode is on (Ghidra enabled): the builder had to decompile a program target.
     pub fn deep(&self) -> bool {
         !self.worker.engine.session().clean_room()
@@ -348,9 +354,20 @@ impl Check for BuildCheck {
         CheckResult::BUILD
     }
     fn run(&self, cx: &mut CheckCx) -> Result<CheckResult, ToolError> {
+        // The check's own build runs the project's toolchain on this computer; it can't be put in
+        // the container (the image may not have the toolchain, and an engine's editor needs the
+        // host). Refuse it with the rest when the person refused unconfined runs.
+        let policy = craft_anything_engine::execution::Policy::of(&cx.build_settings());
+        if let Err(e) = policy.check(craft_anything_engine::execution::Route::BuildCheck) {
+            return Ok(CheckResult::unknown(self.id(), cx.round, e.message));
+        }
+        let outside = craft_anything_engine::execution::outside_note(policy, craft_anything_engine::execution::Route::BuildCheck).unwrap_or_default();
         let (outcome, note) = build_check(&cx.ws.app_dir(), cx.ws.app_place(), &cx.ws.manifest.stack, cx.editor(), &cx.stop());
         // #736: a failed build of an empty app/ says first that nothing was written.
         let note = if outcome == Outcome::Failed && app_is_empty(cx.ws) { format!("{} {note}", no_files_yet(cx.ws)) } else { note };
+        // A build that ran says it ran on the host, so an allowed unconfined check is never
+        // mistaken for a confined one.
+        let note = if matches!(outcome, Outcome::Passed | Outcome::Failed) { format!("{note}{outside}") } else { note };
         Ok(CheckResult::with_outcome(self.id(), cx.round, outcome, note))
     }
 }

@@ -151,6 +151,10 @@ pub struct RunOptions {
     /// A free session is read first; this is the fallback while it is held; the saved settings
     /// are the last fallback.
     pub clean_room: Option<bool>,
+    /// How builds run when the caller knows it and the session may be busy (a tool starts a run).
+    /// A free session is read first; this is the fallback while it is held; the saved settings
+    /// are the last fallback. A tool must pass it, or a change not yet saved to disk is missed.
+    pub build: Option<craft_anything_engine::settings::BuildSettings>,
 }
 
 impl Default for RunOptions {
@@ -168,6 +172,7 @@ impl Default for RunOptions {
             adapters: Default::default(),
             wake: Wake::default(),
             clean_room: None,
+            build: None,
         }
     }
 }
@@ -227,6 +232,8 @@ pub struct RebuildRun {
     pub root: PathBuf,
     started: Instant,
     activity: Arc<activity::Activity>,
+    /// Why this run's agent works outside the Docker sandbox, when the person asked for one.
+    pub outside: Option<&'static str>,
 }
 
 impl RebuildRun {
@@ -249,9 +256,12 @@ impl RebuildRun {
         // A coding agent runs its own tools and signs in as the person, so it can't be put in the
         // container. When the person asked for confinement and refused unconfined runs, the build
         // says so now instead of starting an agent outside the boundary.
+        let mut agent_outside = None;
         if entry.config.kind == BackendKind::AgentCli {
-            let build = session_build.unwrap_or_else(|| craft_anything_engine::Settings::load_from(&hub.settings_path()).build);
-            craft_anything_engine::execution::Policy::of(&build).check(craft_anything_engine::execution::Route::Agent)?;
+            let build = session_build.or_else(|| opts.build.clone()).unwrap_or_else(|| craft_anything_engine::Settings::load_from(&hub.settings_path()).build);
+            let policy = craft_anything_engine::execution::Policy::of(&build);
+            policy.check(craft_anything_engine::execution::Route::Agent)?;
+            agent_outside = policy.outside(craft_anything_engine::execution::Route::Agent);
         }
         // An API backend builds with our own agent loop and the Build tools; its conversation is
         // kept in the project and continued by follow-ups (a fresh build starts a new one).
@@ -292,6 +302,11 @@ impl RebuildRun {
         let feed = Arc::new(Mutex::new(feed::FeedLog::open(&ws)));
         if let Some(shown) = opts.shown.clone() {
             feed.lock().unwrap_or_else(PoisonError::into_inner).push(feed::FeedItem::User(feed::UserItem::new(shown, opts.shown_pictures.clone())));
+        }
+        if let Some(why) = agent_outside {
+            feed.lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .push(feed::FeedItem::Note(format!("This build runs on this computer, outside the Docker sandbox: {why}.")));
         }
         let ctx = Worker {
             wake: opts.wake.clone(),
@@ -335,7 +350,7 @@ impl RebuildRun {
             })
             .map_err(|e| ToolError::internal(e.to_string()))?;
         let activity = feed.lock().unwrap_or_else(PoisonError::into_inner).activity();
-        Ok(RebuildRun { rx, stop, inbox, running, preview, notes, clean_room, feed, root, started: Instant::now(), activity })
+        Ok(RebuildRun { rx, stop, inbox, running, preview, notes, clean_room, feed, root, started: Instant::now(), activity, outside: agent_outside })
     }
 
     /// Add something while it works; the agent reads it at its next step, and only then does it

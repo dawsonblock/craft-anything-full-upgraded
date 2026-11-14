@@ -133,7 +133,14 @@ pub fn run(spec: &Spec, command: &str, timeout: Duration, cancel: Option<Cancel>
     if result.is_err() {
         stop(&name);
     }
-    result.map_err(docker_error)
+    let out = result.map_err(docker_error)?;
+    // Docker's client reports a stopped daemon on stderr with a non-zero exit, not a spawn
+    // error. Say what to do instead of leaving the person with "failed to connect to the docker
+    // API" and no next step.
+    if let Some(e) = daemon_down(&out) {
+        return Err(e);
+    }
+    Ok(out)
 }
 
 /// A unique container name: the process id plus a counter, so two runs never collide.
@@ -145,22 +152,47 @@ fn container_name() -> String {
 /// Stop and remove a container by name. Errors are ignored: the run is already over, and a
 /// container that `--rm` already removed is the normal case.
 fn stop(name: &str) {
-    let _ = Process::new("docker")
-        .args(["rm", "--force", name])
-        .timeout(Duration::from_secs(15))
-        .stdout_cap(4096)
-        .stderr_cap(4096)
-        .label("the sandboxed container's cleanup")
-        .run();
+    // A container can still be starting when the client is killed; give the daemon a moment to
+    // create it before `rm` looks for it. `--rm` already removed one that exited normally, so
+    // "No such container" is not a failure worth retrying forever.
+    for attempt in 0..3 {
+        let out = Process::new("docker")
+            .args(["rm", "--force", name])
+            .timeout(Duration::from_secs(15))
+            .stdout_cap(4096)
+            .stderr_cap(4096)
+            .label("the sandboxed container's cleanup")
+            .run();
+        if out.is_ok_and(|o| o.success) || attempt == 2 {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
 }
 
 /// Turn Docker's absence into something a person can act on.
 fn docker_error(e: ToolError) -> ToolError {
-    if e.code == ErrorCode::EngineMissing {
-        return ToolError::new(ErrorCode::EngineMissing, "Docker isn't running, so the build can't run sandboxed.")
-            .with_remediation("Start Docker Desktop (or install Docker) and try again, or turn the sandbox off in Settings → Build.");
+    if e.code == ErrorCode::EngineMissing { docker_missing() } else { e }
+}
+
+/// The one message for a Docker that isn't there or isn't running.
+fn docker_missing() -> ToolError {
+    ToolError::new(ErrorCode::EngineMissing, "Docker isn't running, so the build can't run sandboxed.")
+        .with_remediation("Start Docker Desktop (or install Docker) and try again, or turn the sandbox off in Settings → Build.")
+}
+
+/// A stopped daemon exits non-zero and says so on stderr; the spawn itself succeeded, so
+/// [`docker_error`] never sees it.
+fn daemon_down(out: &Output) -> Option<ToolError> {
+    if out.success {
+        return None;
     }
-    e
+    let text = out.stderr_text();
+    let first = text.trim_start().lines().next().unwrap_or_default().trim().to_ascii_lowercase();
+    let down = first.starts_with("failed to connect to the docker api")
+        || first.starts_with("cannot connect to the docker daemon")
+        || first.starts_with("error during connect");
+    down.then(docker_missing)
 }
 
 /// The project folder as Docker's `-v host:container` expects it.
@@ -301,6 +333,36 @@ mod tests {
     fn a_relative_project_is_refused() {
         let bad = Spec { project: PathBuf::from("app"), ..Default::default() };
         assert!(bad.argv("x").is_err());
+    }
+
+    #[test]
+    fn a_daemon_that_is_not_running_says_so() {
+        let out = Output {
+            code: Some(1),
+            success: false,
+            stdout: Vec::new(),
+            stderr: b"failed to connect to the docker API at unix:///tmp/none.sock; check if the daemon is running".to_vec(),
+            stdout_truncated: false,
+            stderr_truncated: false,
+            duration: Duration::ZERO,
+        };
+        let e = daemon_down(&out).expect("a stopped daemon is an error");
+        assert_eq!(e.code, ErrorCode::EngineMissing);
+        assert!(e.message.contains("Docker isn't running"), "{}", e.message);
+    }
+
+    #[test]
+    fn a_build_commands_own_error_is_not_a_daemon_error() {
+        let out = Output {
+            code: Some(1),
+            success: false,
+            stdout: Vec::new(),
+            stderr: b"error: test failed".to_vec(),
+            stdout_truncated: false,
+            stderr_truncated: false,
+            duration: Duration::ZERO,
+        };
+        assert!(daemon_down(&out).is_none());
     }
 
     #[test]

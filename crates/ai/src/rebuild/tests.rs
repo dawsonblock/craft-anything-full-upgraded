@@ -529,6 +529,7 @@ fn a_note_written_for_the_hook_carries_its_answers() {
         root: ws.root.clone(),
         started: Instant::now(),
         activity,
+        outside: None,
     };
     let id = run.add_note("make it blue".into(), "make it blue".into(), Vec::new());
     let note = run.waiting().pop().unwrap();
@@ -1688,7 +1689,7 @@ mod picking_up_a_build {
             Ok(_) => panic!("the run started outside the boundary"),
             Err(e) => e,
         };
-        assert_eq!(err.code, craft_anything_evidence::ErrorCode::ConsentRequired, "{}", err.message);
+        assert_eq!(err.code, craft_anything_evidence::ErrorCode::FeatureMissing, "{}", err.message);
         assert!(err.message.contains("coding agent") && err.message.contains("outside the Docker sandbox"), "{}", err.message);
     }
 

@@ -15,6 +15,7 @@ use craft_anything_platform::process::Process;
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::{Value, json};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -108,16 +109,33 @@ pub fn specs() -> Vec<ToolSpec> {
     ]
 }
 
-/// The probe as it ships: embedded so a packaged app doesn't need the source tree.
-const PROBE: &str = include_str!("../../../../scripts/independent_game_probe.py");
+/// The probe as it ships: embedded from this crate so a packaged app doesn't need the source tree.
+const PROBE: &str = include_str!("independent_game_probe.py");
 
 /// Most seconds the probe accepts for a whole replay. The probe refuses more, so the tool must
 /// not hand it more: one limit, enforced on both sides.
 const PROBE_TIMEOUT_MAX_SECS: u64 = 120;
 
+/// Largest case or report the probe tool reads. The game the probe drives is untrusted generated
+/// code and can overwrite the report with a huge file; the app must not load it.
+const MAX_PROBE_FILE: u64 = 4 * 1024 * 1024;
+
 /// Seconds the probe gets: 1-120, the range `independent_game_probe.py` enforces.
 fn probe_secs(requested: Option<u64>) -> u64 {
     requested.unwrap_or(60).clamp(1, PROBE_TIMEOUT_MAX_SECS)
+}
+
+/// Read a case or report the probe works with, capped: the driven game can overwrite its report
+/// with a file large enough to exhaust memory.
+fn read_probe_file(path: &Path, what: &str) -> Result<Vec<u8>, ToolError> {
+    let mut reader = std::fs::File::open(path).map_err(|e| ToolError::io(path.display(), e))?.take(MAX_PROBE_FILE + 1);
+    let mut bytes = Vec::new();
+    reader.read_to_end(&mut bytes).map_err(|e| ToolError::io(path.display(), e))?;
+    if bytes.len() as u64 > MAX_PROBE_FILE {
+        return Err(ToolError::new(ErrorCode::OverLimit, format!("{what} is larger than {} MiB, so it wasn't read.", MAX_PROBE_FILE / (1024 * 1024)))
+            .with_remediation("Keep the replay case and the probe's report small: they are evidence, not build output."));
+    }
+    Ok(bytes)
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -161,8 +179,14 @@ fn build_probe_run(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolE
         return Err(ToolError::invalid(format!("There's no replay case at {}.", p.case))
             .with_remediation("Write a protocol 1 case first; scripts/game_probe_example.json is the shape."));
     }
-    let checks = ws.root.join("checks");
+    let case_bytes = read_probe_file(&case, "The replay case")?;
+    let checks = ws.checks_dir();
     std::fs::create_dir_all(&checks).map_err(|e| ToolError::io(checks.display(), e))?;
+    // A project can replace checks/ with a link outside; writing the probe there would escape.
+    if !really_inside(&ws.root, &checks) {
+        return Err(ToolError::invalid("The project's checks folder leads outside the project.")
+            .with_remediation("Replace checks/ with a normal folder inside the project."));
+    }
     // The probe runs from app/, which a workspace that hasn't built yet doesn't have; a missing
     // working directory makes `spawn` fail with ENOENT and look like a broken interpreter.
     let app = ws.app_dir();
@@ -206,7 +230,9 @@ fn build_probe_run(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolE
         .run()?;
     // The probe writes this report itself, so its presence after a fresh run is the run's own word
     // about what it saw. It is not signed, and a cooperating game can forge telemetry.
-    let written = std::fs::read(&report).ok();
+    let report_read = read_probe_file(&report, "The probe's report");
+    let report_error = report_read.as_ref().err().filter(|_| report.exists()).map(|e| e.message.clone());
+    let written = report_read.ok();
     let parsed: Option<Value> = written.as_deref().and_then(|b| serde_json::from_slice(b).ok());
     let status = parsed.as_ref().and_then(|r| r.get("status")).and_then(Value::as_str).unwrap_or("missing");
     let capture = parsed.as_ref().and_then(|r| r.get("capture_folder")).and_then(Value::as_str).unwrap_or("");
@@ -228,9 +254,9 @@ fn build_probe_run(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolE
         "passed": passed,
         "status": status,
         "case": shown(&ws, &case),
-        // The file's bytes, not the probe's digest of the parsed case: both are reported, and
-        // neither is a signature.
-        "case_file_sha256": sha256_hex(&std::fs::read(&case).map_err(|e| ToolError::io(case.display(), e))?),
+        // The bytes read before the run, not the probe's digest of the parsed case: both are
+        // reported, and neither is a signature.
+        "case_file_sha256": sha256_hex(&case_bytes),
         "report_case_sha256": parsed.as_ref().and_then(|r| r.get("case_sha256")).and_then(Value::as_str).unwrap_or(""),
         "report_sha256": written.as_deref().map(sha256_hex),
         "capture_folder": if inside { capture } else { "" },
@@ -241,6 +267,9 @@ fn build_probe_run(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolE
     });
     if let Some(why) = outside {
         v["outside_sandbox"] = json!(why);
+    }
+    if let Some(e) = report_error {
+        v["report_error"] = json!(e);
     }
     if !passed {
         v["note"] = json!(
@@ -808,6 +837,20 @@ mod tests {
         assert_eq!(err.code, ErrorCode::BadInput, "{}", err.message);
     }
 
+    /// The probe drives the build's own game and reads no original, so Clean room (the default)
+    /// runs it; before this it was refused with "looks inside the original".
+    #[test]
+    fn a_probe_runs_in_clean_room() {
+        let mut s = crate::testing::session();
+        s.settings.deep_mode = false;
+        let dir = s.config_dir();
+        let ws = Workspace::create(&dir, "Snake", "A snake game", TargetRef::None).unwrap();
+        s.ext.insert(Arc::new(InboxDir(ws.inbox_dir())));
+        let e = Engine::new(s);
+        let err = call(&e, "build_probe_run", json!({"case": "case.json", "program": []})).unwrap_err();
+        assert_eq!(err.code, ErrorCode::BadInput, "{}", err.message);
+    }
+
     /// The Rust tool and the Python probe must agree on the upper limit: the probe refuses more
     /// than 120, so a 121-600 second request used to fail after the tool had started.
     #[test]
@@ -820,6 +863,16 @@ mod tests {
     }
 
     #[test]
+    fn a_probe_file_larger_than_the_cap_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("report.json");
+        std::fs::write(&path, vec![b'x'; (MAX_PROBE_FILE + 1) as usize]).unwrap();
+        let err = read_probe_file(&path, "The probe's report").unwrap_err();
+        assert_eq!(err.code, ErrorCode::OverLimit, "{}", err.message);
+        assert!(err.message.contains("4 MiB"), "{}", err.message);
+    }
+
+    #[test]
     fn a_probe_is_refused_when_the_sandbox_refuses_unconfined_runs() {
         let mut s = crate::testing::session();
         s.settings.build.sandbox = SandboxMode::Docker;
@@ -829,7 +882,7 @@ mod tests {
         s.ext.insert(Arc::new(InboxDir(ws.inbox_dir())));
         let e = Engine::new(s);
         let err = call(&e, "build_probe_run", json!({"case": "case.json", "program": ["true"]})).unwrap_err();
-        assert_eq!(err.code, ErrorCode::ConsentRequired, "{}", err.message);
+        assert_eq!(err.code, ErrorCode::FeatureMissing, "{}", err.message);
         assert!(err.message.contains("outside the Docker sandbox"), "{}", err.message);
         assert!(err.remediation.as_deref().is_some_and(|r| r.contains("sandbox_unconfined")), "{err:?}");
     }

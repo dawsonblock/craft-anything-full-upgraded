@@ -49,17 +49,24 @@ only compile what the project already contains.
 | Route | Confined by | Why |
 |---|---|---|
 | `build_command_run` | Docker | It is a shell command and sees only the project folder. |
+| The check's own build (`cargo build`, `npm run build`, an engine's build) | Nothing | It builds with the project's own toolchain on this computer; the image may not have it, and an engine's editor needs the host. |
+| The runs comparison (`app-runs`) | Nothing | It starts the built console program on this computer. |
+| A person's own project's build or tests (`OwnBuildCheck`/`OwnTestsCheck`) | Nothing | Its own toolchain runs on this computer. |
 | `build_probe_run` | Nothing | The built game is native to this computer, so it can't run in a Linux container. |
-| A build's self-test or screenshot | Nothing | The built program is native to this computer and opens a window. |
+| A build's screenshot or self-test | Nothing | The built program is native to this computer and opens a window. |
 | A coding agent (Claude Code, Codex, …) | Nothing | The agent runs its own tools and signs in as the person. |
 
 With `sandbox_unconfined = "allow"` (the default), a route that can't be confined still runs, and
-its approval card or result says it runs on this computer, outside the Docker sandbox. Nothing is
-silently treated as confined.
+its approval card or result says it runs on this computer, outside the Docker sandbox: a check's
+note, the probe's approval card, and `rebuild_start`'s result (the CLI prints it too). The UI shows
+it as a feed note; the sandbox is `config.toml` only, and putting it in Settings → Build is on the
+roadmap.
 
-With `sandbox_unconfined = "refuse"`, those routes are refused before they start, with a plain error
-that names the setting. A build command still runs confined; a probe, self-test or agent build does
-not start at all. That is the setting to use when confinement matters more than finishing the build.
+With `sandbox_unconfined = "refuse"`, those routes are refused before they start. A tool call gets a
+plain error that names the setting; a check records `unknown` with the reason, so the build cannot
+become Ready. A build command still runs confined, but the check's own build, the runs comparison
+and a person's own project's build or tests do not run until they can be confined too. That is the
+setting to use when confinement matters more than finishing the build.
 
 ## When Docker isn't there
 
@@ -78,7 +85,8 @@ refused before anything starts.
   with one instead of pretending to confine it.
 - It does not confine `native_window_capture`, screenshots, self-tests or the game probe, which
   launch the built program to look at it. Those need a display and a binary native to this computer,
-  and are a separate decision.
+  and are a separate decision. The policy refuses the screenshot, self-test and probe routes under
+  `refuse`; a direct `native_window_capture` call is not covered.
 - It does not make the network safe when `sandbox_network` is on: a build can reach whatever the
   container can.
 - It is not a substitute for approvals. Every command is still approved through
@@ -88,7 +96,9 @@ refused before anything starts.
 
 The argv construction is the security boundary and is unit-tested without Docker: exactly one
 mount, the network flag, the capability and privilege flags, a non-root user, clamping, and the
-command as the last argument (`cargo test -p craft-anything-platform sandbox`).
+command as the last argument. A stopped daemon (the `docker` client exits non-zero with its
+connection message) is mapped to the same plain error (`cargo test -p craft-anything-platform
+sandbox`).
 
 The cleanup path is tested live against Docker when asked:
 

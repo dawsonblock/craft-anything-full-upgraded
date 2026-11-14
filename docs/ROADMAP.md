@@ -890,23 +890,27 @@ Owner: open · Status: in progress
 - [x] **decision** What confines a build's generated code: a Docker container. A build's command
       runs with only the project folder mounted at `/work`, the person's home and credentials out of
       reach, `--cap-drop ALL`, `no-new-privileges`, a non-root user, a memory, CPU and PID budget,
-      and the network off unless the person allows it. Docker Desktop on macOS and Windows and
+      and the network a setting (`sandbox_network`, on by default because package installs need it).
+      Docker Desktop on macOS and Windows and
       Docker Engine on Linux are the one runtime all three share. It confines the command, not the
       daemon: Docker stays privileged and the person's approval is still required
 - [x] Run a build's commands in that container when `[build] sandbox = "docker"` is set: the mode,
       image and network are settings, the result says which mode ran, and a missing Docker is a
       plain error with a remediation (`docs/build-sandbox.md`)
       — claimed: Devin, branch feature/r2.2-docker-build-sandbox
-- [x] One execution boundary for every route that runs a build's code: each route (a build command,
-      the game probe, a self-test, a coding agent) declares what confines it, a route that can't be
-      confined says so in its approval card or result, and `[build] sandbox_unconfined = "refuse"`
-      stops it before it starts. The container is named and stopped by name on timeout or cancel,
-      which a killed Docker client used to leave running; Windows gets a fixed non-root id instead
-      of no `--user` (`docs/build-sandbox.md`)
+- [x] One execution boundary for every route that runs a build's generated code: each route (a
+      build command, the check's own build, the runs comparison, a person's own project's build or
+      tests, the game probe, a screenshot or self-test, a coding agent) declares what confines it,
+      a route that can't be confined says so in its approval card, feed note or result, and
+      `[build] sandbox_unconfined = "refuse"` stops it before it starts (a tool call gets a plain
+      error, a check records `unknown`). The container is named and stopped by name on timeout or
+      cancel, which a killed Docker client used to leave running; Windows gets a fixed non-root id
+      instead of no `--user` (`docs/build-sandbox.md`)
       — claimed: Devin, branch feature/r2.2-docker-build-sandbox
 - [ ] **decision** Whether `sandbox_unconfined` should default to `"refuse"`: today turning the
-      sandbox on still runs the probe, a self-test and a coding agent outside it (each says so),
-      because refusing them would stop every agent build on macOS and Windows
+      sandbox on still runs the check's own build, the runs comparison, a person's own project's
+      build or tests, the probe, a self-test and a coding agent outside it (each says so), because
+      refusing them would stop every build on macOS and Windows
 - [ ] **decision** Whether `sandbox_network` should default to `false`: today turning the sandbox
       on gives the container bridge networking, because package installs (`npm install`) need it;
       a build that only compiles what it already has would be safer with the network off
@@ -923,6 +927,9 @@ Owner: open · Status: in progress
 - [ ] Put the sandbox in Settings → Build, with a Docker image field: today it is only
       `[build] sandbox = "docker"` in `config.toml`, because new UI strings need every
       translation catalogue
+- [ ] Run the check's own build in the container when the image has the toolchain, so
+      `sandbox_unconfined = "refuse"` can verify a build instead of recording the build check as
+      `unknown`
 - [x] Clean room outside builds (#564): a chat or question with Claude Code refuses the agent's own
       file, shell and web tools outright (`--disallowedTools`), not through its defaults; an ACP chat
       refuses them through an approver instead of a consent card (`docs/claude-code.md`)
@@ -1044,12 +1051,16 @@ Owner: open · Status: in progress
 - [x] A check that didn't run never counts as a pass: each check records passed, failed, skipped
       or unknown, and a skipped or unknown required check keeps the build from Ready — PR #9
 - [x] Run the independent replay probe from a tool: `build_probe_run` writes the shipped probe into
-      the project, drives the built game with a bounded subprocess, and accepts only a fresh
-      passing report whose capture folder is this run's (`docs/independent-game-probe.md`)
+      the project, drives the built game with a bounded subprocess, accepts only a fresh passing
+      report whose capture folder is this run's, and runs in Clean room as well as Deep mode
+      (`docs/independent-game-probe.md`)
       — claimed: Devin, branch feature/r2.2-docker-build-sandbox
 - [x] `build_probe_run`'s timeout matches the probe's own 1-120 second limit: a request of
       121-600 seconds used to start and then be refused by the probe, and the tool said "at most
       600"; both sides now use 120, with boundary tests
+- [x] Keep the probe's script inside the engine crate (or a resources folder) so a packaged
+      `craft-anything-engine` doesn't need `scripts/`; it now lives at
+      `crates/engine/src/tools/independent_game_probe.py` and the Python tests point at it
 
 ### R2.7 The request decides how to build
 Owner: open · Status: in progress

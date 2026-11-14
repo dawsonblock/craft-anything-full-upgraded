@@ -1019,3 +1019,19 @@ boundary values (0, 120, 121, 600), not only a middle value.
 but not `.ruff_cache` or `.pytest_cache`, so running the linters changed what the manifest listed
 and a packaged ZIP without those caches failed verification. Ignore root-level tool caches in the
 inventory itself, then regenerate the manifest after the last source change.
+
+**A policy that named every route by hand missed the checks.** The first sandbox policy covered
+`build_command_run`, the probe, a self-test and a coding agent, but the check's own build
+(`BuildCheck`) and the runs comparison (`RunsCheck`) also run generated code, on the host, and were
+never asked. List every route by the function that starts the program or build, not only by the
+tools, and test the check paths too.
+
+**A refusal is not a consent request.** `sandbox_unconfined = "refuse"` returned
+`ErrorCode::ConsentRequired`; the MCP server and the API agent loop ask the person on that code and
+retry with consent granted, so the person approved a route that could never run. Use a non-consent
+code for a policy refusal, and keep `ConsentRequired` for what an approval can grant.
+
+**A probe's report is written by the thing it drives.** `build_probe_run` read the whole report
+with `std::fs::read`; a generated game (same user, project write access) could replace it with a
+huge file and exhaust memory. Cap every file an untrusted run can write before reading it, even
+when the writer is usually our own script.

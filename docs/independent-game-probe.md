@@ -8,8 +8,9 @@ change. Deliberately broken fixtures show that the checker rejects some common
 false successes.
 
 This is a limited, optional evidence layer. A builder can run it with the
-`build_probe_run` tool; it is **not** a default readiness gate, and games are
-not required to implement its protocol. Game adapters and safe process
+`build_probe_run` tool in Clean room or Deep mode (it drives the build's own
+game and reads no original); it is **not** a default readiness gate, and games
+are not required to implement its protocol. Game adapters and safe process
 isolation must be built before it becomes one.
 
 ## Run the fixture and regression tests
@@ -26,7 +27,7 @@ excessive stderr, target timeouts, and tampered saved reports.
 To run the probe against the synthetic fixture:
 
     mkdir -p /tmp/craft-probe-fixture
-    python3 scripts/independent_game_probe.py \
+    python3 crates/engine/src/tools/independent_game_probe.py \
       --case scripts/game_probe_example.json \
       --output-folder /tmp/craft-probe-fixture \
       --report /tmp/craft-probe-fixture/report.json \
