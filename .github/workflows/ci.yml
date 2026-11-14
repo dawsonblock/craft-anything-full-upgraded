@@ -17,6 +17,38 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  source-integrity:
+    # The committed manifest has to describe the tracked tree: a clean checkout
+    # must verify, and the release preflight must not be the first place drift
+    # is noticed.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The manifest's declared root is the checkout folder's name.
+          path: craft-anything-full-upgraded
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verify the source manifest against the checkout
+        working-directory: craft-anything-full-upgraded
+        run: python scripts/source_bundle_integrity.py verify-tree --root . --require-declared-root --require-exact
+      - name: Rebuild the manifest from tracked files and compare
+        working-directory: craft-anything-full-upgraded
+        run: |
+          cp SOURCE_INTEGRITY.json "$RUNNER_TEMP/committed.json"
+          python scripts/source_bundle_integrity.py create --root .
+          cmp "$RUNNER_TEMP/committed.json" SOURCE_INTEGRITY.json
+      - name: Package and verify a source ZIP
+        working-directory: craft-anything-full-upgraded
+        run: |
+          python scripts/source_bundle_integrity.py package-zip --root . --archive "$RUNNER_TEMP/source.zip"
+          python scripts/source_bundle_integrity.py verify-zip --archive "$RUNNER_TEMP/source.zip" --require-declared-root
+      - name: Run the source inventory regressions
+        working-directory: craft-anything-full-upgraded
+        run: python -m unittest discover -s scripts/tests -p test_source_bundle_integrity.py -v
+
   gate:
     # Tracks @main so suite-wide CI fixes reach every app without a PR in each repository.
     uses: storytold/craft-common-actions/.github/workflows/gate.yml@main

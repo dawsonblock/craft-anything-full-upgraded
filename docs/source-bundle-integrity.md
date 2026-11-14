@@ -173,23 +173,46 @@ Add `--require-declared-root` to refuse a directory whose name differs from the
 manifest's `root`; the result reports `root_policy` (`strict` or `compatible`).
 
 The command recomputes every source digest and rejects unexpected files.
-It deliberately ignores Python's `__pycache__` and `.pyc` test artifacts,
-checkout metadata under `.git`, and (as of V8) Cargo's **root-level**
-`target/` build directory. Generated output elsewhere inside the source tree
-is treated as an unexpected source change. A custom `CARGO_TARGET_DIR` should
+It deliberately ignores checkout metadata under `.git`, the root-level folders
+that are local scratch rather than source (`target`, `log`, `plan`, `plans`,
+`screenshots`, `corpus`, `dist`), local secret material Git refuses to commit
+(`.env`, `.env.*`, `*.pem`, `*.p12`, `*.pfx`, `*.key`), backup files (`*~`),
+tool settings under `.claude`, and the caches local tools leave beside the code
+(`__pycache__`, `.pyc`, `.ruff_cache`, `.pytest_cache`, `.mypy_cache`, `.tox`,
+`.nox`, `.DS_Store`). Generated output anywhere else inside the source tree is
+treated as an unexpected source change. A custom `CARGO_TARGET_DIR` should
 point outside the source tree or inside its root `target/` directory.
+
+Because those paths are skipped, the result names them: `excluded` lists what
+verification did not look at and `excluded_count` totals it. Add
+`--require-exact` to refuse a tree that holds any of them, which is what a
+directory must satisfy to be exactly the manifest. A file the manifest records
+is always checked even if it matches an exclusion, so archives packaged before
+this behaviour still verify.
 
 If you deliberately edit the source, this verification should **fail** until
 you generate a new manifest for your own modified fork:
 
     python3 scripts/source_bundle_integrity.py create --root .
 
+Inside a Git work tree root, `create` lists files with `git ls-files` and
+records exactly what a clone can contain. It refuses to write a manifest when
+the tree holds files Git does not track, naming them, and `--no-tracked` falls
+back to walking the tree. Run it from the repository root: from a subdirectory
+whose files the enclosing repository tracks, it stops and names that root
+instead of writing a manifest for the wrong folder. A directory extracted from
+a ZIP inside somebody's repository is still accepted, because the parent does
+not track it. A manifest that recorded a Git-ignored file — a tool cache, a
+build output — could never be rebuilt from a clone, and every clone would fail
+verification. Verification itself never needs Git.
+
 Never interpret a regenerated self-consistent manifest as independent
 verification of who authored or reviewed the modifications.
 
 ## Scope and resource bounds
 
-- Python standard library only; no execution of archived source code.
+- Python standard library only, and no execution of archived source code.
+  `create` may call `git ls-files`; verification never runs a program.
 - Up to 20,000 source files, 100 MB per source file, 2 GB total unpacked
   source data and a 5 MB manifest.
 - ZIP names must use portable, unambiguous relative paths without traversal,

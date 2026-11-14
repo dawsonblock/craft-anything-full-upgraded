@@ -93,6 +93,19 @@ GitHub's branch and tag archives name it `<repository>-<branch>`, so the project
 failed its own verifier. Verify content relative to the single top-level folder and report both
 names; the folder name is packaging, not hashed data.
 
+**A source manifest that recorded a tool cache.** `SOURCE_INTEGRITY.json` listed
+`.ruff_cache/.gitignore`, `.ruff_cache/CACHEDIR.TAG` and a hash-named cache entry. `ruff` writes
+`*` into `.ruff_cache/.gitignore`, so the directory never enters Git, and no clone or GitHub
+archive could contain it: the manifest described 934 files while the tracked tree had 931, and
+`verify-tree` failed everywhere except the machine that generated it. Build a manifest from
+`git ls-files` inside a work tree, and ignore tool caches in the inventory.
+
+**A tree walk that filters after it descends.** The inventory checked every path against its
+exclusions only once `rglob` had already walked into it, so `.git` and `target/` were traversed in
+full and then discarded: `create` took 8.3 s and `verify-tree` 3.9 s on a 20 MB tree. Reject a
+directory before entering it (`os.walk` plus pruning `dirnames`), and keep the "always check a
+recorded path" exemption by refusing to prune a parent of a manifest entry.
+
 **A check-then-rename overwrite race.** `package_zip` checked that the destination did not exist
 and later called `os.rename`, which replaces an existing file on POSIX; another process could
 create the destination in between, have it overwritten, and still see `packaged`. Create the final

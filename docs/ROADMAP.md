@@ -197,6 +197,17 @@ cheapest help we can give anyone, so nothing below should hold it up for long.
       the preflight artifact
 - [ ] Run the preflight gate and the draft source check on the first real release, and confirm the
       external release workflow attaches the preflight source ZIP (or replace it before publishing)
+- [x] A clean checkout verifies again: the committed `SOURCE_INTEGRITY.json` listed three
+      `.ruff_cache` files that Git ignores, so `verify-tree` failed on every clone (934 files
+      recorded, 931 tracked) and the manifest could not be reproduced from version control.
+      `create` now builds from `git ls-files` and refuses a working tree that verification would
+      reject, the inventory skips caches, local scratch and secret files, and CI verifies the
+      checkout, rebuilds the manifest, packages a ZIP and runs the regressions on every push and
+      pull request instead of only at release time
+      — claimed: Devin, branch bugfix/r5.1-source-manifest-reproducible
+- [ ] Let `create` work in a sparse checkout: it lists files with `git ls-files`, which names
+      every tracked path, so a sparse working tree stops at the first absent file and cannot
+      regenerate the manifest at all
 
 ### R5.2 Keeping contributions moving
 Owner: maintainers · Status: in progress
