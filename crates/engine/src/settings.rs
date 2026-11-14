@@ -164,6 +164,9 @@ pub struct BuildSettings {
     /// Whether a sandboxed build may reach the network. Package installs need it; a build that
     /// only compiles what it already has doesn't.
     pub sandbox_network: bool,
+    /// What happens to a build route that can't be confined (a native game, a self-test, a coding
+    /// agent) while the sandbox is on: it runs here and says so, or it is refused.
+    pub sandbox_unconfined: Unconfined,
 }
 
 /// How a build's commands run.
@@ -178,6 +181,17 @@ pub enum SandboxMode {
     Docker,
 }
 
+/// What happens to a build route that can't run in the container while the sandbox is on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Unconfined {
+    /// It runs on this computer, and its approval card and result say so.
+    #[default]
+    Allow,
+    /// It is refused with a plain error naming this setting.
+    Refuse,
+}
+
 impl Default for BuildSettings {
     fn default() -> Self {
         BuildSettings {
@@ -190,6 +204,7 @@ impl Default for BuildSettings {
             sandbox: SandboxMode::Off,
             sandbox_image: craft_anything_platform::sandbox::DEFAULT_IMAGE.to_string(),
             sandbox_network: true,
+            sandbox_unconfined: Unconfined::Allow,
         }
     }
 }
@@ -523,19 +538,23 @@ auto_mode = true
     #[test]
     fn a_build_is_not_sandboxed_until_the_person_asks() {
         assert_eq!(Settings::default().build.sandbox, SandboxMode::Off);
+        assert_eq!(Settings::default().build.sandbox_unconfined, Unconfined::Allow, "a route outside the container runs and says so unless the person refuses");
         let old: Settings = toml::from_str("version = 1\n").unwrap();
         assert_eq!(old.build.sandbox, SandboxMode::Off, "configs written before the sandbox load as off");
+        assert_eq!(old.build.sandbox_unconfined, Unconfined::Allow, "configs written before the policy load as allow");
         let asked: Settings = toml::from_str(
             "[build]
 sandbox = \"docker\"
 sandbox_image = \"node:22\"
 sandbox_network = false
+sandbox_unconfined = \"refuse\"
 ",
         )
         .unwrap();
         assert_eq!(asked.build.sandbox, SandboxMode::Docker);
         assert_eq!(asked.build.sandbox_image, "node:22");
         assert!(!asked.build.sandbox_network);
+        assert_eq!(asked.build.sandbox_unconfined, Unconfined::Refuse);
     }
 
     #[test]

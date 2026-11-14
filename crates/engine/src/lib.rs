@@ -6,6 +6,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 pub mod clean_room;
+pub mod execution;
 
 /// Tools an agent app may be told to approve on its own side (Codex's `approval_mode`): each one
 /// asks the person itself (`Effects::needs_consent`), so approving it there skips nothing.
@@ -280,6 +281,11 @@ impl Engine {
                     .with_remediation("Approve it when asked, or allow it for this project in Settings.")
                     .with_details(serde_json::json!({"tool": spec.id})));
             }
+        }
+        // One boundary for every build route: a route that can't run in the container is refused
+        // here when the person asked for confinement and refused unconfined runs.
+        if let Some(route) = execution::route_of(spec.id) {
+            execution::Policy::of(&session.settings.build).check(route)?;
         }
         let run = spec.run;
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {

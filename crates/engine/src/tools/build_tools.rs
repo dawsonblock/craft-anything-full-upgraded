@@ -111,6 +111,15 @@ pub fn specs() -> Vec<ToolSpec> {
 /// The probe as it ships: embedded so a packaged app doesn't need the source tree.
 const PROBE: &str = include_str!("../../../../scripts/independent_game_probe.py");
 
+/// Most seconds the probe accepts for a whole replay. The probe refuses more, so the tool must
+/// not hand it more: one limit, enforced on both sides.
+const PROBE_TIMEOUT_MAX_SECS: u64 = 120;
+
+/// Seconds the probe gets: 1-120, the range `independent_game_probe.py` enforces.
+fn probe_secs(requested: Option<u64>) -> u64 {
+    requested.unwrap_or(60).clamp(1, PROBE_TIMEOUT_MAX_SECS)
+}
+
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ProbeParams {
@@ -118,7 +127,7 @@ pub struct ProbeParams {
     pub case: String,
     /// The built game to drive, as an argument list (program first). No shell is involved.
     pub program: Vec<String>,
-    /// Seconds the game gets for the whole replay (default 60, at most 600).
+    /// Seconds the game gets for the whole replay (default 60, at most 120).
     pub timeout_secs: Option<u64>,
 }
 
@@ -137,7 +146,16 @@ fn build_probe_run(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolE
         ToolError::new(ErrorCode::EngineMissing, "The independent probe needs Python 3, which isn't installed.")
             .with_remediation("Install Python 3 from python.org or your package manager, then try again.")
     })?;
-    approve(ctx, "Bash", &json!({"command": p.program.join(" ")}))?.map_err(refused)?;
+    // The probe drives a program native to this computer, so it can't run in the container. When
+    // the person asked for confinement, the approval card says so instead of letting them think
+    // this run is sandboxed.
+    let outside = crate::execution::Policy::of(&ctx.session.settings.build).outside(crate::execution::Route::GameProbe);
+    let mut card = json!({"command": p.program.join(" ")});
+    if let Some(why) = outside {
+        card["runs"] = json!("on this computer, outside the Docker sandbox");
+        card["why"] = json!(why);
+    }
+    approve(ctx, "Bash", &card)?.map_err(refused)?;
     let case = in_project(&ws, &p.case)?;
     if !case.is_file() {
         return Err(ToolError::invalid(format!("There's no replay case at {}.", p.case))
@@ -160,7 +178,7 @@ fn build_probe_run(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolE
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
         Err(e) => return Err(ToolError::io(report.display(), e)),
     }
-    let replay = Duration::from_secs(p.timeout_secs.unwrap_or(60).clamp(5, 600));
+    let replay = Duration::from_secs(probe_secs(p.timeout_secs));
     let cancel = ctx.cancel.clone();
     ctx.report(None, "Probing the built game".to_string());
     let mut args: Vec<String> = vec![
@@ -216,10 +234,14 @@ fn build_probe_run(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolE
         "report_case_sha256": parsed.as_ref().and_then(|r| r.get("case_sha256")).and_then(Value::as_str).unwrap_or(""),
         "report_sha256": written.as_deref().map(sha256_hex),
         "capture_folder": if inside { capture } else { "" },
+        "confinement": "host-only",
         "exit_code": out.code,
         "stdout": tail(out.stdout_text()),
         "stderr": tail(out.stderr_text()),
     });
+    if let Some(why) = outside {
+        v["outside_sandbox"] = json!(why);
+    }
     if !passed {
         v["note"] = json!(
             "The probe did not pass: read its output for which step failed (movement, action, HUD or a screenshot). A report outside this run's folder is ignored."
@@ -546,6 +568,7 @@ fn build_command_run(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, Too
 mod tests {
     use super::*;
     use crate::inbox::InboxDir;
+    use crate::settings::Unconfined;
     use crate::workspace::{ExistingFiles, TargetRef};
     use crate::{CallOptions, Caller, Consent, Engine};
     use std::sync::Arc;
@@ -783,6 +806,32 @@ mod tests {
         let (_d, _ws, e) = building();
         let err = call(&e, "build_probe_run", json!({"case": "case.json", "program": []})).unwrap_err();
         assert_eq!(err.code, ErrorCode::BadInput, "{}", err.message);
+    }
+
+    /// The Rust tool and the Python probe must agree on the upper limit: the probe refuses more
+    /// than 120, so a 121-600 second request used to fail after the tool had started.
+    #[test]
+    fn a_probe_timeout_stays_inside_the_probes_own_range() {
+        assert_eq!(probe_secs(None), 60);
+        assert_eq!(probe_secs(Some(0)), 1);
+        assert_eq!(probe_secs(Some(120)), 120);
+        assert_eq!(probe_secs(Some(121)), 120);
+        assert_eq!(probe_secs(Some(600)), 120);
+    }
+
+    #[test]
+    fn a_probe_is_refused_when_the_sandbox_refuses_unconfined_runs() {
+        let mut s = crate::testing::session();
+        s.settings.build.sandbox = SandboxMode::Docker;
+        s.settings.build.sandbox_unconfined = Unconfined::Refuse;
+        let dir = s.config_dir();
+        let ws = Workspace::create(&dir, "Snake", "A snake game", TargetRef::None).unwrap();
+        s.ext.insert(Arc::new(InboxDir(ws.inbox_dir())));
+        let e = Engine::new(s);
+        let err = call(&e, "build_probe_run", json!({"case": "case.json", "program": ["true"]})).unwrap_err();
+        assert_eq!(err.code, ErrorCode::ConsentRequired, "{}", err.message);
+        assert!(err.message.contains("outside the Docker sandbox"), "{}", err.message);
+        assert!(err.remediation.as_deref().is_some_and(|r| r.contains("sandbox_unconfined")), "{err:?}");
     }
 
     /// Opt-in: needs Python 3. `cargo test -p craft-anything-engine --lib probe -- --ignored`

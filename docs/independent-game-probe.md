@@ -111,7 +111,8 @@ and run the untrusted target inside an OS sandbox or isolated virtual machine.
    drives the game with a bounded subprocess and accepts only a fresh `status: "pass"` report whose
    `capture_folder` is the run's own. The result carries the case file's SHA-256, the report's
    SHA-256 and the probe's own digest of the parsed case; none of them is a signature, and a
-   cooperating game can still forge telemetry.
+   cooperating game can still forge telemetry. A whole replay gets 1-120 seconds (default 60), the
+   same range the probe itself enforces.
 2. Still planned: a game-engine adapter for one target stack (e.g. Godot) that injects
    scripted inputs and collects telemetry/frame captures independently.
 3. Still planned: target-specific expectations and replay timings in saved, versioned
@@ -119,4 +120,6 @@ and run the untrusted target inside an OS sandbox or isolated virtual machine.
 4. Still planned: regression tests on honest games with real observed success/failure,
    cross-platform capture, timeouts and sandbox escape attempts.
 5. Not done: the probe is not a default readiness gate, and it is not sandboxed — it runs the
-   built program to look at it, which needs a display.
+   built program to look at it, which needs a display. The execution policy marks it `host-only`;
+   with `[build] sandbox_unconfined = "refuse"` it is refused instead of running outside the
+   Docker sandbox (`build-sandbox.md`).

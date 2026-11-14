@@ -308,6 +308,13 @@ pub(super) fn run_with(cx: &CheckCx, option: &str, file: &Path) -> Result<OwnRun
     let app = cx.ws.app_dir();
     let godot = cx.godot();
     let Some((program, args)) = launch(&app, godot.as_deref()) else { return Ok(OwnRun::NoProgram) };
+    // The built program is native to this computer, so it can't run in the container. When the
+    // person asked for confinement and refused unconfined runs, the check says why instead of
+    // quietly running it here.
+    let policy = craft_anything_engine::execution::Policy::of(&cx.build_settings());
+    if let Err(e) = policy.check(craft_anything_engine::execution::Route::SelfTest) {
+        return Ok(OwnRun::NoFile(format!(" {}", e.message)));
+    }
     if let Some(dir) = file.parent() {
         std::fs::create_dir_all(dir).map_err(|e| ToolError::io(dir.display(), e))?;
     }

@@ -237,12 +237,22 @@ impl RebuildRun {
         // The person's choice of mode is a session setting. A run that waited its turn uses the mode
         // now, not the one when it was queued; a tool holds the session while it starts a run, so it
         // passes the mode instead, and the saved settings are the last fallback.
-        let clean_room = hub
-            .engine
-            .try_session()
-            .map(|s| s.clean_room())
-            .or(opts.clean_room)
-            .unwrap_or_else(|| !craft_anything_engine::Settings::load_from(&hub.settings_path()).deep_mode);
+        let (session_clean_room, session_build) = match hub.engine.try_session() {
+            Some(s) => (Some(s.clean_room()), Some(s.settings.build.clone())),
+            None => (None, None),
+        };
+        let clean_room = match (session_clean_room, opts.clean_room) {
+            (Some(mode), _) => mode,
+            (None, Some(mode)) => mode,
+            (None, None) => !craft_anything_engine::Settings::load_from(&hub.settings_path()).deep_mode,
+        };
+        // A coding agent runs its own tools and signs in as the person, so it can't be put in the
+        // container. When the person asked for confinement and refused unconfined runs, the build
+        // says so now instead of starting an agent outside the boundary.
+        if entry.config.kind == BackendKind::AgentCli {
+            let build = session_build.unwrap_or_else(|| craft_anything_engine::Settings::load_from(&hub.settings_path()).build);
+            craft_anything_engine::execution::Policy::of(&build).check(craft_anything_engine::execution::Route::Agent)?;
+        }
         // An API backend builds with our own agent loop and the Build tools; its conversation is
         // kept in the project and continued by follow-ups (a fresh build starts a new one).
         let api = match entry.config.kind {

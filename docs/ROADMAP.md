@@ -897,6 +897,29 @@ Owner: open · Status: in progress
       image and network are settings, the result says which mode ran, and a missing Docker is a
       plain error with a remediation (`docs/build-sandbox.md`)
       — claimed: Devin, branch feature/r2.2-docker-build-sandbox
+- [x] One execution boundary for every route that runs a build's code: each route (a build command,
+      the game probe, a self-test, a coding agent) declares what confines it, a route that can't be
+      confined says so in its approval card or result, and `[build] sandbox_unconfined = "refuse"`
+      stops it before it starts. The container is named and stopped by name on timeout or cancel,
+      which a killed Docker client used to leave running; Windows gets a fixed non-root id instead
+      of no `--user` (`docs/build-sandbox.md`)
+      — claimed: Devin, branch feature/r2.2-docker-build-sandbox
+- [ ] **decision** Whether `sandbox_unconfined` should default to `"refuse"`: today turning the
+      sandbox on still runs the probe, a self-test and a coding agent outside it (each says so),
+      because refusing them would stop every agent build on macOS and Windows
+- [ ] **decision** Whether `sandbox_network` should default to `false`: today turning the sandbox
+      on gives the container bridge networking, because package installs (`npm install`) need it;
+      a build that only compiles what it already has would be safer with the network off
+- [ ] Confine the coding agent itself, or say on each adapter what it can be held to (its own
+      sandbox, our approvals, nothing) and have runs act on that: a Docker container needs the
+      agent's sign-in, its own tools and the project, which this change does not attempt
+- [ ] Hold a chat or a question with a coding agent to the same policy: this change covers a
+      build's agent, not the agent's own tools in a chat (their own approvals are R2.2's decision)
+- [ ] Sweep containers carrying the sandbox label at startup, for one left behind by a crash
+      rather than a timeout or cancel (both of which now stop it)
+- [ ] Run the game probe inside a container on Linux, where the built game can be a Linux binary
+      and a headless display is available; macOS and Windows build a native game that a Linux
+      container can't run
 - [ ] Put the sandbox in Settings → Build, with a Docker image field: today it is only
       `[build] sandbox = "docker"` in `config.toml`, because new UI strings need every
       translation catalogue
@@ -1024,6 +1047,9 @@ Owner: open · Status: in progress
       the project, drives the built game with a bounded subprocess, and accepts only a fresh
       passing report whose capture folder is this run's (`docs/independent-game-probe.md`)
       — claimed: Devin, branch feature/r2.2-docker-build-sandbox
+- [x] `build_probe_run`'s timeout matches the probe's own 1-120 second limit: a request of
+      121-600 seconds used to start and then be refused by the probe, and the tool said "at most
+      600"; both sides now use 120, with boundary tests
 
 ### R2.7 The request decides how to build
 Owner: open · Status: in progress

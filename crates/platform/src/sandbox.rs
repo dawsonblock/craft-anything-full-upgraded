@@ -14,10 +14,14 @@ use crate::process::{Cancel, Output, Process};
 use craft_anything_evidence::{ErrorCode, ToolError};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 /// Where the project folder is mounted inside the container.
 pub const WORKDIR: &str = "/work";
+
+/// Marks every container this module starts, so one left behind can be found and removed.
+pub const LABEL: &str = "ai.storyteller.craft-anything.sandbox";
 
 /// A small Debian with a POSIX shell and nothing else: a build that needs Node, Rust or Python
 /// must name an image that has it.
@@ -91,6 +95,11 @@ impl Spec {
         if let Some(user) = host_user() {
             argv.push("--user".into());
             argv.push(user);
+        } else {
+            // Windows has no host id to mirror. A fixed non-root id is better than leaving the
+            // image's default, which is often root.
+            argv.push("--user".into());
+            argv.push("1000:1000".into());
         }
         argv.extend([image.to_string(), "sh".into(), "-c".into(), command.to_string()]);
         Ok(argv)
@@ -99,7 +108,14 @@ impl Spec {
 
 /// Run `command` inside a container built from `spec`.
 pub fn run(spec: &Spec, command: &str, timeout: Duration, cancel: Option<Cancel>) -> Result<Output, ToolError> {
-    let argv = spec.argv(command)?;
+    let mut argv = spec.argv(command)?;
+    let name = container_name();
+    // A name and a label let a container be found and stopped even when the Docker client that
+    // started it is gone.
+    argv.insert(1, "--name".into());
+    argv.insert(2, name.clone());
+    argv.insert(3, "--label".into());
+    argv.insert(4, LABEL.into());
     let mut process = Process::new("docker")
         .args(argv)
         .cwd(&spec.project)
@@ -110,7 +126,32 @@ pub fn run(spec: &Spec, command: &str, timeout: Duration, cancel: Option<Cancel>
     if let Some(cancel) = cancel {
         process = process.cancel_when(move || cancel());
     }
-    process.run().map_err(docker_error)
+    let result = process.run();
+    // `--rm` removes a container that exits. A timeout or cancel kills the Docker client first,
+    // so the daemon keeps the container running; stop it by name. An error from Docker itself
+    // also comes here, where removing a container that was never made does nothing.
+    if result.is_err() {
+        stop(&name);
+    }
+    result.map_err(docker_error)
+}
+
+/// A unique container name: the process id plus a counter, so two runs never collide.
+fn container_name() -> String {
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    format!("craft-anything-build-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed))
+}
+
+/// Stop and remove a container by name. Errors are ignored: the run is already over, and a
+/// container that `--rm` already removed is the normal case.
+fn stop(name: &str) {
+    let _ = Process::new("docker")
+        .args(["rm", "--force", name])
+        .timeout(Duration::from_secs(15))
+        .stdout_cap(4096)
+        .stderr_cap(4096)
+        .label("the sandboxed container's cleanup")
+        .run();
 }
 
 /// Turn Docker's absence into something a person can act on.
@@ -139,7 +180,8 @@ fn host_path(project: &Path) -> Result<String, ToolError> {
 /// The current user, so files the build writes stay theirs instead of root's.
 ///
 /// Container images rarely have the host's account, but a numeric id works: `sh` is world-readable
-/// and a file created at `/work` keeps the host owner. Looked up once per process.
+/// and a file created at `/work` keeps the host owner. `None` on Windows, where [`Spec::argv`]
+/// uses a fixed non-root id instead. Looked up once per process.
 fn host_user() -> Option<String> {
     static USER: OnceLock<Option<String>> = OnceLock::new();
     if cfg!(windows) {
@@ -188,9 +230,48 @@ mod tests {
     #[test]
     fn privileges_and_limits_are_always_set() {
         let text = joined(&spec().argv("x").unwrap_or_default());
-        for flag in ["--rm", "--init", "--cap-drop ALL", "--security-opt no-new-privileges", "--pids-limit", "--memory", "--cpus"] {
+        for flag in ["--rm", "--init", "--cap-drop ALL", "--security-opt no-new-privileges", "--pids-limit", "--memory", "--cpus", "--user"] {
             assert!(text.contains(flag), "{flag} missing from {text}");
         }
+    }
+
+    /// The image's default user is often root, and Windows has no host id to mirror; the
+    /// container must never fall back to root.
+    #[test]
+    fn the_container_never_runs_as_root() {
+        let argv = spec().argv("x").unwrap_or_default();
+        let at = argv.iter().position(|a| a == "--user").expect("--user is always set");
+        let user = argv.get(at + 1).cloned().unwrap_or_default();
+        let ids: Vec<&str> = user.split(':').collect();
+        assert_eq!(ids.len(), 2, "{user}");
+        assert!(ids.iter().all(|id| !id.is_empty() && id.chars().all(|c| c.is_ascii_digit())), "{user}");
+        assert_ne!(user, "0:0", "never root");
+    }
+
+    #[test]
+    fn every_run_gets_its_own_container_name() {
+        let first = container_name();
+        let second = container_name();
+        assert_ne!(first, second);
+        assert!(first.starts_with("craft-anything-build-"), "{first}");
+    }
+
+    /// Opt-in: needs Docker and the default image. `cargo test -p craft-anything-platform sandbox -- --ignored`
+    #[test]
+    #[ignore]
+    fn a_timed_out_command_leaves_no_container_running() {
+        let dir = tempfile::tempdir().unwrap();
+        let spec = Spec { project: dir.path().to_path_buf(), ..Default::default() };
+        let err = run(&spec, "sleep 300", Duration::from_secs(1), None).unwrap_err();
+        assert_eq!(err.code, ErrorCode::TimedOut, "{err:?}");
+        let out = Process::new("docker")
+            .args(["ps", "-aq", "--filter", &format!("label={LABEL}")])
+            .timeout(Duration::from_secs(30))
+            .stdout_cap(64 * 1024)
+            .run()
+            .expect("docker ps");
+        assert!(out.success, "{}", out.stderr_text());
+        assert!(out.stdout_text().trim().is_empty(), "a container survived the timeout: {}", out.stdout_text());
     }
 
     #[test]

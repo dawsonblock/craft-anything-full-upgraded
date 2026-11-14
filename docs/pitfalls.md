@@ -1002,3 +1002,20 @@ they failed with "Craft Anything's helper program (craft-anything-cli) is missin
 `-p craft-anything-cli` before the workspace tests in the gate, and have `find_cli` check the
 `target/<profile>` root: the CI ran the AI test binary from
 `target/debug/build/<crate>/<hash>/out`, not `target/debug/deps`.
+
+**A killed Docker client left the build running.** `docker run --rm` removes a container when it
+exits, but a timeout or cancel kills the Docker client first; the daemon keeps the container
+running, so a cancelled two-hour build carried on. Give every run a unique `--name` and a label,
+and after a failed or stopped run remove it by name (`docker rm --force`). Test it live: start
+`sleep 300` with a one-second deadline, then check no labelled container is still running.
+
+**One boundary, two different limits.** `build_probe_run` accepted 5-600 seconds and handed the
+value to the Python probe, which refuses anything over 120. A 121-second request started the tool
+and then failed inside the probe, where no Rust test could see it. When a value crosses a language
+or process boundary, define the range once on the stricter side, enforce it on both, and test the
+boundary values (0, 120, 121, 600), not only a middle value.
+
+**Transient tool caches in the source manifest.** The source inventory ignored `target` and `log`
+but not `.ruff_cache` or `.pytest_cache`, so running the linters changed what the manifest listed
+and a packaged ZIP without those caches failed verification. Ignore root-level tool caches in the
+inventory itself, then regenerate the manifest after the last source change.
