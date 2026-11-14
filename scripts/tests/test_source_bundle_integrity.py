@@ -1,5 +1,6 @@
 """Independent, synthetic source-inventory and ZIP validation regressions."""
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -16,7 +17,7 @@ SCRIPTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS))
 from source_bundle_integrity import (
     IntegrityError, MANIFEST_NAME, extract_verified_zip, make_manifest,
-    parse_manifest, permitted_path, verify_tree, verify_zip,
+    package_zip, parse_manifest, permitted_path, verify_tree, verify_zip,
 )
 
 
@@ -45,6 +46,164 @@ class SourceBundleIntegrityTests(unittest.TestCase):
             archive = parent / "source.zip"
             self.package(root, archive)
             self.assertEqual(verify_zip(archive)["status"], "verified")
+
+    def test_root_policy_is_visible_in_every_result(self):
+        with tempfile.TemporaryDirectory() as temp:
+            parent = Path(temp)
+            root = self.sample(parent)
+            self.assertEqual(verify_tree(root)["root_policy"], "compatible")
+            self.assertEqual(
+                verify_tree(root, require_declared_root=True)["root_policy"],
+                "strict",
+            )
+            archive = parent / "source.zip"
+            self.package(root, archive)
+            self.assertEqual(verify_zip(archive)["root_policy"], "compatible")
+            self.assertEqual(
+                verify_zip(archive, require_declared_root=True)["root_policy"],
+                "strict",
+            )
+            artifact = parent / "artifact.zip"
+            self.assertEqual(package_zip(root, artifact)["root_policy"], "strict")
+            install = parent / "install"
+            install.mkdir()
+            self.assertEqual(
+                extract_verified_zip(artifact, install)["root_policy"],
+                "compatible",
+            )
+
+    def test_renamed_root_zip_and_tree_are_accepted(self):
+        with tempfile.TemporaryDirectory() as temp:
+            parent = Path(temp)
+            root = self.sample(parent)
+            renamed = "craft-anything-full-upgraded-bugfix-deep-gate-inventory-tests-and-doc-drift"
+            archive = parent / "branch.zip"
+            with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as zf:
+                for path in sorted(root.rglob("*")):
+                    if path.is_file():
+                        zf.write(path, arcname=f"{renamed}/{path.relative_to(root).as_posix()}")
+            verified = verify_zip(archive)
+            self.assertEqual(verified["status"], "verified")
+            self.assertEqual(verified["declared_root"], root.name)
+            self.assertEqual(verified["source_root"], renamed)
+            self.assertTrue(verified["root_renamed"])
+            with self.assertRaisesRegex(IntegrityError, "declared source root"):
+                verify_zip(archive, require_declared_root=True)
+            install = parent / "install"
+            install.mkdir()
+            receipt = extract_verified_zip(archive, install)
+            self.assertEqual(receipt["status"], "extracted")
+            self.assertTrue(receipt["root_renamed"])
+            installed = install / renamed
+            checked = verify_tree(installed)
+            self.assertEqual(checked["file_count"], 2)
+            self.assertEqual(checked["declared_root"], root.name)
+            self.assertEqual(checked["source_root"], renamed)
+            self.assertTrue(checked["root_renamed"])
+            with self.assertRaisesRegex(IntegrityError, "differs from manifest root"):
+                verify_tree(installed, require_declared_root=True)
+            strict_install = parent / "strict-install"
+            strict_install.mkdir()
+            with self.assertRaisesRegex(IntegrityError, "declared source root"):
+                extract_verified_zip(archive, strict_install, require_declared_root=True)
+            self.assertEqual(list(strict_install.iterdir()), [])
+
+    def test_zip_with_nested_source_root_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temp:
+            parent = Path(temp)
+            root = self.sample(parent)
+            archive = parent / "nested-root.zip"
+            with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as zf:
+                for path in sorted(root.rglob("*")):
+                    if path.is_file():
+                        zf.write(path, arcname=f"outer/{root.name}/{path.relative_to(root).as_posix()}")
+            with self.assertRaisesRegex(IntegrityError, "source root is invalid"):
+                verify_zip(archive)
+
+    def test_package_zip_verifies_the_artifact_and_refuses_overwrite(self):
+        with tempfile.TemporaryDirectory() as temp:
+            parent = Path(temp)
+            root = self.sample(parent)
+            archive = parent / "artifact.zip"
+            receipt = package_zip(root, archive)
+            self.assertEqual(receipt["status"], "packaged")
+            self.assertEqual(receipt["source_root"], root.name)
+            self.assertFalse(receipt["root_renamed"])
+            self.assertEqual(len(receipt["archive_sha256"]), 64)
+            self.assertEqual(verify_zip(archive)["status"], "verified")
+            self.assertEqual(verify_zip(archive, require_declared_root=True)["status"], "verified")
+            install = parent / "install"
+            install.mkdir()
+            self.assertEqual(extract_verified_zip(archive, install)["status"], "extracted")
+            self.assertTrue((install / root.name / "README.md").is_file())
+            self.assertFalse(any(parent.glob(".source-zip-*")))
+            with self.assertRaisesRegex(IntegrityError, "Refusing to overwrite"):
+                package_zip(root, archive)
+            (root / "extra.txt").write_text("unexpected", encoding="utf-8")
+            with self.assertRaisesRegex(IntegrityError, "missing, changed or extra"):
+                package_zip(root, parent / "stale.zip")
+            self.assertFalse(any(parent.glob(".source-zip-*")))
+            with self.assertRaisesRegex(IntegrityError, "outside the source root"):
+                package_zip(root, root / "artifact.zip")
+
+    def test_package_zip_normalizes_metadata(self):
+        with tempfile.TemporaryDirectory() as temp:
+            parent = Path(temp)
+            root = self.sample(parent)
+            first = parent / "first.zip"
+            package_zip(root, first)
+            first_digest = hashlib.sha256(first.read_bytes()).hexdigest()
+            os.utime(root / "README.md", (1_600_000_000, 1_600_000_000))
+            os.utime(root / "src" / "app.rs", (1_500_000_000, 1_500_000_000))
+            second = parent / "second.zip"
+            package_zip(root, second)
+            self.assertEqual(hashlib.sha256(second.read_bytes()).hexdigest(),
+                             first_digest)
+
+    def test_extract_verified_zip_accepts_an_open_stream(self):
+        with tempfile.TemporaryDirectory() as temp:
+            parent = Path(temp)
+            root = self.sample(parent)
+            archive = parent / "source.zip"
+            self.package(root, archive)
+            install = parent / "install"
+            install.mkdir()
+            with archive.open("rb") as stream:
+                receipt = extract_verified_zip(stream, install)
+            self.assertEqual(receipt["status"], "extracted")
+            self.assertTrue((install / root.name / "README.md").is_file())
+
+    def test_package_zip_runs_a_full_extraction_check_before_creating_output(self):
+        with tempfile.TemporaryDirectory() as temp:
+            parent = Path(temp)
+            root = self.sample(parent)
+            archive = parent / "rejected.zip"
+            with patch("source_bundle_integrity.extract_verified_zip",
+                       side_effect=IntegrityError("postcheck rejected")):
+                with self.assertRaisesRegex(IntegrityError, "postcheck rejected"):
+                    package_zip(root, archive)
+            self.assertFalse(archive.exists())
+            self.assertFalse(any(parent.glob(".source-zip-*")))
+            self.assertFalse(any(parent.glob(".package-check-*")))
+
+    def test_package_zip_refuses_a_destination_created_during_packaging(self):
+        with tempfile.TemporaryDirectory() as temp:
+            parent = Path(temp)
+            root = self.sample(parent)
+            archive = parent / "artifact.zip"
+            sentinel = b"another writer\n"
+
+            def create_destination(*_args, **_kwargs):
+                archive.write_bytes(sentinel)
+                return {"status": "extracted"}
+
+            with patch("source_bundle_integrity.extract_verified_zip",
+                       side_effect=create_destination):
+                with self.assertRaisesRegex(IntegrityError, "Refusing to overwrite"):
+                    package_zip(root, archive)
+            self.assertEqual(archive.read_bytes(), sentinel)
+            self.assertFalse(any(parent.glob(".source-zip-*")))
+            self.assertFalse(any(parent.glob(".package-check-*")))
 
     def test_verified_extraction_installs_exact_source_without_running_it(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -138,6 +297,30 @@ class SourceBundleIntegrityTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertEqual(json.loads(result.stdout)["status"], "extracted")
+
+    def test_cli_strict_root_flag_rejects_a_renamed_archive(self):
+        with tempfile.TemporaryDirectory() as temp:
+            parent = Path(temp)
+            root = self.sample(parent)
+            renamed = "craft-anything-full-upgraded-bugfix-example"
+            archive = parent / "branch.zip"
+            with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as zf:
+                for path in sorted(root.rglob("*")):
+                    if path.is_file():
+                        zf.write(path, arcname=f"{renamed}/{path.relative_to(root).as_posix()}")
+            script = str(SCRIPTS / "source_bundle_integrity.py")
+            flexible = subprocess.run(
+                [sys.executable, script, "verify-zip", "--archive", str(archive)],
+                capture_output=True, text=True, timeout=10, check=False,
+            )
+            self.assertEqual(flexible.returncode, 0, flexible.stdout + flexible.stderr)
+            strict = subprocess.run(
+                [sys.executable, script, "verify-zip", "--archive", str(archive),
+                 "--require-declared-root"],
+                capture_output=True, text=True, timeout=10, check=False,
+            )
+            self.assertEqual(strict.returncode, 1, strict.stdout + strict.stderr)
+            self.assertIn("declared source root", json.loads(strict.stdout)["error"])
 
     def test_rejects_nonportable_names(self):
         for name in ("CON", "NUL.txt", "NUL  .txt", "foo/LPT1.bin", "foo/COM¹.data", "x?y", "a//",

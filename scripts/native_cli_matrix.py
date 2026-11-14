@@ -179,7 +179,7 @@ def run_matrix(
     checks: list[dict] = []
     version = None
     try:
-        manifest = verify_tree(root)
+        manifest = verify_tree(root, require_declared_root=True)
         checks.append({
             "name": "source_integrity", "status": "pass", "file_count": manifest["file_count"],
             "manifest_sha256": hashlib.sha256((root / "SOURCE_INTEGRITY.json").read_bytes()).hexdigest(),
@@ -212,7 +212,7 @@ def run_matrix(
         return receipt(checks, version)
 
     try:
-        verify_tree(root)
+        verify_tree(root, require_declared_root=True)
         checks.append({"name": "source_integrity_after_build", "status": "pass"})
     except (IntegrityError, OSError, ValueError) as exc:
         checks.append({"name": "source_integrity_after_build", "status": "fail", "reason": str(exc)})
@@ -265,7 +265,7 @@ def run_matrix(
         return receipt(checks, version)
 
     try:
-        verify_tree(root)
+        verify_tree(root, require_declared_root=True)
         checks.append({"name": "source_integrity_after_smoke", "status": "pass"})
     except (IntegrityError, OSError, ValueError) as exc:
         checks.append({"name": "source_integrity_after_smoke", "status": "fail", "reason": str(exc)})

@@ -292,24 +292,38 @@ pub fn self_cli_path() -> Option<PathBuf> {
 
 fn find_cli() -> Option<PathBuf> {
     let name = cli_file_name();
-    if let Some(exe) = std::env::current_exe().ok().map(|p| std::fs::canonicalize(&p).unwrap_or(p)) {
-        if exe.file_name().is_some_and(|n| n == name.as_str()) {
-            return Some(exe);
+    if let Some(exe) = std::env::current_exe().ok().map(|p| std::fs::canonicalize(&p).unwrap_or(p))
+        && let Some(found) = cli_near(&exe, &name)
+    {
+        return Some(found);
+    }
+    which("craft-anything-cli")
+}
+
+/// The CLI at the executable's side, or at the Cargo profile root above a test binary.
+///
+/// Test binaries normally live in `target/<profile>/deps`, but a build script's
+/// `target/<profile>/build/<crate>/<hash>/out` can hold one too. The CLI is built at the
+/// profile root (`target/<profile>/craft-anything-cli`).
+fn cli_near(exe: &Path, name: &str) -> Option<PathBuf> {
+    if exe.file_name().is_some_and(|n| n == name) {
+        return Some(exe.to_path_buf());
+    }
+    if let Some(dir) = exe.parent() {
+        let sib = dir.join(name);
+        if is_executable(&sib) {
+            return Some(sib);
         }
-        if let Some(dir) = exe.parent() {
-            let sib = dir.join(&name);
-            if is_executable(&sib) {
-                return Some(sib);
-            }
-            // test binaries live in target/<profile>/deps; the CLI is one level up
-            if let Some(up) = dir.parent().map(|d| d.join(&name))
-                && is_executable(&up)
-            {
-                return Some(up);
+    }
+    for ancestor in exe.ancestors().skip(1) {
+        if ancestor.file_name().is_some_and(|n| n == "debug" || n == "release") {
+            let candidate = ancestor.join(name);
+            if is_executable(&candidate) {
+                return Some(candidate);
             }
         }
     }
-    which("craft-anything-cli")
+    None
 }
 
 /// `path` without the `\\?\` prefix `canonicalize` adds on Windows, so clients that can't start
@@ -473,6 +487,22 @@ mod tests {
         assert!(which("sh").is_some());
         assert!(which("definitely-not-a-program-xyz").is_none());
         assert!(which("").is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn finds_the_cli_at_the_cargo_profile_root() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = tempfile::tempdir().unwrap();
+        let profile = root.path().join("target").join("debug");
+        let nested = profile.join("build").join("crate").join("hash").join("out");
+        std::fs::create_dir_all(&nested).unwrap();
+        let cli = profile.join(cli_file_name());
+        std::fs::write(&cli, b"#!/bin/sh\n").unwrap();
+        std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let test_binary = nested.join("test-binary");
+        std::fs::write(&test_binary, b"").unwrap();
+        assert_eq!(cli_near(&test_binary, &cli_file_name()), Some(cli));
     }
 
     #[cfg(unix)]

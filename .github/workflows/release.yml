@@ -19,7 +19,17 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  source-preflight:
+    # Verify and attest the source at the commit being released before any
+    # platform package is built or published. The published-asset check stays
+    # the backstop.
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/fork-release-source-preflight.yml
   release:
+    needs: source-preflight
     # Intentionally tracked at @main (not SHA-pinned) so org-wide CI improvements, security fixes, and build optimizations propagate without PR churn across all craftapp repos.
     uses: storytold/craft-common-actions/.github/workflows/release.yml@main
     with:
@@ -43,3 +53,67 @@ jobs:
       AZURE_SIGNING_ACCOUNT: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
       AZURE_CERT_PROFILE: ${{ secrets.AZURE_CERT_PROFILE }}
       LINUX_SIGNING_KEY: ${{ secrets.LINUX_SIGNING_KEY }}
+  source-verify:
+    # The release job creates a draft. Check the source ZIP actually attached
+    # to that draft against the preflight receipt before a person publishes it.
+    needs: [source-preflight, release]
+    if: needs.release.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-source-preflight
+          path: ${{ runner.temp }}/preflight
+      - name: Find the draft release
+        id: draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          release=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=30" \
+            --jq '[.[] | select(.draft)] | sort_by(.created_at) | last | if . == null then "" else "\(.id) \(.tag_name)" end')
+          if [ -z "$release" ]; then
+            echo "::error::No draft release was found after the release job"
+            exit 1
+          fi
+          echo "id=${release%% *}" >> "$GITHUB_OUTPUT"
+          echo "tag=${release#* }" >> "$GITHUB_OUTPUT"
+      - name: Download the draft's source asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ steps.draft.outputs.id }}
+          DESTINATION: ${{ runner.temp }}/draft
+        run: |
+          mkdir "$DESTINATION"
+          gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets" > "$DESTINATION/assets.json"
+          asset=$(python -c 'import fnmatch, json, sys; assets = json.load(open(sys.argv[1])); matches = [a for a in assets if fnmatch.fnmatchcase(a["name"].lower(), "*source*.zip")]; print(matches[0]["id"] if len(matches) == 1 else "")' "$DESTINATION/assets.json")
+          if [ -z "$asset" ]; then
+            echo "::error::The draft must attach exactly one source ZIP matching *source*.zip"
+            exit 1
+          fi
+          gh api -H "Accept: application/octet-stream" \
+            "repos/$GITHUB_REPOSITORY/releases/assets/$asset" > "$DESTINATION/draft-source.zip"
+      - name: Verify the draft's source asset against the preflight receipt
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RECEIPT: ${{ runner.temp }}/preflight/release-source-preflight.json
+          ARCHIVE: ${{ runner.temp }}/draft/draft-source.zip
+        run: |
+          python scripts/verify_release_source.py \
+            --archive "$ARCHIVE" \
+            --provenance "$RECEIPT" \
+            --verify-attestation "$GITHUB_REPOSITORY" \
+            --report "$RUNNER_TEMP/draft-source-receipt.json"
+      - name: Upload the draft verification receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: draft-source-receipt
+          path: ${{ runner.temp }}/draft-source-receipt.json
+          if-no-files-found: warn

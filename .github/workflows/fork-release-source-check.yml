@@ -1,0 +1,87 @@
+name: Release Source Artifact Check
+
+# Verifies the source ZIP attached to a published release, not a fresh one
+# built in CI. A manual run may name another repository, tag and asset.
+# The archive is never executed; its inventory and extracted tree are hashed.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      repository:
+        description: "OWNER/NAME (empty: this repository)"
+        type: string
+        default: ""
+      tag:
+        description: "Release tag (empty: the published release)"
+        type: string
+        default: ""
+      asset:
+        description: "Asset glob for the source ZIP"
+        type: string
+        default: "*source*.zip"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Resolve the release identity
+        id: release
+        env:
+          EVENT_TAG: ${{ github.event.release.tag_name }}
+          INPUT_REPO: ${{ inputs.repository }}
+          INPUT_TAG: ${{ inputs.tag }}
+          INPUT_ASSET: ${{ inputs.asset }}
+          DEFAULT_REPO: ${{ github.repository }}
+        run: |
+          repo="${INPUT_REPO:-$DEFAULT_REPO}"
+          tag="${EVENT_TAG:-$INPUT_TAG}"
+          asset="${INPUT_ASSET:-*source*.zip}"
+          if [ -z "$tag" ]; then
+            echo "::error::A release tag is required for a manual run"
+            exit 1
+          fi
+          case "$repo$tag$asset" in
+            *[!A-Za-z0-9_./+*?@-]*)
+              echo "::error::Release identity has unsupported characters"
+              exit 1
+              ;;
+          esac
+          {
+            echo "repo=$repo"
+            echo "tag=$tag"
+            echo "asset=$asset"
+          } >> "$GITHUB_OUTPUT"
+      - name: Verify the published source ZIP
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_REPO: ${{ steps.release.outputs.repo }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_ASSET: ${{ steps.release.outputs.asset }}
+        run: |
+          python scripts/verify_release_source.py \
+            --repo "$RELEASE_REPO" \
+            --tag "$RELEASE_TAG" \
+            --asset "$RELEASE_ASSET" \
+            --report "$RUNNER_TEMP/release-source-receipt.json"
+      - name: Show the receipt
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/release-source-receipt.json" ]; then
+            cat "$RUNNER_TEMP/release-source-receipt.json" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload the receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-source-receipt
+          path: ${{ runner.temp }}/release-source-receipt.json
+          if-no-files-found: warn

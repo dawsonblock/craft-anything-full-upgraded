@@ -1,8 +1,16 @@
-# V5–V7 source-bundle integrity and verified extraction
+# V5–V26 source-bundle integrity and verified extraction
 
 The independent V5 source ZIP contains `SOURCE_INTEGRITY.json`. That file
 enumerates every regular source file (other than itself), with its relative
 POSIX path, byte count and SHA-256 digest. Python cache files are excluded.
+
+The manifest's `root` field records the folder name used when it was written.
+It is a label, not part of the content hashes: GitHub's branch and tag archives
+name the top-level folder `<repository>-<branch>`, so verification accepts any
+single safe top-level folder and reports both names. Every file is still
+checked against the manifest's relative paths. Release gates pass
+`--require-declared-root` to require the canonical name; the default keeps
+GitHub downloads verifiable.
 
 This inventory detects accidental omissions, additions and modifications after
 extraction. It does **not** compile the application, prove that the code is
@@ -22,10 +30,104 @@ From any folder, with Python 3 and the verification script available:
 
 This reads entries without extracting them and checks the inventory against
 every regular member's uncompressed bytes. The script rejects duplicate ZIP
-names, traversal paths, symbolic links, extra files, missing files, a mismatched
-root, malformed manifest data, source size limits and portable filename
-collisions. The V7 rules also reject Windows device names, control characters,
-non-normalized Unicode, unsafe filename punctuation and trailing dots/spaces.
+names, traversal paths, symbolic links, extra files, missing files, a manifest
+outside a single top-level folder, a nested source root, malformed manifest
+data, source size limits and portable filename collisions. The top-level folder
+may be renamed (as GitHub branch archives do); the result reports
+`declared_root`, the actual `source_root`, `root_policy` (`strict` or
+`compatible`) and `root_renamed`. Add
+`--require-declared-root` to refuse a renamed folder. The V7 rules also reject
+Windows device names, control characters, non-normalized Unicode, unsafe
+filename punctuation and trailing dots/spaces.
+
+## Package a source ZIP and verify the artifact (V26)
+
+Build the archive from the verified tree, then verify the file that was actually
+written rather than a checked-out directory:
+
+    python3 scripts/source_bundle_integrity.py package-zip \
+      --root . --archive /path/to/new-source.zip
+
+The command refuses a stale tree, writes every manifest entry plus the manifest
+itself under the manifest's `root`, refuses an archive inside the source tree,
+and always requires the canonical root. It creates the destination exclusively
+(`O_CREAT | O_EXCL`), so a file another process creates during packaging is
+never overwritten; it then verifies the bytes written to that descriptor, not a
+separate path. Before creating the destination it also verifies the staged ZIP
+and extracts it into a private folder, rehashing every file. Every member is
+written with a fixed 1980 timestamp and mode, so identical source produces an
+identical ZIP regardless of checkout times. Its result includes the whole
+archive's SHA-256. The source-portability workflow runs this package, verify
+and extract round-trip with `--require-declared-root` on every operating system
+it tests.
+
+## Verify a published release artifact
+
+Check the file people actually download, not a fresh ZIP built in CI:
+
+    python3 scripts/verify_release_source.py \
+      --repo OWNER/NAME --tag vX.Y.Z --asset '*source*.zip' \
+      --report /path/outside/the/checkout/receipt.json
+
+The script downloads exactly one matching asset with the GitHub CLI, requires
+the canonical root, checks every member without extracting it, unpacks it into
+a private temporary folder and rehashes the tree. An already downloaded file
+can be checked with `--archive`. The archive is copied through a bounded stream
+into a private staging file and hashed while it is copied; that staged copy is
+re-hashed, verified and extracted, and is re-hashed again afterwards. The
+receipt's SHA-256 therefore describes exactly the bytes that were verified,
+even if the original path is replaced or changed meanwhile. Repository, tag and
+asset inputs are validated before `gh` runs. The receipt records the release
+identity, the archive's SHA-256, the manifest's SHA-256, the file count, total
+bytes and the root policy (`strict` here); it is created exclusively, never
+overwritten, and must stay outside the checkout. A release that attaches no
+source ZIP, or attaches a GitHub-generated archive without
+`SOURCE_INTEGRITY.json`, fails with a plain error. The **Release Source
+Artifact Check** workflow passes those values through environment variables
+rather than inserting expressions into its shell, runs this when a release is
+published and on manual dispatch, and uploads the receipt.
+
+## Bind a published asset to a preflight receipt
+
+`fork-release-source-preflight.yml` runs before the platform release jobs (and
+on manual dispatch). It verifies the source tree, packages the canonical ZIP,
+verifies and extracts it, writes a receipt bound to the release commit, and
+attests the ZIP with GitHub's artifact attestation. `release.yml` gates the
+platform jobs on it, then downloads the source ZIP attached to the resulting
+draft release and checks it against that receipt. Draft releases do not create
+their Git tag until publication, so the draft check addresses the release by
+ID and verifies a local archive.
+
+Check a draft asset (the `source-verify` job does this automatically):
+
+    python3 scripts/verify_release_source.py \
+      --archive /path/to/draft-source.zip \
+      --provenance /path/to/release-source-preflight.json \
+      --verify-attestation OWNER/NAME \
+      --report /path/outside/the/checkout/receipt.json
+
+After publication, check the tag as well:
+
+    python3 scripts/verify_release_source.py \
+      --repo OWNER/NAME --tag vX.Y.Z \
+      --provenance /path/to/release-source-preflight.json \
+      --verify-attestation \
+      --report /path/outside/the/checkout/receipt.json
+
+`--provenance` requires the asset's SHA-256 to equal the preflight receipt's.
+In remote mode, `--commit` (or the commit recorded in the receipt) must equal
+the commit the release tag resolves to. `--verify-attestation` asks
+`gh attestation verify` to check the ZIP's signed GitHub artifact attestation,
+enforces that source commit, and requires the attestation's subject digest to
+be the same SHA-256. The default signer is
+`OWNER/NAME/.github/workflows/fork-release-source-preflight.yml`; pass
+`--signer-workflow` when a release uses another workflow. A local archive can
+also be checked with `--archive --expect-archive-sha256`.
+
+The attestation proves which repository and workflow produced the ZIP and which
+commit it came from. It does not prove that the code was reviewed, that the
+build is reproducible, or that someone with release access could not replace
+both the manifest and the source; those remain release-process checks.
 
 ## Verified extraction (V7)
 
@@ -39,13 +141,17 @@ python3 scripts/source_bundle_integrity.py extract-zip \
   --output-parent /path/to/empty-install-parent
 ```
 
-The command creates `empty-install-parent/craft-anything-full-upgraded` only
-after both pre-extraction ZIP validation and post-extraction source hashing
-pass. It does not run any file from the archive. Existing destination files
-or folders are not intentionally overwritten. Errors clean the private staging
-folder; keep the output parent **private**, as concurrent writers are outside
-the protection of this cross-platform rename procedure. Run it again only
-after choosing another empty output parent or moving your existing tree.
+The command creates the archive's single top-level folder under
+`empty-install-parent` only after both pre-extraction ZIP validation and
+post-extraction source hashing pass. It keeps that folder's name, so a GitHub
+branch archive installs as `<repository>-<branch>` and a release ZIP installs as
+`craft-anything-full-upgraded`. Pass `--require-declared-root` to refuse a
+renamed archive before anything is extracted. It does not run any file from the
+archive. Existing destination files or folders are not intentionally
+overwritten. Errors clean the private staging folder; keep the output parent
+**private**, as concurrent writers are outside the protection of this
+cross-platform rename procedure. Run it again only after choosing another empty
+output parent or moving your existing tree.
 
 To test the extraction rules separately on three operating systems, trigger
 the manually dispatched **Independent Fork Source Portability** workflow in
@@ -58,9 +164,13 @@ a signature.
 
 ## Verify the extracted source tree
 
-From the extracted `craft-anything-full-upgraded` directory:
+From the extracted source directory (its name may differ from the manifest's
+`root`, for example after a GitHub branch download):
 
     python3 scripts/source_bundle_integrity.py verify-tree --root .
+
+Add `--require-declared-root` to refuse a directory whose name differs from the
+manifest's `root`; the result reports `root_policy` (`strict` or `compatible`).
 
 The command recomputes every source digest and rejects unexpected files.
 It deliberately ignores Python's `__pycache__` and `.pyc` test artifacts,
@@ -83,7 +193,8 @@ verification of who authored or reviewed the modifications.
 - Up to 20,000 source files, 100 MB per source file, 2 GB total unpacked
   source data and a 5 MB manifest.
 - ZIP names must use portable, unambiguous relative paths without traversal,
-  invalid Windows names, file/parent conflicts or case-insensitive collisions.
+  invalid Windows names, file/parent conflicts or case-insensitive collisions,
+  and exactly one safe top-level folder.
 - The original license files, assets, Rust crates, tests and docs are all
   included in the inventory.
 

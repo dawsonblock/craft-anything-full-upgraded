@@ -175,6 +175,28 @@ cheapest help we can give anyone, so nothing below should hold it up for long.
       local path, so `cargo xtask secrets` fails) are removed and ignored, the local devlog is
       left out of the inventory, and `SOURCE_INTEGRITY.json` is regenerated from the edited tree
       — PR #10
+- [x] Add a release step that verifies the source ZIP attached to a release, not only a fresh one
+      built in CI: `scripts/verify_release_source.py` downloads the asset with `gh`, requires the
+      canonical root, extracts it and writes an exclusive receipt, and the Release Source Artifact
+      Check workflow runs it on publication and on dispatch. Checked against the distributed V25
+      ZIP (926 files, 20,469,740 bytes, archive `05f67371…`, manifest `376836e1…`); the generated
+      source archive for upstream v0.6.1 has no `SOURCE_INTEGRITY.json` and is refused
+- [x] Fix the two release-check findings: the workflow passes the repository, tag and asset through
+      environment variables and rejects unsafe characters instead of interpolating expressions into
+      shell, and the checker hashes, verifies and extracts one open descriptor so the receipt is
+      bound to the bytes that were verified. Packaging normalizes member timestamps and modes, so
+      equal source produces an equal ZIP
+- [ ] Run the release source check against the first published release that attaches a
+      manifest-bearing source ZIP
+- [x] Verify the final source ZIP before a release is published, not only after, and bind it to the
+      intended commit with a signed provenance record: `fork-release-source-preflight.yml` verifies,
+      packages, extracts and attests the source at the release commit, `release.yml` gates the
+      platform jobs on it, and a `source-verify` job compares the source ZIP attached to the draft
+      with the preflight receipt. The published-asset check stays the backstop. The external
+      reusable workflow still decides which ZIP it attaches, so the draft check fails if it is not
+      the preflight artifact
+- [ ] Run the preflight gate and the draft source check on the first real release, and confirm the
+      external release workflow attaches the preflight source ZIP (or replace it before publishing)
 
 ### R5.2 Keeping contributions moving
 Owner: maintainers · Status: in progress

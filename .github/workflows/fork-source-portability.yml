@@ -29,3 +29,27 @@ jobs:
       - name: Test portable ZIP validation and extraction
         working-directory: craft-anything-full-upgraded
         run: python -m unittest discover -s scripts/tests -p test_source_bundle_integrity.py -v
+      - name: Test the release verifier
+        working-directory: craft-anything-full-upgraded
+        run: python -m unittest discover -s scripts/tests -p test_verify_release_source.py -v
+      - name: Package, verify and extract the source ZIP artifact
+        working-directory: craft-anything-full-upgraded
+        run: |
+          python scripts/source_bundle_integrity.py package-zip --root . --archive ../source-artifact.zip
+          python scripts/source_bundle_integrity.py verify-zip --archive ../source-artifact.zip --require-declared-root
+          mkdir ../source-install
+          python scripts/source_bundle_integrity.py extract-zip --archive ../source-artifact.zip --output-parent ../source-install --require-declared-root
+      - name: Write and check a release receipt
+        working-directory: craft-anything-full-upgraded
+        env:
+          RECEIPT: ${{ runner.temp }}/source-receipt.json
+        run: |
+          python scripts/verify_release_source.py --archive ../source-artifact.zip --report "$RECEIPT" --root .
+          python -c 'import json, sys; r = json.load(open(sys.argv[1])); assert r["status"] == "verified"; assert r["root_policy"] == "strict"' "$RECEIPT"
+      - name: Retain the release receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: source-portability-receipt-${{ matrix.os }}
+          path: ${{ runner.temp }}/source-receipt.json
+          if-no-files-found: warn

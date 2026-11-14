@@ -4,9 +4,11 @@ This procedure checks the **source and optional native toolchain** without
 claiming to have run a desktop application. It is independent of the upstream
 shared CI workflow and uses only Python's standard library for orchestration.
 
-The extracted folder should be named `craft-anything-full-upgraded`. Keep the
-generated JSON receipt **outside** that folder: the source integrity manifest
-would otherwise become stale.
+The extracted folder should be named `craft-anything-full-upgraded`. The
+native gate enforces that name; a renamed GitHub branch folder is for
+inspection, not release qualification. Keep the generated JSON receipt
+**outside** that folder: the source integrity manifest would otherwise become
+stale.
 
 ## V25: Focused Deep test profile with protected receipts
 
@@ -33,19 +35,24 @@ python3 scripts/native_validation.py --root . --profile deep --report ../deep-v2
 ```
 
 Never reuse an existing receipt path: V25 refuses to overwrite it. Exit code
-`2` means blocked (for example, no Cargo), not passed. A passing automated
-profile does **not** claim live Ghidra execution or visual UI validation;
-both are explicitly `not_run` in the receipt. The full existing release gate
-remains the default when `--profile` is omitted.
+`2` means blocked (for example, no Cargo), not passed. A Rust test step that
+reports zero passing tests fails the gate with `no_tests_selected`, so a
+filter that no longer matches an authored test cannot look green. A passing
+automated profile does **not** claim live Ghidra execution or visual UI
+validation; both are explicitly `not_run` in the receipt. The full existing
+release gate remains the default when `--profile` is omitted.
 
 ## V24: Bounded Ghidra module inventory and manual fresh analysis
 
 V24 extends the Deep provider and saved analysis keys to track commonly changed
 Ghidra processor, feature and framework modules, not just its launcher and
 version file. The cache format advances to v5; older projects remain on disk
-but are not reused by the new key. Small configuration/specification files
-can be hashed by content; binary modules use bounded file metadata and may
-still evade detection when size and timestamps are restored.
+but are not reused by the new key. Small configuration/specification files are
+hashed by content, and so are large JAR, SLA and native modules: a same-size
+edit with a restored timestamp is still seen. The scan is bounded at 16,384
+entries, 2,048 modules and 512 MiB of module content, so a module past the
+budget keeps its metadata and can still evade detection; **Force fresh
+analysis** covers that case.
 
 The desktop's Engines tab now exposes global Ghidra processor language and
 compiler specification, plus a **Force fresh analysis** button with confirmation. The latter
@@ -54,12 +61,15 @@ a new saved analysis key without deleting previous projects. It is potentially
 slow on first reanalysis. A per-target language pin still has priority.
 
 New synthetic Rust tests check same-size processor specification mutations,
-new binary module detection and old settings compatibility. The manual CI
-matrix already selects them under `deep_settings_` and `deep_lifecycle_`:
+new binary module detection, a same-size module edit with a restored
+timestamp (`inventory_tests`) and old settings compatibility. The Deep
+profile and the manual CI matrix select them under `deep_settings_`,
+`deep_lifecycle_` and `inventory_tests`:
 
 ```bash
 cargo test --locked -p craft-anything-engine deep_settings_
 cargo test --locked -p craft-anything-engine deep_lifecycle_
+cargo test --locked -p craft-anything-engine inventory_tests
 cargo check --locked -p craft-anything-ui-egui
 ```
 

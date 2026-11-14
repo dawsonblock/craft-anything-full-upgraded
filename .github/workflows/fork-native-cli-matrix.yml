@@ -45,6 +45,9 @@ jobs:
       - name: Regression-test Deep shutdown and analyzer version changes
         working-directory: craft-anything-full-upgraded
         run: cargo test --locked -p craft-anything-engine deep_lifecycle_
+      - name: Regression-test module inventory detects a restored-timestamp edit
+        working-directory: craft-anything-full-upgraded
+        run: cargo test --locked -p craft-anything-engine inventory_tests
       - name: Type-check desktop settings propagation for Clean room
         working-directory: craft-anything-full-upgraded
         run: cargo check --locked -p craft-anything-ui-egui

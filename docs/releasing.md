@@ -19,9 +19,32 @@ release: `gh workflow run ci.yml --ref main`. The other workflows (`freebsd.yml`
    `Cargo.toml` is the single source; `cargo xtask version` prints it).
 2. Fast-forward `release` to `main`. The push runs `.github/workflows/release.yml`, which builds every
    platform and creates or updates the draft GitHub Release **Craft Anything vX.Y.Z**.
-3. When every job is green, run the packaged Deep-build check below on macOS and Windows.
+   The workflow first runs the **Release Source Preflight** job: it verifies the source tree,
+   packages the canonical source ZIP, verifies and extracts it, writes a receipt bound to the
+   release commit, and attests the ZIP. A failure stops the platform jobs. After they finish, the
+   **source-verify** job checks the source ZIP attached to the draft against that receipt; a
+   failure means the draft must not be published.
+3. Before publishing, download the `release-source-preflight` artifact and keep its receipt. The
+   `source-verify` job already checks the draft's source ZIP against it. To repeat that check with
+   the attestation (draft tags do not exist as Git refs until publication, so check the downloaded
+   asset, not the tag):
+
+       python3 scripts/verify_release_source.py \
+         --archive /path/to/draft-source.zip \
+         --provenance release-source-preflight.json \
+         --verify-attestation OWNER/NAME \
+         --report /tmp/release-source-receipt.json
+
+   It must pass before publication. If the draft attaches a different source ZIP from the
+   preflight artifact, the check fails; replace it with the preflight ZIP before publishing.
+   After publication, check the tag too:
+
+       python3 scripts/verify_release_source.py --repo OWNER/NAME --tag vX.Y.Z \
+         --provenance release-source-preflight.json --verify-attestation \
+         --report /tmp/release-source-receipt.json
+4. When every job is green, run the packaged Deep-build check below on macOS and Windows.
    Publish the draft only after both pass.
-4. After publication, follow the ticket checklist below.
+5. After publication, follow the ticket checklist below.
 
 A dry run of the unsigned platforms from any branch: `gh workflow run release.yml --ref <branch>`.
 

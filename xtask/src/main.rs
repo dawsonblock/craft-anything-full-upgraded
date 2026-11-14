@@ -57,6 +57,9 @@ fn main() -> ExitCode {
                 && secrets::secrets(&root, false)
                 && run("cargo", &["fmt", "--all", "--check"])
                 && run("cargo", &["clippy", "--workspace", "--all-targets", "--", "-D", "warnings"])
+                // Two crates/ai rebuild tests start the CLI helper from target/<profile>;
+                // build it before the workspace tests so a clean checkout has it.
+                && run("cargo", &["build", "-p", "craft-anything-cli"])
                 && run("cargo", &["test", "--workspace"])
                 // The off-by-default WASM plugin host, built and tested on its own.
                 && run("cargo", &["clippy", "-p", "craft-anything-engine", "--features", "wasm-plugins", "--all-targets", "--", "-D", "warnings"])

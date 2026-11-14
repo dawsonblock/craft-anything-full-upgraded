@@ -30,9 +30,11 @@ we don't have); source reviewed · **New** = added since the audit, unit-tested 
 
 ## Real-binary run (2026-10-21)
 
-The built-in engine (Clean room) on four real, stripped programs: a Windows system program (MSVC,
-x86-64 PE, 340 KB), a Rust command-line tool (x86-64 PE, 1.1 MB), a Rust shared library (x86-64
-ELF, 485 KB) and a Go command-line tool (x86-64 PE, 43 MB). Before → after this round:
+The built-in native engine in Deep mode, without Ghidra, on four real, stripped programs: a
+Windows system program (MSVC, x86-64 PE, 340 KB), a Rust command-line tool (x86-64 PE, 1.1 MB), a
+Rust shared library (x86-64 ELF, 485 KB) and a Go command-line tool (x86-64 PE, 43 MB). These runs
+read the binaries, so they used Deep mode; Clean room is a separate operating mode that excludes
+tools such as `core_target_triage` and `native_function_pseudocode`. Before → after this round:
 
 | Program | Functions | Named functions | Instructions | Strings | Time |
 |---|---|---|---|---|---|

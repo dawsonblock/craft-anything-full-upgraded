@@ -20,6 +20,16 @@ toolchain no longer claims success. A person's own tests are optional; their
 build is not. `craft.json` is version 5. Desktop behaviour and end-to-end
 builds remain **not run**; the first live Ghidra run is recorded above.
 
+**Release source preflight (2026-11-13):** `release.yml` now runs
+`fork-release-source-preflight.yml` before the platform jobs: it verifies the
+source tree, packages the canonical source ZIP, verifies and extracts it,
+writes a receipt bound to the release commit, and attests the ZIP. A
+`source-verify` job then compares the source ZIP attached to the draft with
+that receipt before a person publishes it. The checker can bind a published
+asset to the receipt, resolve the tag's commit and verify the GitHub artifact
+attestation. Python regressions pass; the workflows have not run on GitHub and
+no release has used them.
+
 **Live agent builds tried (2026-11-11):** a Clean room rebuild of
 `example.com` reached the builder but no build with Codex 0.156.1
 (`model_not_found`: the configured `gpt-6.1-terra` is not supported with a
@@ -44,13 +54,17 @@ runtime, so actual native qualification is pending.
 [UPGRADE_REPORT_V24.md](../UPGRADE_REPORT_V24.md). The Ghidra on-disk
 analysis key advances to v5 and the live provider key tracks a bounded
 inventory of processor, feature and framework modules. Small specifications
-have bounded content digests; larger binary modules use filename, size and
-mtime, so malicious or timestamp-restored edits are **not guaranteed** to
-invalidate automatically. A persisted manual analysis generation now forces
-new project keys without erasing previous analyses. Settings → Engines adds
-global processor language/compiler spec fields and a fresh-analysis button.
-New Rust regressions are authored but **native compilation, real Ghidra,
-GUI behavior and scan performance remain unverified** in this environment.
+and large binary modules are content-hashed within a bounded budget (2,048
+modules / 512 MiB), so a same-size edit with a restored timestamp still
+changes the key; modules past the budget keep filename, size and mtime and
+are **not guaranteed** to invalidate automatically. A persisted manual
+analysis generation now forces new project keys without erasing previous
+analyses. Settings → Engines adds global processor language/compiler spec
+fields and a fresh-analysis button. The inventory scan took 650 ms on this
+Mac's 135 MiB install (metadata-only was 96 ms). New Rust regressions are
+authored; the Deep profile selects the inventory regression too, and a
+zero-test selection fails the gate instead of passing. GUI behavior and
+non-macOS platforms remain unverified.
 
 **Independent V23 source-fork note (2026-11-10):** See
 [UPGRADE_REPORT_V23.md](../UPGRADE_REPORT_V23.md). Switching from Deep to

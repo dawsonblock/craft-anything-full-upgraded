@@ -87,6 +87,33 @@ names (`git merge-base --is-ancestor <fix> <release tag>`), and check the messag
 
 ## Tests
 
+**A source manifest tied to its folder name.** `SOURCE_INTEGRITY.json` recorded
+`craft-anything-full-upgraded`, and `verify-zip` required the archive's top-level folder to match.
+GitHub's branch and tag archives name it `<repository>-<branch>`, so the project's own archive
+failed its own verifier. Verify content relative to the single top-level folder and report both
+names; the folder name is packaging, not hashed data.
+
+**A check-then-rename overwrite race.** `package_zip` checked that the destination did not exist
+and later called `os.rename`, which replaces an existing file on POSIX; another process could
+create the destination in between, have it overwritten, and still see `packaged`. Create the final
+file exclusively (`O_CREAT | O_EXCL`), write the verified bytes into that descriptor, and verify
+those bytes; a pre-check is not a no-overwrite guarantee.
+
+**A focused test filter selected nothing and still looked green.** The V25 Deep gate and the
+manual OS matrix ran `deep_settings_`, `deep_lifecycle_` and `target_reopen_`, but the
+restored-timestamp inventory regression lived in `inventory_tests`, which none of them matched;
+`cargo test` exits zero when a filter matches no test.
+- Name every focused filter after a real `fn` or `mod`, and keep a contract test that reads the
+  configured filters and asserts each one matches an authored test in `crates/` or `apps/`.
+- Make the gate fail a test step that reports zero passing tests (`no_tests_selected`), and record
+  the count, so an empty selection can never be reported as a pass.
+
+**A gate reported a passing suite as failed after a child was reaped.** `stop_process` signalled
+the process group by the child's pid; once `wait()` had reaped it, that pid could belong to an
+unrelated group, so `killpg` raised `PermissionError` out of a test and the gate failed.
+- Treat `ProcessLookupError` and `PermissionError` as "nothing left to stop"; a cleanup helper
+  must never raise into the result it is cleaning up after.
+
 **A heartbeat sampled before shutdown raced a successful stop.** A child could write between
 the baseline read and `stop()`, failing the descendant cleanup test even when cleanup worked.
 Probe for exit instead of timing writes: the child holds a file lock the system releases only
@@ -962,3 +989,16 @@ different branches reused the same package output path and one saw the other bra
 Give every worktree its own `CARGO_TARGET_DIR`, even when one agent manages both. Cleaning
 the shared engine cache then removed 11.6 GiB of compiled artifacts: avoid shared-cache
 cleanup as a recovery shortcut; use an isolated target directory for further verification.
+
+**A draft release addressed by its tag.** A draft release can record a tag name before the Git tag
+exists; GitHub creates the tag only when the release is published. `gh release download <tag>` and
+`repos/{repo}/commits/{tag}` therefore fail for a new draft. Address a draft by its release ID
+(`repos/{repo}/releases/{id}`), verify the downloaded asset against the preflight receipt, and
+resolve the tag only after publication.
+
+**A workspace test gate without its helper binary.** `cargo test --workspace` on a clean checkout
+ran the two `crates/ai` rebuild tests before `craft-anything-cli` existed in `target/debug`, so
+they failed with "Craft Anything's helper program (craft-anything-cli) is missing". Build
+`-p craft-anything-cli` before the workspace tests in the gate, and have `find_cli` check the
+`target/<profile>` root: the CI ran the AI test binary from
+`target/debug/build/<crate>/<hash>/out`, not `target/debug/deps`.
