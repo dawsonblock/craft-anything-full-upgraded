@@ -7,6 +7,7 @@
 //! what's never done unasked). Ids follow docs/tool-ids.md.
 
 use super::interaction_tools::{approve, inbox, inside, really_inside, resolve, workspace_of};
+use crate::settings::SandboxMode;
 use crate::tool::{Ctx, Effects, Requires, ToolOutput, ToolSpec, Toolset, parse_params, schema_of};
 use crate::workspace::Workspace;
 use craft_anything_evidence::{ErrorCode, ToolError};
@@ -359,16 +360,28 @@ fn build_command_run(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, Too
     let had_inner = inner.is_dir();
     let (shell, flag) = if cfg!(windows) { ("cmd", "/C") } else { ("sh", "-c") };
     let cancel = ctx.cancel.clone();
+    let timeout = Duration::from_secs(p.timeout_secs.unwrap_or(600).clamp(1, 7200));
+    let sandboxed = ctx.session.settings.build.sandbox == SandboxMode::Docker;
     ctx.report(None, format!("Running {}", p.command.chars().take(120).collect::<String>()));
-    let out = Process::new(shell)
-        .args([flag, p.command.as_str()])
-        .cwd(&app)
-        .timeout(Duration::from_secs(p.timeout_secs.unwrap_or(600).clamp(1, 7200)))
-        .stdout_cap(4 * 1024 * 1024)
-        .stderr_cap(4 * 1024 * 1024)
-        .cancel_when(move || cancel.is_cancelled())
-        .label("the build command")
-        .run()?;
+    let out = if sandboxed {
+        let spec = craft_anything_platform::sandbox::Spec {
+            image: ctx.session.settings.build.sandbox_image.clone(),
+            project: app.clone(),
+            network: ctx.session.settings.build.sandbox_network,
+            ..Default::default()
+        };
+        craft_anything_platform::sandbox::run(&spec, &p.command, timeout, Some(std::sync::Arc::new(move || cancel.is_cancelled())))?
+    } else {
+        Process::new(shell)
+            .args([flag, p.command.as_str()])
+            .cwd(&app)
+            .timeout(timeout)
+            .stdout_cap(4 * 1024 * 1024)
+            .stderr_cap(4 * 1024 * 1024)
+            .cancel_when(move || cancel.is_cancelled())
+            .label("the build command")
+            .run()?
+    };
     let tail = |s: String| -> String {
         let skip = s.len().saturating_sub(OUTPUT_TAIL);
         let mut start = skip;
@@ -380,6 +393,7 @@ fn build_command_run(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, Too
     let mut v = json!({
         "command": p.command,
         "ran_in": ws.app_place(),
+        "sandbox": if sandboxed { "docker" } else { "off" },
         "exit_code": out.code,
         "succeeded": out.success,
         "stdout": tail(out.stdout_text()),
@@ -612,6 +626,27 @@ mod tests {
         // Dev servers never exit: refused before anything runs.
         let err = call(&e, "build_command_run", json!({"command": "npm run dev"})).unwrap_err();
         assert!(err.message.contains("dev servers"), "{}", err.message);
+    }
+
+    #[test]
+    fn a_sandboxed_command_refuses_a_bad_image_before_running_anything() {
+        let mut s = crate::testing::session();
+        s.settings.build.sandbox = SandboxMode::Docker;
+        s.settings.build.sandbox_image = "-rm".to_string();
+        let dir = s.config_dir();
+        let ws = Workspace::create(&dir, "Snake", "A snake game", TargetRef::None).unwrap();
+        s.ext.insert(Arc::new(InboxDir(ws.inbox_dir())));
+        let e = Engine::new(s);
+        let err = call(&e, "build_command_run", json!({"command": "echo built"})).unwrap_err();
+        assert_eq!(err.code, ErrorCode::BadInput, "{}", err.message);
+        assert!(err.message.contains("isn't a Docker image name"), "{}", err.message);
+    }
+
+    #[test]
+    fn a_command_says_whether_it_was_sandboxed() {
+        let (_d, _ws, e) = building();
+        let v = call(&e, "build_command_run", json!({"command": "echo built"})).unwrap();
+        assert_eq!(v["sandbox"], "off");
     }
 
     /// R5.4: a local model ran `cd app && cargo build` from inside app/, reading file paths and

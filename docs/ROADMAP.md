@@ -887,11 +887,19 @@ Owner: open · Status: in progress
       differs by agent: Claude Code asks our approval tool; OpenCode's builder runs with `--auto`;
       Hermes's `-z` turns its approvals off on every run, chats included. Clean room's approval
       rule doesn't reach an agent that never asks us
-- [ ] **decision** What confines a build's generated code: nothing today beyond the agent's own
-      sandbox (Codex's workspace-write) or our approvals, so a builder can read the person's files
-      and credentials and reach the network. Decide whether Craft Anything adds an OS-level sandbox
-      (macOS sandbox-exec, Linux bubblewrap, Windows AppContainer), requires one from the agent, and
-      what a build may reach by default
+- [x] **decision** What confines a build's generated code: a Docker container. A build's command
+      runs with only the project folder mounted at `/work`, the person's home and credentials out of
+      reach, `--cap-drop ALL`, `no-new-privileges`, a non-root user, a memory, CPU and PID budget,
+      and the network off unless the person allows it. Docker Desktop on macOS and Windows and
+      Docker Engine on Linux are the one runtime all three share. It confines the command, not the
+      daemon: Docker stays privileged and the person's approval is still required
+- [x] Run a build's commands in that container when `[build] sandbox = "docker"` is set: the mode,
+      image and network are settings, the result says which mode ran, and a missing Docker is a
+      plain error with a remediation (`docs/build-sandbox.md`)
+      — claimed: Devin, branch feature/r2.2-docker-build-sandbox
+- [ ] Put the sandbox in Settings → Build, with a Docker image field: today it is only
+      `[build] sandbox = "docker"` in `config.toml`, because new UI strings need every
+      translation catalogue
 - [x] Clean room outside builds (#564): a chat or question with Claude Code refuses the agent's own
       file, shell and web tools outright (`--disallowedTools`), not through its defaults; an ACP chat
       refuses them through an approver instead of a consent card (`docs/claude-code.md`)
