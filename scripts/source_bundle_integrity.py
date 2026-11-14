@@ -3,6 +3,9 @@
 
 This is a checksum/inventory check, not a digital signature or a Rust build.
 It uses only the Python standard library and never executes bundled source.
+Creating a manifest inside a Git work tree lists files with `git ls-files`, so
+the inventory describes what a clone can actually contain. Verification never
+needs Git and works on an extracted archive.
 """
 
 from __future__ import annotations
@@ -15,6 +18,7 @@ import os
 from pathlib import Path
 import shutil
 import stat
+import subprocess
 import sys
 import tempfile
 from typing import BinaryIO
@@ -28,6 +32,13 @@ MAX_FILES = 20_000
 MAX_SINGLE_FILE = 100_000_000
 MAX_TOTAL_SIZE = 2_000_000_000
 MAX_MANIFEST_SIZE = 5_000_000
+GIT_TIMEOUT_SECONDS = 60
+# Local tool caches never hold source and are never committed. Each one is
+# recreated on demand by the tool that owns it, so recording one in a manifest
+# would make the manifest impossible to reproduce from a clean clone.
+CACHE_DIRECTORIES = frozenset({
+    "__pycache__", ".ruff_cache", ".pytest_cache", ".mypy_cache", ".tox", ".nox",
+})
 WINDOWS_DEVICES = frozenset(
     {"con", "prn", "aux", "nul"}
     | {f"com{i}" for i in range(1, 10)}
@@ -83,8 +94,13 @@ def ignored(rel: Path) -> bool:
     # A freshly checked-out source tree carries Git internals not distributed
     # by the ZIP. Cargo build outputs and the local devlog are similarly not
     # part of the source. Ignore only the root-level folders, not nested files.
-    return (".git" in rel.parts or "__pycache__" in rel.parts
-            or rel.suffix == ".pyc"
+    # Tool caches are ignored at any depth because tools write them beside the
+    # code they read: `ruff` leaves `.ruff_cache` at the root of a Python tree
+    # and its own `.gitignore` keeps the directory out of version control, so a
+    # manifest that recorded it could never be rebuilt from a clean clone.
+    return (".git" in rel.parts
+            or rel.suffix == ".pyc" or rel.name == ".DS_Store"
+            or any(part in CACHE_DIRECTORIES for part in rel.parts)
             or (bool(rel.parts) and rel.parts[0] in ("target", "log")))
 
 
@@ -99,22 +115,69 @@ def sha256_stream(stream, limit: int) -> tuple[int, str]:
     return count, digest.hexdigest()
 
 
-def source_records(root: Path) -> list[dict]:
+def git_tracked(root: Path) -> list[str] | None:
+    """Return the paths Git tracks in `root`, or None when it is not a work tree root.
+
+    A manifest has to describe what version control can distribute. A file Git
+    ignores exists on one machine only, so recording it makes the manifest
+    impossible to rebuild from a clone and every clone fail verification.
+    """
+    if not (root / ".git").exists():
+        return None
+    try:
+        top = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--show-toplevel"],
+            capture_output=True, check=False, timeout=GIT_TIMEOUT_SECONDS,
+        )
+        if top.returncode != 0:
+            raise IntegrityError("Git could not describe this source root")
+        if Path(top.stdout.decode("utf-8", "replace").strip()).resolve() != root.resolve():
+            raise IntegrityError("Tracked mode needs the repository root, not a subdirectory")
+        listed = subprocess.run(
+            ["git", "-C", str(root), "ls-files", "-z"],
+            capture_output=True, check=False, timeout=GIT_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise IntegrityError(f"Git could not list tracked files: {exc}") from exc
+    if listed.returncode != 0:
+        raise IntegrityError("Git could not list tracked files in this source root")
+    try:
+        names = listed.stdout.decode("utf-8").split("\0")
+    except UnicodeDecodeError as exc:
+        raise IntegrityError(f"Git listed a path that is not valid UTF-8: {exc}") from exc
+    return [name for name in names if name]
+
+
+def source_records(root: Path, tracked: list[str] | None = None) -> list[dict]:
     if not root.is_dir() or root.is_symlink():
         raise IntegrityError("Source root must be a real directory")
     result = []
     total = 0
     seen_portable = set()
     seen_spelling = {}
-    for path in root.rglob("*"):
-        rel = path.relative_to(root)
-        if ignored(rel):
-            continue
+    if tracked is None:
+        candidates = []
+        for path in root.rglob("*"):
+            rel = path.relative_to(root)
+            if not ignored(rel):
+                candidates.append((path, rel))
+    else:
+        candidates = []
+        for name in tracked:
+            rel = Path(name)
+            if ignored(rel):
+                raise IntegrityError(f"Tracked source matches an inventory exclusion: {name}")
+            candidates.append((root / rel, rel))
+    for path, rel in candidates:
         if path.is_symlink():
             raise IntegrityError(f"Source tree contains a symbolic link: {rel}")
         if path.is_dir():
+            if tracked is not None:
+                raise IntegrityError(f"Tracked path is a directory: {rel}")
             continue
         if not path.is_file():
+            if tracked is not None:
+                raise IntegrityError(f"Tracked file is missing from the working tree: {rel}")
             raise IntegrityError(f"Source tree contains a non-regular entry: {rel}")
         name = rel.as_posix()
         if not permitted_path(name):
@@ -138,8 +201,8 @@ def source_records(root: Path) -> list[dict]:
     return result
 
 
-def make_manifest(root: Path) -> dict:
-    rows = source_records(root)
+def make_manifest(root: Path, tracked: list[str] | None = None) -> dict:
+    rows = source_records(root, tracked)
     return {
         "schema": SCHEMA_VERSION,
         "root": root.name,
@@ -460,7 +523,11 @@ def main(argv: list[str] | None = None) -> int:
     for mode in ("create", "verify-tree"):
         p = modes.add_parser(mode)
         p.add_argument("--root", type=Path, required=True)
-        if mode == "verify-tree":
+        if mode == "create":
+            p.add_argument("--tracked", action=argparse.BooleanOptionalAction, default=None,
+                           help="List files with Git instead of walking the tree "
+                                "(default: on inside a Git work tree root)")
+        else:
             p.add_argument("--require-declared-root", action="store_true",
                            help="Refuse a folder whose name differs from the manifest root")
     pzip = modes.add_parser("verify-zip")
@@ -484,12 +551,23 @@ def main(argv: list[str] | None = None) -> int:
             existing = root / MANIFEST_NAME
             if existing.is_symlink():
                 raise IntegrityError("Cannot replace a symbolic-link manifest")
-            content = (json.dumps(make_manifest(root), indent=2, sort_keys=True) + "\n").encode("utf-8")
+            tracked = None
+            if args.tracked is not False and (args.tracked or (root / ".git").exists()):
+                tracked = git_tracked(root)
+                if tracked is None:
+                    raise IntegrityError("--tracked needs a Git work tree root")
+            manifest = make_manifest(root, tracked)
+            if tracked is not None and source_records(root) != manifest["files"]:
+                raise IntegrityError(
+                    "Tracked files and the working tree differ; commit, ignore or remove the "
+                    "extra files before regenerating the manifest")
+            content = (json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode("utf-8")
             if len(content) > MAX_MANIFEST_SIZE:
                 raise IntegrityError("Generated manifest is too large")
             existing.write_bytes(content)
             result = verify_tree(root)
             result["action"] = "created"
+            result["file_source"] = "git" if tracked is not None else "filesystem"
         elif args.mode == "verify-tree":
             result = verify_tree(args.root.absolute(),
                                  require_declared_root=args.require_declared_root)

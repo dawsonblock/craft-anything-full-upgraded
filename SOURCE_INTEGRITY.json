@@ -1,6 +1,6 @@
 {
   "algorithm": "sha256",
-  "file_count": 934,
+  "file_count": 931,
   "files": [
     {
       "bytes": 49,
@@ -48,9 +48,9 @@
       "sha256": "9f2e64116654108425f8b312575ecd7dda1df31791846f46ac317a1665438d1b"
     },
     {
-      "bytes": 947,
+      "bytes": 2214,
       "path": ".github/workflows/ci.yml",
-      "sha256": "9c9607e9a1a294cf24037542e5d904e362adb9330350b823d95f953dbb263faa"
+      "sha256": "6c028a0811d9c6fc2e820d285148ef70c719417b7747a044e79b5362b4013e21"
     },
     {
       "bytes": 4104,
@@ -103,24 +103,9 @@
       "sha256": "eb51ff4a24d129d01674c00b4c3bd54a8ed78c165481f9b336b3a6aca2b1ec23"
     },
     {
-      "bytes": 240,
+      "bytes": 281,
       "path": ".gitignore",
-      "sha256": "775077074fc5c9f685554c179149c326f547b886aec5f066321cb9a8de083896"
-    },
-    {
-      "bytes": 35,
-      "path": ".ruff_cache/.gitignore",
-      "sha256": "9e3a60f1e6ec4ae60215c11d54b171392745ec25e9dded433d5bd921363af316"
-    },
-    {
-      "bytes": 268,
-      "path": ".ruff_cache/0.16.0/9885096104526973474",
-      "sha256": "007a615037ffca4164099ca7545717164ffcadd41adc438377a8fc4858ed3c7d"
-    },
-    {
-      "bytes": 43,
-      "path": ".ruff_cache/CACHEDIR.TAG",
-      "sha256": "5953156d7e0c564a427251316eaf26f8870e6483ae2197f916b630e4f93e31ae"
+      "sha256": "03b92aea5b1f441662cce70a06e5afd870fb23e32f1c8657c96a78dd64670df3"
     },
     {
       "bytes": 11797,
@@ -3703,9 +3688,9 @@
       "sha256": "1f2dcab074103a5129c934964697c1bf397d459539d0721e387d377eb66862bf"
     },
     {
-      "bytes": 136544,
+      "bytes": 137184,
       "path": "docs/ROADMAP.md",
-      "sha256": "7d88eec380a30c2a7b37ce3f076c4dc6d3563e5713bc75a146f0c5b4cb9678a8"
+      "sha256": "08064cdaf349a53364f249190d14959408502905a950f1831a640873428da5fb"
     },
     {
       "bytes": 135529,
@@ -3813,9 +3798,9 @@
       "sha256": "fb3f445a7bedc93cbbe530bed731ca80396588129cf188f051e542ee514e34a0"
     },
     {
-      "bytes": 75422,
+      "bytes": 75957,
       "path": "docs/pitfalls.md",
-      "sha256": "c68c1cbd09162815af552cf8128162968b6928f02209ba442fab831c2498c94f"
+      "sha256": "89a8b2cc7d7ba6f9e2e61ca001047ebcfd6526e9fa164fc6c00505e362ee0f84"
     },
     {
       "bytes": 4263,
@@ -3853,9 +3838,9 @@
       "sha256": "77db1933eaa5ae624d950450464b662f39cafa0703e8c4b58caf5f1e1f6204ad"
     },
     {
-      "bytes": 10693,
+      "bytes": 11274,
       "path": "docs/source-bundle-integrity.md",
-      "sha256": "aa2d57f3960bef57ebeadb50953fcf4d48cb17757b03bf3cdf6720c73073b7a2"
+      "sha256": "d46069e4a974511c6a825d0064e132e6524f107eebcb01ee93cdf59d0d558930"
     },
     {
       "bytes": 1802,
@@ -4143,9 +4128,9 @@
       "sha256": "cb5cc51d46870295c04f5221f0525b869391564aa8e1aac2c0ed922eef69c202"
     },
     {
-      "bytes": 25048,
+      "bytes": 29255,
       "path": "scripts/source_bundle_integrity.py",
-      "sha256": "f6d41e544f7be4c7261be64e428f3ff800a201b9254246af0cbb50bc75276a21"
+      "sha256": "2e7c1542682e3ca76e0db2bdd9e229b37f56f7d4461fbd337225f29a2e27c26f"
     },
     {
       "bytes": 2482,
@@ -4188,9 +4173,9 @@
       "sha256": "54e9095edf1bc5edaf3bbc335d4cd68e1f94ed0864fe08b0182f4f1542cd49ea"
     },
     {
-      "bytes": 24311,
+      "bytes": 28964,
       "path": "scripts/tests/test_source_bundle_integrity.py",
-      "sha256": "bd87e48efdbf9e0e30c1f0bb24489b7a6dfaee57ede43e86bb9b0d829c225985"
+      "sha256": "98f05ee9c2b5190629b0c7a4086c5619034d739930377fcf3597f5ac21a36dee"
     },
     {
       "bytes": 29421,
@@ -4675,5 +4660,5 @@
   ],
   "root": "craft-anything-full-upgraded",
   "schema": 1,
-  "total_bytes": 20621043
+  "total_bytes": 20632621
 }

@@ -16,8 +16,8 @@ from unittest.mock import patch
 SCRIPTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS))
 from source_bundle_integrity import (
-    IntegrityError, MANIFEST_NAME, extract_verified_zip, make_manifest,
-    package_zip, parse_manifest, permitted_path, verify_tree, verify_zip,
+    IntegrityError, MANIFEST_NAME, extract_verified_zip, git_tracked, make_manifest,
+    package_zip, parse_manifest, permitted_path, source_records, verify_tree, verify_zip,
 )
 
 
@@ -37,6 +37,34 @@ class SourceBundleIntegrityTests(unittest.TestCase):
             for path in sorted(root.rglob("*")):
                 if path.is_file() and path.name != skip:
                     zf.write(path, arcname=f"{root.name}/{path.relative_to(root).as_posix()}")
+
+    @staticmethod
+    def git_sample(parent: Path) -> Path:
+        """A small work tree whose files are staged, so `git ls-files` lists them."""
+        root = parent / "craft-anything-full-upgraded"
+        (root / "src").mkdir(parents=True)
+        (root / "README.md").write_text("Build with care\n", encoding="utf-8")
+        (root / "src" / "app.rs").write_text("fn main() {}\n", encoding="utf-8")
+        for command in (["init", "-q"], ["add", "-A"]):
+            subprocess.run(["git", "-C", str(root), *command],
+                           capture_output=True, text=True, timeout=30, check=True)
+        return root
+
+    @staticmethod
+    def run_cli(*args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [sys.executable, str(SCRIPTS / "source_bundle_integrity.py"), *args],
+            capture_output=True, text=True, timeout=60, check=False,
+        )
+
+    def write_ruff_cache(self, root: Path) -> None:
+        """Reproduce the cache `ruff` leaves behind, including its self-ignoring .gitignore."""
+        cache = root / ".ruff_cache"
+        (cache / "0.16.0").mkdir(parents=True)
+        (cache / ".gitignore").write_text("*\n", encoding="utf-8")
+        (cache / "CACHEDIR.TAG").write_text(
+            "Signature: 8a477f597d28d172789f06886806bc55\n", encoding="utf-8")
+        (cache / "0.16.0" / "9885096104526973474").write_bytes(b"cache")
 
     def test_tree_and_zip_roundtrip_passes(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -475,6 +503,63 @@ class SourceBundleIntegrityTests(unittest.TestCase):
             manifest["total_bytes"] += 1
             with self.assertRaisesRegex(IntegrityError, "total"):
                 parse_manifest(json.dumps(manifest).encode("utf-8"))
+
+    def test_tool_caches_do_not_change_the_inventory(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = self.sample(Path(temp))
+            before = make_manifest(root)
+            self.write_ruff_cache(root)
+            (root / "scripts" / "__pycache__").mkdir(parents=True)
+            (root / "scripts" / "__pycache__" / "tool.cpython-312.pyc").write_bytes(b"bytecode")
+            self.assertEqual(make_manifest(root), before)
+            self.assertEqual(verify_tree(root)["status"], "verified")
+            (root / "src" / "app.rs").write_text("fn main() { evil(); }\n", encoding="utf-8")
+            with self.assertRaises(IntegrityError):
+                verify_tree(root)
+
+    def test_create_in_a_work_tree_records_only_tracked_files(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = self.git_sample(Path(temp))
+            self.write_ruff_cache(root)
+            result = self.run_cli("create", "--root", str(root))
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(json.loads(result.stdout)["file_source"], "git")
+            self.assertEqual(json.loads(result.stdout)["file_count"], 2)
+            manifest = parse_manifest((root / MANIFEST_NAME).read_bytes())
+            self.assertEqual([row["path"] for row in manifest["files"]],
+                             ["README.md", "src/app.rs"])
+            verified = self.run_cli("verify-tree", "--root", str(root), "--require-declared-root")
+            self.assertEqual(verified.returncode, 0, verified.stdout + verified.stderr)
+
+    def test_tracked_mode_refuses_an_untracked_file(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = self.git_sample(Path(temp))
+            (root / "stray.txt").write_text("not committed", encoding="utf-8")
+            result = self.run_cli("create", "--root", str(root))
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("Tracked files and the working tree differ", result.stdout)
+            self.assertFalse((root / MANIFEST_NAME).exists())
+
+    def test_no_tracked_walks_the_tree(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = self.git_sample(Path(temp))
+            result = self.run_cli("create", "--root", str(root), "--no-tracked")
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(json.loads(result.stdout)["file_source"], "filesystem")
+
+    def test_tracked_mode_reports_a_missing_tracked_file(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = self.git_sample(Path(temp))
+            (root / "src" / "app.rs").unlink()
+            with self.assertRaisesRegex(IntegrityError, "Tracked file is missing"):
+                source_records(root, git_tracked(root))
+
+    def test_a_damaged_git_directory_is_refused(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = self.sample(Path(temp))
+            (root / ".git").write_text("gitdir: /nonexistent\n", encoding="utf-8")
+            with self.assertRaisesRegex(IntegrityError, "Git could not"):
+                git_tracked(root)
 
     def test_cli_create_and_verify_tree(self):
         with tempfile.TemporaryDirectory() as temp:

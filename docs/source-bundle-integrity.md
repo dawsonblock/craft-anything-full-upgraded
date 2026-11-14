@@ -173,16 +173,26 @@ Add `--require-declared-root` to refuse a directory whose name differs from the
 manifest's `root`; the result reports `root_policy` (`strict` or `compatible`).
 
 The command recomputes every source digest and rejects unexpected files.
-It deliberately ignores Python's `__pycache__` and `.pyc` test artifacts,
-checkout metadata under `.git`, and (as of V8) Cargo's **root-level**
-`target/` build directory. Generated output elsewhere inside the source tree
-is treated as an unexpected source change. A custom `CARGO_TARGET_DIR` should
-point outside the source tree or inside its root `target/` directory.
+It deliberately ignores checkout metadata under `.git`, Cargo's **root-level**
+`target/` build directory, the local `log/` devlog, and the caches local tools
+leave beside the code (`__pycache__`, `.pyc`, `.ruff_cache`, `.pytest_cache`,
+`.mypy_cache`, `.tox`, `.nox`, `.DS_Store`). Generated output elsewhere inside
+the source tree is treated as an unexpected source change. A custom
+`CARGO_TARGET_DIR` should point outside the source tree or inside its root
+`target/` directory.
 
 If you deliberately edit the source, this verification should **fail** until
 you generate a new manifest for your own modified fork:
 
     python3 scripts/source_bundle_integrity.py create --root .
+
+Inside a Git work tree root, `create` lists files with `git ls-files` and
+records exactly what a clone can contain. It refuses to write a manifest when
+the working tree holds untracked files that verification would reject, and
+`--no-tracked` falls back to walking the tree. A manifest that recorded a
+Git-ignored file — a tool cache, a build output — could never be rebuilt from a
+clone, and every clone would fail verification. Verification itself never
+needs Git.
 
 Never interpret a regenerated self-consistent manifest as independent
 verification of who authored or reviewed the modifications.
