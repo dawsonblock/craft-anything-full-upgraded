@@ -717,4 +717,29 @@ mod tests {
             call_consent(&e, "runtime_walkthrough_record", json!({"executable": "/bin/echo", "environment": {"CRAFT_ANYTHING_RUN_ID": "x"}})).unwrap_err();
         assert_eq!(err.code, craft_anything_evidence::ErrorCode::BadInput);
     }
+
+    /// R3.0 PR 2: `runtime_walkthrough_record` starts a program but is not in
+    /// `execution::TOOL_ROUTES`, so `sandbox_unconfined = "refuse"` does not stop it. Ignored
+    /// until the central execution controller lands; run it to see the gap.
+    #[cfg(unix)]
+    #[test]
+    #[ignore = "R3.0 PR 2: the central execution controller must cover runtime_walkthrough_record"]
+    fn a_walkthrough_is_refused_when_the_sandbox_refuses_unconfined_runs() {
+        let mut s = crate::testing::session();
+        s.settings.build.sandbox = crate::settings::SandboxMode::Docker;
+        s.settings.build.sandbox_unconfined = crate::settings::Unconfined::Refuse;
+        let e = Engine::new(s);
+        let err = call_consent(
+            &e,
+            "runtime_walkthrough_record",
+            json!({
+                "executable": "/bin/echo",
+                "arguments": ["hi"],
+                "timeout_ms": 5000,
+                "idle_timeout_ms": 5000,
+            }),
+        )
+        .unwrap_err();
+        assert_eq!(err.code, craft_anything_evidence::ErrorCode::FeatureMissing, "{}", err.message);
+    }
 }

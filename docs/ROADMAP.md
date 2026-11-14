@@ -907,6 +907,10 @@ Owner: open · Status: in progress
       cancel, which a killed Docker client used to leave running; Windows gets a fixed non-root id
       instead of no `--user` (`docs/build-sandbox.md`)
       — claimed: Devin, branch feature/r2.2-docker-build-sandbox
+- [ ] Inventory every process launch and prove where the strict policy misses generated code:
+      `docs/execution-routes.md` lists every route; ignored tests show `runtime_walkthrough_record`
+      and `project_play` still run under `sandbox_unconfined = "refuse"` (R3.0 PR 1)
+      — claimed: Devin, branch feature/r3.0-execution-inventory
 - [ ] **decision** Whether `sandbox_unconfined` should default to `"refuse"`: today turning the
       sandbox on still runs the check's own build, the runs comparison, a person's own project's
       build or tests, the probe, a self-test and a coding agent outside it (each says so), because

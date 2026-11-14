@@ -1035,3 +1035,9 @@ code for a policy refusal, and keep `ConsentRequired` for what an approval can g
 with `std::fs::read`; a generated game (same user, project write access) could replace it with a
 huge file and exhaust memory. Cap every file an untrusted run can write before reading it, even
 when the writer is usually our own script.
+
+**A policy checked at the tool, not at the process.** The strict sandbox policy covered
+`build_command_run` and the checks, but `runtime_walkthrough_record` and `project_play` started the
+build's program through `Process`/`Launch` without asking it. List the launches at the process
+boundary, not only the tools; `docs/execution-routes.md` is the inventory and the two ignored tests
+show the gap until R3.0's execution controller lands.
