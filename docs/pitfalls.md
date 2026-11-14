@@ -100,6 +100,12 @@ archive could contain it: the manifest described 934 files while the tracked tre
 `verify-tree` failed everywhere except the machine that generated it. Build a manifest from
 `git ls-files` inside a work tree, and ignore tool caches in the inventory.
 
+**A tree walk that filters after it descends.** The inventory checked every path against its
+exclusions only once `rglob` had already walked into it, so `.git` and `target/` were traversed in
+full and then discarded: `create` took 8.3 s and `verify-tree` 3.9 s on a 20 MB tree. Reject a
+directory before entering it (`os.walk` plus pruning `dirnames`), and keep the "always check a
+recorded path" exemption by refusing to prune a parent of a manifest entry.
+
 **A check-then-rename overwrite race.** `package_zip` checked that the destination did not exist
 and later called `os.rename`, which replaces an existing file on POSIX; another process could
 create the destination in between, have it overwritten, and still see `packaged`. Create the final

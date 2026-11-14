@@ -33,7 +33,7 @@ jobs:
           python-version: "3.12"
       - name: Verify the source manifest against the checkout
         working-directory: craft-anything-full-upgraded
-        run: python scripts/source_bundle_integrity.py verify-tree --root . --require-declared-root
+        run: python scripts/source_bundle_integrity.py verify-tree --root . --require-declared-root --require-exact
       - name: Rebuild the manifest from tracked files and compare
         working-directory: craft-anything-full-upgraded
         run: |

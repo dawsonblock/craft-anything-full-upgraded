@@ -48,9 +48,9 @@
       "sha256": "9f2e64116654108425f8b312575ecd7dda1df31791846f46ac317a1665438d1b"
     },
     {
-      "bytes": 2563,
+      "bytes": 2579,
       "path": ".github/workflows/ci.yml",
-      "sha256": "7be68b52768a86c3bd5c59e52a34d66e5beeb6f4a983e53d788fd0997db22cd2"
+      "sha256": "56871bcb5c5eccb4101179e6171c5a279d99d7d54017d0b35758630282238bba"
     },
     {
       "bytes": 4104,
@@ -3798,9 +3798,9 @@
       "sha256": "fb3f445a7bedc93cbbe530bed731ca80396588129cf188f051e542ee514e34a0"
     },
     {
-      "bytes": 75957,
+      "bytes": 76416,
       "path": "docs/pitfalls.md",
-      "sha256": "89a8b2cc7d7ba6f9e2e61ca001047ebcfd6526e9fa164fc6c00505e362ee0f84"
+      "sha256": "672a42f738a9e5c4384382c9388e56f3cb8acb378e30217f9068b1c739a4a02f"
     },
     {
       "bytes": 4263,
@@ -4173,9 +4173,9 @@
       "sha256": "54e9095edf1bc5edaf3bbc335d4cd68e1f94ed0864fe08b0182f4f1542cd49ea"
     },
     {
-      "bytes": 33530,
+      "bytes": 33873,
       "path": "scripts/tests/test_source_bundle_integrity.py",
-      "sha256": "7a56aaa5f280ac75701a8ea077e88fad7d4289ac2840b1a039f08f64cd7cee64"
+      "sha256": "1382ffef929353e0345d2a5a3bef681cee6cce04ef3a96b0f9592654d4fe913c"
     },
     {
       "bytes": 29421,
@@ -4660,5 +4660,5 @@
   ],
   "root": "craft-anything-full-upgraded",
   "schema": 1,
-  "total_bytes": 20644016
+  "total_bytes": 20644834
 }

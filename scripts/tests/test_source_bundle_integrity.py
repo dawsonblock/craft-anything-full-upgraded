@@ -594,6 +594,13 @@ class SourceBundleIntegrityTests(unittest.TestCase):
             with self.assertRaisesRegex(IntegrityError, "inventory excludes"):
                 verify_tree(root, require_exact=True)
 
+    def test_require_exact_accepts_a_tree_with_nothing_excluded(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = self.sample(Path(temp))
+            report = verify_tree(root, require_exact=True)
+            self.assertEqual(report["status"], "verified")
+            self.assertEqual(report["excluded_count"], 0)
+
     def test_create_refuses_a_subdirectory_of_a_work_tree(self):
         with tempfile.TemporaryDirectory() as temp:
             root = self.git_sample(Path(temp))
