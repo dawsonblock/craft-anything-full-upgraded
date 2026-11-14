@@ -59,6 +59,9 @@ pub fn redacted(v: &Value) -> Value {
                 .collect(),
         ),
         Value::Array(a) => Value::Array(a.iter().map(redacted).collect()),
+        // A secret inside an ordinary string (a command line, args, a URL) hides too: the field
+        // name is innocent, the credential in it is not.
+        Value::String(s) => Value::String(scrubbed_line(s)),
         other => other.clone(),
     }
 }
@@ -261,6 +264,32 @@ mod tests {
         let named = bounded(&json!({"path": "a.har", "hidden_values": ["pat@example.test", "tok-fake"]}));
         assert_eq!(named["hidden_values"], "(redacted)", "values a caller asks to hide");
         assert_eq!(named["path"], "a.har");
+    }
+
+    /// A credential inside an innocently-named string param (a command line, args, a URL) is
+    /// scrubbed the same way output lines are: the field's name is innocent, the value isn't.
+    #[test]
+    fn secrets_inside_string_params_never_reach_the_journal() {
+        for (param, gone) in [
+            (json!({"command": "tool --api-key sk-live-abcdefghijklmnop --verbose"}), "sk-live-abcdefghijklmnop"),
+            (json!({"args": ["-H", "Authorization: Bearer ghp_abcdefghijklmnop"]}), "ghp_abcdefghijklmnop"),
+            (json!({"command": "GITHUB_TOKEN=ghp_abcdefghijklmnop deploy.sh"}), "ghp_abcdefghijklmnop"),
+            (json!({"url": "https://me:ghp_abcdefghijklmnop@host.test/x"}), "ghp_abcdefghijklmnop"),
+            (json!({"command": "deploy --password hunter2hunter2"}), "hunter2hunter2"),
+            (json!({"note": "key AQ.not-a-real-key-just-a-test-fixture-00 here"}), "AQ.not-a-real-key-just-a-test-fixture-00"),
+        ] {
+            let r = bounded(&param);
+            assert!(!r.to_string().contains(gone), "{param} -> {r}");
+        }
+        // Ordinary words and values are untouched.
+        for param in [
+            json!({"command": "npm run build"}),
+            json!({"path": "/Users/d/p/src/token.rs"}),
+            json!({"text": "tokens: 12 used"}),
+            json!({"url": "https://example.com/a?page=2"}),
+        ] {
+            assert_eq!(bounded(&param), param);
+        }
     }
 
     use super::*;
