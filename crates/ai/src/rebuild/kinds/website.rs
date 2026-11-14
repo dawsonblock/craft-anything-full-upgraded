@@ -795,6 +795,9 @@ impl Check for WebVisualCheck {
         let mut artifacts = Vec::new();
         let mut unknowns = Vec::new();
         let mut claims = Vec::new();
+        // Each page's picture at each width has a floor 20 points under the overall bar: a mean
+        // can hide one badly wrong page or width, and its claim fails it by itself.
+        let floor = (cx.build_settings().good_enough - 20.0).max(0.0);
         for (name, dir, url) in &pages {
             let (original, built) = if dir.is_empty() { (ws.capture_dir(), out.clone()) } else { (ws.capture_dir().join(dir), out.join(dir)) };
             // web_site_capture creates the page's own folder (it must not exist yet) inside one
@@ -809,6 +812,11 @@ impl Check for WebVisualCheck {
                 let (a, b) = (original.join(format!("screenshot-{w}.png")), built.join(format!("screenshot-{w}.png")));
                 match picture_likeness(cx, &a, &b)? {
                     Some((s, l, d, hb, ha)) => {
+                        claims.push(Claim::new(
+                            format!("{name} looks like the original at {w} px"),
+                            s >= floor,
+                            format!("{s:.0}% alike, under the {floor:.0}% floor a page's picture must clear"),
+                        ));
                         per_width.push((w, s, l, d, hb, ha));
                         artifacts.extend(b.strip_prefix(&ws.root).ok().map(Path::to_path_buf));
                     }
