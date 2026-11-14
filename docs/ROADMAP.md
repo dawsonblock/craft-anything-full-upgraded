@@ -205,6 +205,9 @@ cheapest help we can give anyone, so nothing below should hold it up for long.
       checkout, rebuilds the manifest, packages a ZIP and runs the regressions on every push and
       pull request instead of only at release time
       — claimed: Devin, branch bugfix/r5.1-source-manifest-reproducible
+- [ ] Let `create` work in a sparse checkout: it lists files with `git ls-files`, which names
+      every tracked path, so a sparse working tree stops at the first absent file and cannot
+      regenerate the manifest at all
 
 ### R5.2 Keeping contributions moving
 Owner: maintainers · Status: in progress
