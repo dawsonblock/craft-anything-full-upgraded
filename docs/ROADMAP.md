@@ -1020,6 +1020,10 @@ Owner: open · Status: in progress
       build's own word) — claimed: Devin, branch feature/r2.5-self-test-picture
 - [x] A check that didn't run never counts as a pass: each check records passed, failed, skipped
       or unknown, and a skipped or unknown required check keeps the build from Ready — PR #9
+- [x] Run the independent replay probe from a tool: `build_probe_run` writes the shipped probe into
+      the project, drives the built game with a bounded subprocess, and accepts only a fresh
+      passing report whose capture folder is this run's (`docs/independent-game-probe.md`)
+      — claimed: Devin, branch feature/r2.2-docker-build-sandbox
 
 ### R2.7 The request decides how to build
 Owner: open · Status: in progress
