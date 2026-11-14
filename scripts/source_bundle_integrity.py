@@ -167,8 +167,82 @@ def git_tracked(root: Path) -> list[str] | None:
     return [name for name in names if name]
 
 
+def parent_work_tree(root: Path) -> Path | None:
+    """Return the enclosing work tree whose tracked files include `root`, if any.
+
+    A directory extracted from a ZIP can sit inside somebody's repository
+    without belonging to it, so the parent only counts when it actually tracks
+    files under `root`; otherwise `create` would refuse a legitimate extraction.
+    """
+    try:
+        top = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--show-toplevel"],
+            capture_output=True, check=False, timeout=GIT_TIMEOUT_SECONDS,
+        )
+        if top.returncode != 0:
+            return None
+        listed = subprocess.run(
+            ["git", "-C", str(root), "ls-files", "-z"],
+            capture_output=True, check=False, timeout=GIT_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    top_level = Path(top.stdout.decode("utf-8", "replace").strip()).resolve()
+    if listed.returncode != 0 or top_level == root.resolve() or not listed.stdout.strip(b"\0"):
+        return None
+    return top_level
+
+
+def source_entries(root: Path, keep: frozenset[str] = frozenset()) -> tuple[list[tuple[Path, Path]], list[str]]:
+    """List source files under `root` and the paths the inventory excludes.
+
+    Directories are pruned as they are rejected, so `.git` and a Cargo build
+    directory cost one check each instead of a full traversal. Nothing is
+    hashed here, so a caller that only needs paths pays no I/O for contents.
+    """
+    if not root.is_dir() or root.is_symlink():
+        raise IntegrityError("Source root must be a real directory")
+    keep_parents = set()
+    for name in keep:
+        parts = name.split("/")
+        for count in range(1, len(parts)):
+            keep_parents.add("/".join(parts[:count]))
+    entries = []
+    excluded = []
+    for current, directories, files in os.walk(root):
+        base = Path(current).relative_to(root)
+        kept = []
+        for name in directories:
+            rel = base / name
+            key = rel.as_posix()
+            if (Path(current) / name).is_symlink():
+                entries.append((Path(current) / name, rel))
+                continue
+            if key in keep_parents:
+                kept.append(name)
+            elif name == ".git" or ignored(rel):
+                if name != ".git":
+                    excluded.append(key + "/")
+            else:
+                kept.append(name)
+        directories[:] = kept
+        for name in files:
+            rel = base / name
+            key = rel.as_posix()
+            if name == MANIFEST_NAME:
+                continue
+            # A path the manifest names is always checked: the exclusions only
+            # decide what an inventory skips, never what a recorded file means.
+            if key not in keep and ignored(rel):
+                if ".git" not in rel.parts:
+                    excluded.append(key)
+                continue
+            entries.append((Path(current) / name, rel))
+    return entries, excluded
+
+
 def source_records(root: Path, tracked: list[str] | None = None,
-                   keep: frozenset[str] = frozenset()) -> list[dict]:
+                   keep: frozenset[str] = frozenset()) -> tuple[list[dict], list[str]]:
     if not root.is_dir() or root.is_symlink():
         raise IntegrityError("Source root must be a real directory")
     result = []
@@ -176,16 +250,10 @@ def source_records(root: Path, tracked: list[str] | None = None,
     seen_portable = set()
     seen_spelling = {}
     if tracked is None:
-        candidates = []
-        for path in root.rglob("*"):
-            rel = path.relative_to(root)
-            # A path the manifest names is always checked: the exclusions only
-            # decide what an inventory skips, never what a recorded file means.
-            if rel.as_posix() not in keep and ignored(rel):
-                continue
-            candidates.append((path, rel))
+        candidates, excluded = source_entries(root, keep)
     else:
         candidates = []
+        excluded = []
         for name in tracked:
             rel = Path(name)
             if ignored(rel):
@@ -200,7 +268,9 @@ def source_records(root: Path, tracked: list[str] | None = None,
             continue
         if not path.is_file():
             if tracked is not None:
-                raise IntegrityError(f"Tracked file is missing from the working tree: {rel}")
+                raise IntegrityError(
+                    f"Tracked file is missing from the working tree, so a sparse checkout "
+                    f"cannot produce a complete manifest: {rel}")
             raise IntegrityError(f"Source tree contains a non-regular entry: {rel}")
         name = rel.as_posix()
         if not permitted_path(name):
@@ -221,11 +291,11 @@ def source_records(root: Path, tracked: list[str] | None = None,
             raise IntegrityError("Source tree exceeds its total size limit")
         result.append({"path": name, "bytes": length, "sha256": digest})
     result.sort(key=lambda item: item["path"])
-    return result
+    return result, excluded
 
 
 def make_manifest(root: Path, tracked: list[str] | None = None) -> dict:
-    rows = source_records(root, tracked)
+    rows, _ = source_records(root, tracked)
     return {
         "schema": SCHEMA_VERSION,
         "root": root.name,
@@ -284,7 +354,8 @@ def parse_manifest(raw: bytes) -> dict:
     return result
 
 
-def verify_tree(root: Path, *, require_declared_root: bool = False) -> dict:
+def verify_tree(root: Path, *, require_declared_root: bool = False,
+                require_exact: bool = False) -> dict:
     manifest_file = root / MANIFEST_NAME
     if manifest_file.is_symlink() or not manifest_file.is_file():
         raise IntegrityError("Source manifest is missing or is a symbolic link")
@@ -293,9 +364,13 @@ def verify_tree(root: Path, *, require_declared_root: bool = False) -> dict:
     manifest = parse_manifest(manifest_file.read_bytes())
     if require_declared_root and root.name != manifest["root"]:
         raise IntegrityError("Source root differs from manifest root")
-    actual = source_records(root, keep=frozenset(row["path"] for row in manifest["files"]))
+    actual, excluded = source_records(root, keep=frozenset(row["path"] for row in manifest["files"]))
     if actual != manifest["files"]:
         raise IntegrityError("Source files are missing, changed or extra")
+    if require_exact and excluded:
+        raise IntegrityError(
+            "Tree holds entries the inventory excludes: "
+            + ", ".join(sorted(set(excluded))[:5]))
     return {
         "status": "verified", "file_count": manifest["file_count"],
         "total_bytes": manifest["total_bytes"],
@@ -303,6 +378,10 @@ def verify_tree(root: Path, *, require_declared_root: bool = False) -> dict:
         "declared_root": manifest["root"], "source_root": root.name,
         "root_policy": "strict" if require_declared_root else "compatible",
         "root_renamed": root.name != manifest["root"],
+        # What verification did not look at. A tree can only be padded with
+        # these, so a caller that needs "exactly the manifest" reads verify_zip.
+        "excluded": sorted(set(excluded))[:20],
+        "excluded_count": len(set(excluded)),
     }
 
 
@@ -411,7 +490,8 @@ def package_zip(root: Path, archive: Path) -> dict:
     if manifest_file.is_symlink() or not manifest_file.is_file():
         raise IntegrityError("Source manifest is missing or is a symbolic link")
     manifest = parse_manifest(manifest_file.read_bytes())
-    if source_records(root, keep=frozenset(row["path"] for row in manifest["files"])) != manifest["files"]:
+    rows, _ = source_records(root, keep=frozenset(row["path"] for row in manifest["files"]))
+    if rows != manifest["files"]:
         raise IntegrityError("Source files are missing, changed or extra")
     descriptor, temporary = tempfile.mkstemp(prefix=".source-zip-", dir=parent)
     os.close(descriptor)
@@ -553,6 +633,8 @@ def main(argv: list[str] | None = None) -> int:
         else:
             p.add_argument("--require-declared-root", action="store_true",
                            help="Refuse a folder whose name differs from the manifest root")
+            p.add_argument("--require-exact", action="store_true",
+                           help="Refuse a tree that holds anything the inventory excludes")
     pzip = modes.add_parser("verify-zip")
     pzip.add_argument("--archive", type=Path, required=True)
     pzip.add_argument("--require-declared-root", action="store_true",
@@ -575,14 +657,21 @@ def main(argv: list[str] | None = None) -> int:
             if existing.is_symlink():
                 raise IntegrityError("Cannot replace a symbolic-link manifest")
             tracked = None
-            if args.tracked is not False and (args.tracked or (root / ".git").exists()):
-                tracked = git_tracked(root)
-                if tracked is None:
-                    raise IntegrityError("--tracked needs a Git work tree root")
+            if args.tracked is not False:
+                if args.tracked or (root / ".git").exists():
+                    tracked = git_tracked(root)
+                    if tracked is None:
+                        raise IntegrityError("--tracked needs a Git work tree root")
+                else:
+                    parent = parent_work_tree(root)
+                    if parent is not None:
+                        raise IntegrityError(
+                            f"Run create from the repository root, not a subdirectory of {parent}")
             manifest = make_manifest(root, tracked)
             if tracked is not None:
                 recorded = {row["path"] for row in manifest["files"]}
-                extra = sorted({row["path"] for row in source_records(root)} - recorded)
+                walked, _ = source_entries(root)
+                extra = sorted({rel.as_posix() for _, rel in walked} - recorded)
                 if extra:
                     shown = ", ".join(extra[:5])
                     raise IntegrityError(
@@ -597,7 +686,8 @@ def main(argv: list[str] | None = None) -> int:
             result["file_source"] = "git" if tracked is not None else "filesystem"
         elif args.mode == "verify-tree":
             result = verify_tree(args.root.absolute(),
-                                 require_declared_root=args.require_declared_root)
+                                 require_declared_root=args.require_declared_root,
+                                 require_exact=args.require_exact)
         elif args.mode == "package-zip":
             result = package_zip(args.root.absolute(), args.archive.absolute())
         elif args.mode == "verify-zip":

@@ -582,6 +582,36 @@ class SourceBundleIntegrityTests(unittest.TestCase):
             self.assertEqual([row["path"] for row in manifest["files"]],
                              ["README.md", "src/app.rs"])
 
+    def test_verification_reports_what_it_skipped(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = self.sample(Path(temp))
+            self.write_ruff_cache(root)
+            (root / "target").mkdir()
+            (root / "target" / "debug").write_bytes(b"binary")
+            report = verify_tree(root)
+            self.assertEqual(report["excluded"], [".ruff_cache/", "target/"])
+            self.assertEqual(report["excluded_count"], 2)
+            with self.assertRaisesRegex(IntegrityError, "inventory excludes"):
+                verify_tree(root, require_exact=True)
+
+    def test_create_refuses_a_subdirectory_of_a_work_tree(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = self.git_sample(Path(temp))
+            result = self.run_cli("create", "--root", str(root / "src"))
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("repository root", result.stdout)
+            self.assertFalse((root / "src" / MANIFEST_NAME).exists())
+
+    def test_create_allows_an_extraction_inside_an_unrelated_repository(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = self.git_sample(Path(temp))
+            extracted = repo / "downloads" / "craft-anything-full-upgraded"
+            (extracted / "src").mkdir(parents=True)
+            (extracted / "src" / "app.rs").write_text("fn main() {}\n", encoding="utf-8")
+            result = self.run_cli("create", "--root", str(extracted))
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(json.loads(result.stdout)["file_source"], "filesystem")
+
     def test_the_inventory_ignores_every_simple_gitignore_entry(self):
         patterns = []
         for line in (SCRIPTS.parent / ".gitignore").read_text(encoding="utf-8").splitlines():

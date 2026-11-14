@@ -183,6 +183,13 @@ tool settings under `.claude`, and the caches local tools leave beside the code
 treated as an unexpected source change. A custom `CARGO_TARGET_DIR` should
 point outside the source tree or inside its root `target/` directory.
 
+Because those paths are skipped, the result names them: `excluded` lists what
+verification did not look at and `excluded_count` totals it. Add
+`--require-exact` to refuse a tree that holds any of them, which is what a
+directory must satisfy to be exactly the manifest. A file the manifest records
+is always checked even if it matches an exclusion, so archives packaged before
+this behaviour still verify.
+
 If you deliberately edit the source, this verification should **fail** until
 you generate a new manifest for your own modified fork:
 
@@ -191,9 +198,13 @@ you generate a new manifest for your own modified fork:
 Inside a Git work tree root, `create` lists files with `git ls-files` and
 records exactly what a clone can contain. It refuses to write a manifest when
 the tree holds files Git does not track, naming them, and `--no-tracked` falls
-back to walking the tree. A manifest that recorded a Git-ignored file — a tool
-cache, a build output — could never be rebuilt from a clone, and every clone
-would fail verification. Verification itself never needs Git.
+back to walking the tree. Run it from the repository root: from a subdirectory
+whose files the enclosing repository tracks, it stops and names that root
+instead of writing a manifest for the wrong folder. A directory extracted from
+a ZIP inside somebody's repository is still accepted, because the parent does
+not track it. A manifest that recorded a Git-ignored file — a tool cache, a
+build output — could never be rebuilt from a clone, and every clone would fail
+verification. Verification itself never needs Git.
 
 Never interpret a regenerated self-consistent manifest as independent
 verification of who authored or reviewed the modifications.
