@@ -945,7 +945,7 @@ Owner: open · Status: in progress
       translation catalogue
 - [ ] Run the check's own build in the container when the image has the toolchain, so
       `sandbox_unconfined = "refuse"` can verify a build instead of recording the build check as
-      `unknown`
+      `unknown` — claimed: Devin, branch feature/r3.0-containerized-check
 - [x] Clean room outside builds (#564): a chat or question with Claude Code refuses the agent's own
       file, shell and web tools outright (`--disallowedTools`), not through its defaults; an ACP chat
       refuses them through an approver instead of a consent card (`docs/claude-code.md`)
