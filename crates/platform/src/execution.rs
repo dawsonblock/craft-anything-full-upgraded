@@ -59,6 +59,23 @@ pub fn with_policy<R>(policy: Arc<dyn Policy>, default: Class, f: impl FnOnce() 
     f()
 }
 
+/// Run `f` on a new thread with the execution context this thread has now, if any.
+///
+/// A thread-local context is not inherited by a new thread, and a launch with no context is
+/// allowed: a worker that starts a program without this helper would bypass a refusing policy.
+/// Use it for every worker that can start a program.
+pub fn spawn<F, T>(name: impl Into<String>, f: F) -> std::io::Result<std::thread::JoinHandle<T>>
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
+    let captured = CONTEXT.with(|c| c.borrow().as_ref().map(|ctx| (ctx.policy.clone(), ctx.default)));
+    std::thread::Builder::new().name(name.into()).spawn(move || match captured {
+        Some((policy, default)) => with_policy(policy, default, f),
+        None => f(),
+    })
+}
+
 /// Whether the current launch may start. No context means no decision to make.
 pub(crate) fn check() -> Result<(), ToolError> {
     CONTEXT.with(|c| {
@@ -137,5 +154,19 @@ mod tests {
         })
         .unwrap();
         assert!(out.success);
+    }
+
+    /// A worker started with [`spawn`] keeps the policy it was started under.
+    #[cfg(unix)]
+    #[test]
+    fn a_spawned_thread_keeps_the_policy() {
+        let err = with_policy(Arc::new(Refuse), Class::Unclassified, || {
+            spawn("policy-test", || crate::process::Process::new("/bin/echo").args(["hi"]).timeout(std::time::Duration::from_secs(5)).run())
+                .unwrap()
+                .join()
+                .unwrap()
+        })
+        .unwrap_err();
+        assert_eq!(err.code, craft_anything_evidence::ErrorCode::FeatureMissing);
     }
 }

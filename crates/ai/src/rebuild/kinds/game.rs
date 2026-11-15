@@ -197,7 +197,11 @@ impl Check for CreditsCheck {
     }
 
     fn run(&self, cx: &mut CheckCx) -> Result<CheckResult, ToolError> {
-        let (passed, note) = credits(&cx.ws.app_dir());
+        let app = match cx.ws.app_dir_checked() {
+            Ok(app) => app,
+            Err(e) => return Ok(CheckResult::unknown(self.id(), cx.round, e.message)),
+        };
+        let (passed, note) = credits(&app);
         Ok(CheckResult::new(self.id(), cx.round, passed, note))
     }
 }

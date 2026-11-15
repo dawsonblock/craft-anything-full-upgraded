@@ -307,9 +307,10 @@ fn user_arg(host: Option<String>) -> String {
 }
 
 /// Whether a `uid:gid` pair has a zero in it. A zero uid is root whatever its group is (`0:20` is
-/// still root), and a zero gid would give a non-root user root's group.
+/// still root), and a zero gid would give a non-root user root's group. The ids are parsed, not
+/// compared as text: Docker reads `00:00` and `+0:0` as zero too.
 fn names_root(user: &str) -> bool {
-    user.split(':').any(|id| id.trim() == "0")
+    user.split(':').any(|id| id.trim().parse::<i64>().is_ok_and(|n| n == 0))
 }
 
 /// The user the container runs as: the host's id, except root (see [`user_arg`]).
@@ -317,10 +318,11 @@ fn sandbox_user() -> String {
     user_arg(host_user())
 }
 
-/// Whether `user`, a `uid:gid` pair, can write `path` by its permission bits.
+/// Whether `user`, a `uid:gid` pair, can write and search `path` by its permission bits.
 ///
 /// The container runs as this user, so a folder it can't write would fail every build that
-/// writes into it. ACLs aren't read: a folder whose bits say no is refused even if an ACL would
+/// writes into it. A directory needs execute as well as write to be entered and to have entries
+/// created in it. ACLs aren't read: a folder whose bits say no is refused even if an ACL would
 /// allow it, and the error says how to change that.
 #[cfg(unix)]
 fn writable_by(path: &Path, user: &str) -> bool {
@@ -337,7 +339,7 @@ fn writable_by(path: &Path, user: &str) -> bool {
     } else {
         meta.mode() & 0o7
     };
-    bits & 0o2 != 0
+    bits & 0o3 == 0o3
 }
 
 /// Windows has no numeric host id to check, and Docker Desktop maps the mount itself.
@@ -547,6 +549,10 @@ mod tests {
         assert_eq!(user_arg(Some("0:20".into())), "1000:1000", "a zero uid is root whatever its group");
         assert_eq!(user_arg(Some("0:1000".into())), "1000:1000");
         assert_eq!(user_arg(Some("501:0".into())), "1000:1000", "a zero gid is remapped too");
+        assert_eq!(user_arg(Some("00:00".into())), "1000:1000", "Docker reads 00:00 as zero");
+        assert_eq!(user_arg(Some("000:0".into())), "1000:1000");
+        assert_eq!(user_arg(Some("+0:0".into())), "1000:1000");
+        assert_eq!(user_arg(Some("-0:0".into())), "1000:1000");
         assert_eq!(user_arg(Some("501:20".into())), "501:20");
         assert_eq!(user_arg(None), "1000:1000");
     }
@@ -647,6 +653,11 @@ mod tests {
         assert!(writable_by(dir.path(), &group), "group write");
         std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o707)).unwrap();
         assert!(writable_by(dir.path(), &other), "other write");
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o200)).unwrap();
+        assert!(!writable_by(dir.path(), &owner), "write without search can't be used");
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o300)).unwrap();
+        assert!(writable_by(dir.path(), &owner), "write and search");
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
     }
 
     #[cfg(unix)]

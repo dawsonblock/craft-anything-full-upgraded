@@ -951,6 +951,17 @@ Owner: open · Status: in progress
       writable: passed on macOS (Docker 29.9.3), `uid=501 gid=20`, not root, `/work` writable
       — claimed: Devin, branch bugfix/sandbox-root-uid
 - [ ] Run it on a root host, where the fallback is `1000:1000`
+- [x] Close the security-review findings: worker threads inherit the execution policy and
+      `AiHub::start` checks `Route::Agent` before a chat exists; a project whose `app/` is a link
+      outside is refused at open and every build command and check uses the checked app; zero ids
+      are parsed (`00:00`); the mechanics check skips `app/Original`, caps reads and entries and
+      honors a stop; a failed process reader kills the child
+      — claimed: Devin, branch bugfix/sandbox-root-uid
+- [ ] Upgrade `p256`/`ecdsa` so `crypto-bigint` is >=0.7.6 (RUSTSEC-2026-0387): `p256` 0.14
+      changes the signing API; the other advisories are patched (`wasmtime` 49.0.5,
+      `rustls-webpki` 0.103.17, `webpki-roots` 1.0.12)
+- [ ] Run `cargo deny check advisories` in CI once the `crypto-bigint` upgrade lands; the yanked
+      crates (`clipboard-win` 5.4.3, `async-executor` 1.14.1) are fixed
 - [ ] Bound the project folder's own disk use: `sandbox_disk_mb` limits the container's writable
       layer, not the `/work` bind mount, so a build can still fill the host's disk inside its
       project

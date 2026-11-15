@@ -795,6 +795,7 @@ impl Workspace {
         }
         let ws = Workspace { root, manifest: Manifest::new(name, request, target) };
         ws.save()?;
+        ws.app_dir_checked()?;
         Ok(ws)
     }
 
@@ -817,7 +818,7 @@ impl Workspace {
         let m = &self.manifest;
         let mut copy = Workspace::create(parent, name, &m.request, m.target.clone())?;
         let in_place = m.app_in_root;
-        let app = self.app_dir();
+        let app = self.app_dir_checked()?;
         if app.is_dir() {
             copy_tree(&app, &copy.app_dir(), &|p| rebuilt(p) || (in_place && self.is_own_record(p)), 0)?;
         }
@@ -1103,6 +1104,7 @@ impl Workspace {
             }
         }
         let ws = Workspace { root: folder.to_path_buf(), manifest };
+        ws.app_dir_checked()?;
         ws.save()?;
         Ok(ws)
     }
@@ -1112,7 +1114,9 @@ impl Workspace {
         let bytes = std::fs::read(&path).map_err(|e| ToolError::io(path.display(), e))?;
         let manifest = read_manifest(&bytes)
             .map_err(|e| if e.code == ErrorCode::NotSupported { e } else { ToolError::invalid(format!("{} is unreadable: {}", path.display(), e.message)) })?;
-        Ok(Workspace { root: root.to_path_buf(), manifest })
+        let ws = Workspace { root: root.to_path_buf(), manifest };
+        ws.app_dir_checked()?;
+        Ok(ws)
     }
 
     /// Made by a newer Craft Anything: it can be looked at but not changed (saving is refused, so
@@ -1178,6 +1182,58 @@ impl Workspace {
     /// The app: app/, or the project folder itself when the person's files are edited in place.
     pub fn app_dir(&self) -> PathBuf {
         if self.manifest.app_in_root { self.root.clone() } else { self.root.join("app") }
+    }
+
+    /// The app folder, resolved and required to stay inside the project.
+    ///
+    /// A project can replace `app/` with a link to the rest of the computer. Every route that runs
+    /// or reads the app uses this, not [`Workspace::app_dir`], so a link cannot take a check, a
+    /// build command or the container outside the project. A link to a folder inside the project
+    /// is kept (and returned resolved).
+    pub fn app_dir_checked(&self) -> Result<PathBuf, ToolError> {
+        if self.manifest.app_in_root {
+            return Ok(self.root.clone());
+        }
+        let app = self.root.join("app");
+        let root = std::fs::canonicalize(&self.root).map_err(|e| ToolError::io(self.root.display(), e))?;
+        match std::fs::symlink_metadata(&app) {
+            Ok(meta) if meta.file_type().is_symlink() => {
+                let real = std::fs::canonicalize(&app).map_err(|e| {
+                    ToolError::invalid(format!("The app folder {} is a link that can't be followed: {e}.", app.display()))
+                        .with_remediation("Replace app/ with a normal folder inside the project.")
+                })?;
+                if !real.is_dir() || !real.starts_with(&root) {
+                    return Err(ToolError::invalid(format!("The app folder {} leads outside the project.", app.display()))
+                        .with_remediation("Replace app/ with a normal folder inside the project."));
+                }
+                Ok(real)
+            }
+            Ok(_) => {
+                let real = std::fs::canonicalize(&app).map_err(|e| ToolError::io(app.display(), e))?;
+                if !real.is_dir() || !real.starts_with(&root) {
+                    return Err(ToolError::invalid(format!("The app folder {} leads outside the project.", app.display()))
+                        .with_remediation("Replace app/ with a normal folder inside the project."));
+                }
+                Ok(real)
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(app),
+            Err(e) => Err(ToolError::io(app.display(), e)),
+        }
+    }
+
+    /// The app folder, made if a new project has none yet. A link is resolved and checked first,
+    /// so creating the folder cannot follow one outside the project.
+    pub fn ensure_app_dir(&self) -> Result<PathBuf, ToolError> {
+        let app = self.app_dir_checked()?;
+        if app.is_dir() {
+            return Ok(app);
+        }
+        match std::fs::create_dir(&app) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(e) => return Err(ToolError::io(app.display(), e)),
+        }
+        self.app_dir_checked()
     }
     /// Where the app is, in words for messages: "app/", or "the project folder" (#174).
     pub fn app_place(&self) -> &'static str {
@@ -2404,5 +2460,39 @@ mod tests {
         ws.delete().unwrap();
         assert_eq!(std::fs::read_to_string(mine.join("index.html")).unwrap(), "<p>hi</p>");
         assert!(!mine.join(MANIFEST).exists() && !mine.join("inbox").exists() && !mine.join(AGENT_SESSION_FILE).exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_app_link_outside_the_project_is_refused() {
+        let d = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let ws = Workspace::create(d.path(), "Link", "x", TargetRef::None).unwrap();
+        std::os::unix::fs::symlink(outside.path(), ws.app_dir()).unwrap();
+        let err = Workspace::open(&ws.root).unwrap_err();
+        assert!(err.message.contains("outside the project"), "{err:?}");
+        assert!(ws.app_dir_checked().is_err());
+        assert!(ws.ensure_app_dir().is_err(), "a link is never followed to create the app");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_app_link_inside_the_project_is_resolved() {
+        let d = tempfile::tempdir().unwrap();
+        let ws = Workspace::create(d.path(), "Link", "x", TargetRef::None).unwrap();
+        let real = ws.root.join("real-app");
+        std::fs::create_dir(&real).unwrap();
+        std::os::unix::fs::symlink(&real, ws.app_dir()).unwrap();
+        assert_eq!(ws.app_dir_checked().unwrap(), std::fs::canonicalize(&real).unwrap());
+        assert!(Workspace::open(&ws.root).is_ok());
+    }
+
+    #[test]
+    fn ensure_app_dir_makes_a_real_folder() {
+        let d = tempfile::tempdir().unwrap();
+        let ws = Workspace::create(d.path(), "New", "x", TargetRef::None).unwrap();
+        let app = ws.ensure_app_dir().unwrap();
+        assert!(app.is_dir());
+        assert_eq!(app, std::fs::canonicalize(ws.root.join("app")).unwrap());
     }
 }

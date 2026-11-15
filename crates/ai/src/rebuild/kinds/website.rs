@@ -774,7 +774,11 @@ impl Check for WebVisualCheck {
     fn run(&self, cx: &mut CheckCx) -> Result<CheckResult, ToolError> {
         let (ws, round) = (cx.ws, cx.round);
         let widths = cx.build_settings().widths();
-        let Some(site) = site_dir(&ws.app_dir()) else {
+        let app = match cx.ws.app_dir_checked() {
+            Ok(app) => app,
+            Err(e) => return Ok(CheckResult::unknown(self.id(), round, e.message)),
+        };
+        let Some(site) = site_dir(&app) else {
             return Ok(CheckResult::new(self.id(), round, false, missing_site_note(ws.app_place(), app_is_empty(ws))));
         };
         let base = cx.serve_preview(&site)?;

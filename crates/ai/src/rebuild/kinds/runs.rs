@@ -212,7 +212,11 @@ impl Check for RunsCheck {
         }
         let outside = craft_anything_engine::execution::outside_note(policy, craft_anything_engine::execution::Route::RunsCheck).unwrap_or_default();
         let godot = cx.godot();
-        let Some((program, base)) = craft_anything_engine::outputs::launch(&ws.app_dir(), godot.as_deref()) else {
+        let app = match cx.ws.app_dir_checked() {
+            Ok(app) => app,
+            Err(e) => return Ok(CheckResult::unknown(self.id(), round, e.message)),
+        };
+        let Some((program, base)) = craft_anything_engine::outputs::launch(&app, godot.as_deref()) else {
             return Ok(CheckResult::new(self.id(), round, false, screenshot::NO_PROGRAM));
         };
         let out = ws.checks_dir().join(format!("round-{round}")).join(RUNS_DIR);
@@ -227,7 +231,7 @@ impl Check for RunsCheck {
             let name = original.get("name").and_then(Value::as_str).unwrap_or_default().to_string();
             let mut args = base.clone();
             args.extend(original.get("arguments").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).map(String::from));
-            let params = json!({"executable": program.display().to_string(), "arguments": args, "working_directory": ws.app_dir().display().to_string(), "timeout_ms": RUN_MS, "idle_timeout_ms": RUN_MS, "settle_ms": 200});
+            let params = json!({"executable": program.display().to_string(), "arguments": args, "working_directory": app.display().to_string(), "timeout_ms": RUN_MS, "idle_timeout_ms": RUN_MS, "settle_ms": 200});
             let built = match cx.call("runtime_walkthrough_record", params) {
                 Ok(o) => run_record(&name, &args, &result_of(&o)),
                 Err(e) => {

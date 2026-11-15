@@ -1058,3 +1058,14 @@ build's program through `Process`/`Launch` without asking it. List the launches 
 boundary, not only the tools; `docs/execution-routes.md` is the inventory, and
 `platform::execution` now checks `Process::spawn`/`start_watched` before starting. The two former
 gap tests are ordinary regressions.
+
+**A thread-local policy is not inherited by a worker.** The execution context lives in a
+thread-local, and "no context" means allowed, so an agent chat that started its process on a
+worker thread bypassed `sandbox_unconfined = "refuse"`. Use `platform::execution::spawn` for any
+worker that can start a program, and check a route explicitly where the conversation is created
+before its worker exists.
+
+**An app link guarded on one route only.** `build_command_run` refused an `app/` symlink outside
+the project, but `BuildCheck`'s container, the mechanics scan and the host checks followed it. A
+path that is the project boundary belongs in `Workspace` (`app_dir_checked`/`ensure_app_dir`), not
+in one tool, and every route that runs or reads the app must use it.

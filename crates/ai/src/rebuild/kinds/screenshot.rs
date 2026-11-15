@@ -157,8 +157,10 @@ fn running_note(cx: &CheckCx, program: &Path, args: &[String], dir: &Path) -> (S
     if !original.is_file() {
         return (String::new(), Vec::new());
     }
-    let Some(RuntimeCapture { params, shot, tree }) =
-        capture_request(&cx.ws.app_dir(), program, args, dir, original_tree.is_file(), craft_anything_platform::which::which)
+    let Ok(app) = cx.ws.app_dir_checked() else {
+        return (" The app folder leads outside the project, so its window wasn't pictured.".into(), Vec::new());
+    };
+    let Some(RuntimeCapture { params, shot, tree }) = capture_request(&app, program, args, dir, original_tree.is_file(), craft_anything_platform::which::which)
     else {
         return (" Started normally, its window couldn't be pictured because its project paths or interpreter couldn't be resolved.".into(), Vec::new());
     };
@@ -309,7 +311,7 @@ pub(super) const NO_PROGRAM: &str = "There's no built program to start yet.";
 /// Start the built program with `option <file>` and read back the file it saved (an old one is
 /// removed first, so only this run's counts).
 pub(super) fn run_with(cx: &CheckCx, option: &str, file: &Path) -> Result<OwnRun, ToolError> {
-    let app = cx.ws.app_dir();
+    let app = cx.ws.app_dir_checked()?;
     let godot = cx.godot();
     let Some((program, args)) = launch(&app, godot.as_deref()) else { return Ok(OwnRun::NoProgram) };
     // The built program is native to this computer, so it can't run in the container. When the

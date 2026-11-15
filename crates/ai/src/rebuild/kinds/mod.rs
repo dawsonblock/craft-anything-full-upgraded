@@ -373,11 +373,15 @@ impl Check for BuildCheck {
     }
 
     fn container(&self, cx: &CheckCx) -> Option<craft_anything_platform::sandbox::Spec> {
-        container_for(&cx.ws.app_dir(), &cx.ws.manifest.stack, &cx.build_settings())
+        let app = cx.ws.app_dir_checked().ok()?;
+        container_for(&app, &cx.ws.manifest.stack, &cx.build_settings())
     }
 
     fn run(&self, cx: &mut CheckCx) -> Result<CheckResult, ToolError> {
-        let app = cx.ws.app_dir();
+        let app = match cx.ws.app_dir_checked() {
+            Ok(app) => app,
+            Err(e) => return Ok(CheckResult::unknown(self.id(), cx.round, e.message)),
+        };
         // Nothing runs for a page with no toolchain or engine to build it, so there is nothing to
         // confine: it passes as it is, even when the person refused unconfined runs.
         if nothing_to_build(&app, &cx.ws.manifest.stack) {

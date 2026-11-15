@@ -29,97 +29,95 @@ impl SharedConversation {
         let busy = Arc::new(AtomicBool::new(false));
         let session = Arc::new(Mutex::new(None));
         let (working, saved_session) = (busy.clone(), session.clone());
-        std::thread::Builder::new()
-            .name("ai-shared-project".into())
-            .spawn(move || {
-                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    let mut conversation: Option<Box<dyn Conversation>> = None;
-                    let mut context: Option<Value> = None;
-                    loop {
-                        match requests.recv_timeout(Duration::from_millis(25)) {
-                            Ok(Command::Quit) | Err(RecvTimeoutError::Disconnected) => break,
-                            Ok(Command::Send(text)) => {
-                                let _ = output.send(AgentEvent::Status { text: "Preparing the shared investigation...".into() });
-                                match prepare(&engine, &keys, &entry, beginner) {
-                                    Ok(mut spec) => {
-                                        let next = json!({"project": spec.project, "targets": spec.targets, "deep": spec.deep, "options": spec.options});
-                                        if context.as_ref() != Some(&next) {
-                                            if continues(context.as_ref(), &next) {
-                                                spec.resume = conversation.as_ref().and_then(|conversation| conversation.session_id());
-                                            }
-                                            conversation = Some(super::conversation(spec));
-                                            context = Some(next);
+        craft_anything_platform::execution::spawn("ai-shared-project", move || {
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let mut conversation: Option<Box<dyn Conversation>> = None;
+                let mut context: Option<Value> = None;
+                loop {
+                    match requests.recv_timeout(Duration::from_millis(25)) {
+                        Ok(Command::Quit) | Err(RecvTimeoutError::Disconnected) => break,
+                        Ok(Command::Send(text)) => {
+                            let _ = output.send(AgentEvent::Status { text: "Preparing the shared investigation...".into() });
+                            match prepare(&engine, &keys, &entry, beginner) {
+                                Ok(mut spec) => {
+                                    let next = json!({"project": spec.project, "targets": spec.targets, "deep": spec.deep, "options": spec.options});
+                                    if context.as_ref() != Some(&next) {
+                                        if continues(context.as_ref(), &next) {
+                                            spec.resume = conversation.as_ref().and_then(|conversation| conversation.session_id());
                                         }
-                                    }
-                                    Err(error) => {
-                                        let _ = output.send(AgentEvent::Error { message: error.message, remediation: error.remediation, log: None });
-                                        let _ = output.send(AgentEvent::TurnDone {
-                                            backend: entry.config.name.clone(),
-                                            input_tokens: 0,
-                                            output_tokens: 0,
-                                            cost_usd: None,
-                                            cost_is_estimate: false,
-                                        });
-                                        working.store(false, Ordering::SeqCst);
-                                        continue;
+                                        conversation = Some(super::conversation(spec));
+                                        context = Some(next);
                                     }
                                 }
-                                if let Some(conversation) = conversation.as_mut() {
-                                    conversation.send(&text);
+                                Err(error) => {
+                                    let _ = output.send(AgentEvent::Error { message: error.message, remediation: error.remediation, log: None });
+                                    let _ = output.send(AgentEvent::TurnDone {
+                                        backend: entry.config.name.clone(),
+                                        input_tokens: 0,
+                                        output_tokens: 0,
+                                        cost_usd: None,
+                                        cost_is_estimate: false,
+                                    });
+                                    working.store(false, Ordering::SeqCst);
+                                    continue;
                                 }
                             }
-                            Ok(Command::Answer(id, allow)) => {
-                                if let Some(conversation) = conversation.as_mut() {
-                                    conversation.answer_consent(&id, allow);
-                                }
-                            }
-                            Ok(Command::Stop) => {
-                                if let Some(conversation) = conversation.as_mut() {
-                                    conversation.stop();
-                                }
-                            }
-                            Err(RecvTimeoutError::Timeout) => {}
-                        }
-                        let Some(conversation) = conversation.as_mut() else { continue };
-                        let events = conversation.poll();
-                        if events.iter().any(|event| matches!(event, AgentEvent::ToolFinished { .. } | AgentEvent::TurnDone { .. })) {
-                            let refresh = {
-                                let mut session = engine.session();
-                                let project = session.project.clone();
-                                project.map(|project| session.open_project(project)).transpose()
-                            };
-                            if let Err(error) = refresh {
-                                let _ = output.send(AgentEvent::Error {
-                                    message: format!("Couldn't refresh the shared investigation: {}", error.message),
-                                    remediation: error.remediation,
-                                    log: None,
-                                });
+                            if let Some(conversation) = conversation.as_mut() {
+                                conversation.send(&text);
                             }
                         }
-                        *saved_session.lock().unwrap_or_else(PoisonError::into_inner) = conversation.session_id();
-                        for event in events {
-                            let _ = output.send(event);
+                        Ok(Command::Answer(id, allow)) => {
+                            if let Some(conversation) = conversation.as_mut() {
+                                conversation.answer_consent(&id, allow);
+                            }
                         }
-                        working.store(conversation.is_busy(), Ordering::SeqCst);
+                        Ok(Command::Stop) => {
+                            if let Some(conversation) = conversation.as_mut() {
+                                conversation.stop();
+                            }
+                        }
+                        Err(RecvTimeoutError::Timeout) => {}
                     }
-                }));
-                if result.is_err() {
-                    let _ = output.send(AgentEvent::Error {
-                        message: "The shared investigation worker stopped safely after an internal error.".into(),
-                        remediation: None,
-                        log: None,
-                    });
-                    let _ = output.send(AgentEvent::TurnDone {
-                        backend: entry.config.name.clone(),
-                        input_tokens: 0,
-                        output_tokens: 0,
-                        cost_usd: None,
-                        cost_is_estimate: false,
-                    });
+                    let Some(conversation) = conversation.as_mut() else { continue };
+                    let events = conversation.poll();
+                    if events.iter().any(|event| matches!(event, AgentEvent::ToolFinished { .. } | AgentEvent::TurnDone { .. })) {
+                        let refresh = {
+                            let mut session = engine.session();
+                            let project = session.project.clone();
+                            project.map(|project| session.open_project(project)).transpose()
+                        };
+                        if let Err(error) = refresh {
+                            let _ = output.send(AgentEvent::Error {
+                                message: format!("Couldn't refresh the shared investigation: {}", error.message),
+                                remediation: error.remediation,
+                                log: None,
+                            });
+                        }
+                    }
+                    *saved_session.lock().unwrap_or_else(PoisonError::into_inner) = conversation.session_id();
+                    for event in events {
+                        let _ = output.send(event);
+                    }
+                    working.store(conversation.is_busy(), Ordering::SeqCst);
                 }
-                working.store(false, Ordering::SeqCst);
-            })
-            .map_err(|error| ToolError::internal(format!("Couldn't start the investigation worker: {error}")))?;
+            }));
+            if result.is_err() {
+                let _ = output.send(AgentEvent::Error {
+                    message: "The shared investigation worker stopped safely after an internal error.".into(),
+                    remediation: None,
+                    log: None,
+                });
+                let _ = output.send(AgentEvent::TurnDone {
+                    backend: entry.config.name.clone(),
+                    input_tokens: 0,
+                    output_tokens: 0,
+                    cost_usd: None,
+                    cost_is_estimate: false,
+                });
+            }
+            working.store(false, Ordering::SeqCst);
+        })
+        .map_err(|error| ToolError::internal(format!("Couldn't start the investigation worker: {error}")))?;
         Ok(Self { commands, events, report, busy, session })
     }
 }

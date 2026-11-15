@@ -696,7 +696,7 @@ fn project_inbox_answer(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, 
 fn project_play(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolError> {
     let p: PlayParams = parse_params(params)?;
     let ws = open(&p.project)?;
-    let app = ws.app_dir();
+    let app = ws.app_dir_checked()?;
     if crate::outputs::site_dir(&app).is_some() {
         return Err(ToolError::new(ErrorCode::NotSupported, "This project made a website.").with_remediation("Use project_preview to see it."));
     }
@@ -707,7 +707,8 @@ fn project_play(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolErro
 fn project_preview(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolError> {
     let p: PreviewParams = parse_params(params)?;
     let ws = open(&p.project)?;
-    let Some(site) = crate::outputs::site_dir(&ws.app_dir()) else {
+    let app = ws.app_dir_checked()?;
+    let Some(site) = crate::outputs::site_dir(&app) else {
         return Err(ToolError::new(ErrorCode::NotFound, "There's no built website in this project yet.")
             .with_remediation("Finish a build first (rebuild); a game or app is started with project_play."));
     };

@@ -780,7 +780,7 @@ impl CliConversation {
         let (spec, tx, stop, busy) = (self.spec.clone(), self.tx.clone(), self.stop.clone(), self.busy.clone());
         let state = RunState { session: self.session.clone(), verified: self.verified.clone(), lost: self.lost.clone(), failure: self.failure.clone() };
         let text = text.to_string();
-        let spawned = std::thread::Builder::new().name("ai-cli".into()).spawn(move || {
+        let spawned = craft_anything_platform::execution::spawn("ai-cli", move || {
             let done = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run_cli(&spec, &text, retry, &tx, &stop, &state))).unwrap_or_else(|_| {
                 let _ = tx.send(AgentEvent::Error { message: "The agent runner hit a bug and stopped safely.".into(), remediation: None, log: None });
                 nothing_done(&spec.config.name)
@@ -988,7 +988,7 @@ fn run_cli(spec: &CliSpec, text: &str, retry: bool, tx: &Sender<AgentEvent>, sto
     let records = spec.logs.as_deref().map(unfinished::dir_in);
     if let Some(dir) = records.clone() {
         let (adapters, tx3) = (spec.adapters.clone(), tx.clone());
-        let _ = std::thread::Builder::new().name("unfinished-sessions".into()).spawn(move || {
+        let _ = craft_anything_platform::execution::spawn("unfinished-sessions", move || {
             for text in unfinished::sweep(&dir, &adapters) {
                 let _ = tx3.send(AgentEvent::Status { text });
             }

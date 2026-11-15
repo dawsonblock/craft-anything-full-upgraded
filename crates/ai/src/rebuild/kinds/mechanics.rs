@@ -7,6 +7,7 @@
 use super::*;
 use craft_anything_engine::mechanics::{self, MechanicValue, SheetProblem};
 use std::collections::HashSet;
+use std::io::Read;
 
 /// What every game brief asks for, so the check can read the numbers.
 pub const MECHANICS_CONTRACT: &str = "Keep the same values in app/mechanics.json, which Craft Anything reads after each build: {\"version\": 1, \"values\": [{\"name\": \"walk speed\", \"group\": \"movement\", \"value\": 4.5, \"unit\": \"m/s\", \"source\": \"function 0x140012a0\"}, {\"name\": \"crouch\", \"group\": \"controls\", \"value\": \"hold\", \"estimated\": true}]}. A value is a number, text or true/false; give each one its source or \"estimated\": true, and use the sheet's numbers in the code as they're written there.";
@@ -18,10 +19,28 @@ const MAX_FILE: u64 = 2 * 1024 * 1024;
 /// Stop reading code after this much.
 const MAX_CODE: u64 = 32 * 1024 * 1024;
 const MAX_DEPTH: usize = 16;
+/// Stop after this many directory entries, so a project with a huge tree can't hold the check.
+const MAX_ENTRIES: usize = 200_000;
 /// Folders inside `app/` that hold builds, dependencies or tools' caches (Unreal's too), not the
-/// builder's code; compared without case.
-const SKIP_DIRS: [&str; 14] =
-    ["target", "node_modules", "build", "dist", "bin", "obj", "library", "temp", "shots", "addons", "binaries", "intermediate", "saved", "deriveddatacache"];
+/// builder's code; compared without case. `Original` is the game's own extracted files, which the
+/// rebuild may use but didn't write.
+const SKIP_DIRS: [&str; 15] = [
+    "target",
+    "node_modules",
+    "build",
+    "dist",
+    "bin",
+    "obj",
+    "library",
+    "temp",
+    "shots",
+    "addons",
+    "binaries",
+    "intermediate",
+    "saved",
+    "deriveddatacache",
+    "original",
+];
 /// Code and data files a number may be written in.
 const CODE: [&str; 26] = [
     "rs", "gd", "cs", "c", "cc", "cpp", "h", "hpp", "js", "mjs", "ts", "py", "lua", "go", "java", "kt", "swift", "tres", "tscn", "cfg", "ini", "toml", "yaml",
@@ -45,7 +64,12 @@ impl Check for MechanicsCheck {
             Ok(s) => s,
             Err(p) => return Ok(CheckResult::new(self.id(), round, false, format!("{} {MECHANICS_CONTRACT}", problem_note(&p)))),
         };
-        let found = numbers_in(&cx.ws.app_dir());
+        let app = match cx.ws.app_dir_checked() {
+            Ok(app) => app,
+            Err(e) => return Ok(CheckResult::unknown(self.id(), round, e.message)),
+        };
+        let stop = cx.stop();
+        let found = numbers_in(&app, &|| stop.paused());
         let estimated = sheet.values.iter().filter(|v| v.estimated).count();
         let sourced = sheet.values.iter().filter(|v| !v.source.trim().is_empty()).count();
         let mut note = format!("app/mechanics.json has {} values ({sourced} with a source, {estimated} estimated).", sheet.values.len());
@@ -114,25 +138,30 @@ fn key(n: f64) -> String {
 }
 
 /// Every number literal in the code and data files under `dir`.
-fn numbers_in(dir: &Path) -> HashSet<String> {
+fn numbers_in(dir: &Path, stop: &dyn Fn() -> bool) -> HashSet<String> {
     let mut found = HashSet::new();
     let mut budget = MAX_CODE;
-    walk(dir, 0, &mut budget, &mut found);
+    let mut entries = 0usize;
+    walk(dir, 0, &mut budget, &mut found, &mut entries, stop);
     found
 }
 
-fn walk(dir: &Path, depth: usize, budget: &mut u64, found: &mut HashSet<String>) {
-    if depth > MAX_DEPTH {
+fn walk(dir: &Path, depth: usize, budget: &mut u64, found: &mut HashSet<String>, entries: &mut usize, stop: &dyn Fn() -> bool) {
+    if depth > MAX_DEPTH || *entries >= MAX_ENTRIES || stop() {
         return;
     }
     let Ok(rd) = std::fs::read_dir(dir) else { return };
     for e in rd.flatten() {
+        *entries += 1;
+        if *entries >= MAX_ENTRIES || stop() {
+            return;
+        }
         let path = e.path();
         let name = e.file_name().to_string_lossy().into_owned();
         let Ok(ft) = e.file_type() else { continue };
         if ft.is_dir() {
             if !name.starts_with('.') && !SKIP_DIRS.contains(&name.to_ascii_lowercase().as_str()) {
-                walk(&path, depth + 1, budget, found);
+                walk(&path, depth + 1, budget, found, entries, stop);
             }
             continue;
         }
@@ -144,10 +173,14 @@ fn walk(dir: &Path, depth: usize, budget: &mut u64, found: &mut HashSet<String>)
         if len > MAX_FILE || len > *budget {
             continue;
         }
-        *budget -= len;
-        if let Ok(bytes) = std::fs::read(&path) {
-            literals(&bytes, found);
+        // Read through a cap: a file can grow between the metadata check and the read.
+        let Ok(file) = std::fs::File::open(&path) else { continue };
+        let mut bytes = Vec::new();
+        if file.take(MAX_FILE + 1).read_to_end(&mut bytes).is_err() || bytes.len() as u64 > MAX_FILE || bytes.len() as u64 > *budget {
+            continue;
         }
+        *budget -= bytes.len() as u64;
+        literals(&bytes, found);
     }
 }
 
@@ -233,10 +266,19 @@ mod tests {
         std::fs::create_dir_all(dir.path().join("Intermediate")).unwrap();
         std::fs::write(dir.path().join("Intermediate/Game.gen.cpp"), "55.5").unwrap();
         std::fs::write(dir.path().join("notes.txt"), "44.5").unwrap();
-        let f = numbers_in(dir.path());
+        std::fs::create_dir_all(dir.path().join("Original")).unwrap();
+        std::fs::write(dir.path().join("Original/Game.cs"), "66.5").unwrap();
+        let f = numbers_in(dir.path(), &|| false);
         assert!(f.contains(&key(1.25)));
-        for n in [77.5, 33.5, 44.5, 55.5] {
-            assert!(!f.contains(&key(n)), "{n}: the sheet, builds and other files aren't code");
+        for n in [77.5, 33.5, 44.5, 55.5, 66.5] {
+            assert!(!f.contains(&key(n)), "{n}: the sheet, builds, the original and other files aren't the rebuild's code");
         }
+    }
+
+    #[test]
+    fn a_stopped_scan_reads_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("main.rs"), "1.5").unwrap();
+        assert!(numbers_in(dir.path(), &|| true).is_empty());
     }
 }

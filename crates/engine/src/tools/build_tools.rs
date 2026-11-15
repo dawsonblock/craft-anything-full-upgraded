@@ -6,7 +6,7 @@
 //! dev servers are refused, anything else asks the person (or goes ahead in Auto mode, except
 //! what's never done unasked). Ids follow docs/tool-ids.md.
 
-use super::interaction_tools::{approve, inbox, inside, really_inside, resolve, workspace_of};
+use super::interaction_tools::{approve, inbox, inside, really_inside, resolve};
 use crate::settings::SandboxMode;
 use crate::tool::{Ctx, Effects, Requires, ToolOutput, ToolSpec, Toolset, parse_params, schema_of};
 use crate::workspace::Workspace;
@@ -188,9 +188,9 @@ fn build_probe_run(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolE
             .with_remediation("Replace checks/ with a normal folder inside the project."));
     }
     // The probe runs from app/, which a workspace that hasn't built yet doesn't have; a missing
-    // working directory makes `spawn` fail with ENOENT and look like a broken interpreter.
-    let app = ws.app_dir();
-    std::fs::create_dir_all(&app).map_err(|e| ToolError::io(app.display(), e))?;
+    // working directory makes `spawn` fail with ENOENT and look like a broken interpreter. A
+    // missing app is made as a real folder, and a link is never followed outside the project.
+    let app = ws.ensure_app_dir()?;
     let script = checks.join("independent_game_probe.py");
     craft_anything_platform::write_atomic(&script, PROBE.as_bytes())?;
     let output = checks.join("probe");
@@ -375,10 +375,15 @@ pub struct CommandParams {
 
 /// The workspace this session is building, from the inbox a rebuild run attached.
 fn workspace(ctx: &Ctx<'_>) -> Result<Workspace, ToolError> {
-    inbox(ctx).as_ref().and_then(workspace_of).ok_or_else(|| {
-        ToolError::new(ErrorCode::FeatureMissing, "These tools work only while a project is being built.")
-            .with_remediation("Start a build (rebuild_start or the app), then use them from the builder.")
-    })
+    let Some(inbox) = inbox(ctx) else {
+        return Err(ToolError::new(ErrorCode::FeatureMissing, "These tools work only while a project is being built.")
+            .with_remediation("Start a build (rebuild_start or the app), then use them from the builder."));
+    };
+    let Some(root) = inbox.dir().parent() else {
+        return Err(ToolError::new(ErrorCode::FeatureMissing, "These tools work only while a project is being built.")
+            .with_remediation("Start a build (rebuild_start or the app), then use them from the builder."));
+    };
+    Workspace::open(root)
 }
 
 /// `rel` inside the project folder, or an error (no escaping with `..`, an absolute path or a
@@ -550,8 +555,7 @@ fn build_command_run(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, Too
     let p: CommandParams = parse_params(params)?;
     let ws = workspace(ctx)?;
     approve(ctx, "Bash", &json!({"command": p.command}))?.map_err(refused)?;
-    let app = ws.app_dir();
-    std::fs::create_dir_all(&app).map_err(|e| ToolError::io(app.display(), e))?;
+    let app = ws.ensure_app_dir()?;
     let sandboxed = ctx.session.settings.build.sandbox == SandboxMode::Docker;
     let sandbox_app = if sandboxed { Some(sandbox_project(&ws, &app)?) } else { None };
     let inner = app.join("app");
