@@ -17,7 +17,7 @@ from reaching the network when they don't need it.
 |---|---|
 | Mounts | The project folder (`app/`) at `/work`, read-write. The folder is resolved and must stay inside the project; a symlinked `app/` that leads outside is refused. Nothing else is mounted. |
 | Working directory | `/work` |
-| User | The host's numeric user and group on macOS and Linux; a fixed non-root id (`1000:1000`) on Windows, which has no host id to mirror. Any zero id, uid or gid, also falls back to `1000:1000`, so the container is never root (`0:20` is root: the kernel checks the uid). |
+| User | The host's numeric user and group on macOS and Linux; a fixed non-root id (`1000:1000`) on Windows, which has no host id to mirror. Any zero id, uid or gid, also falls back to `1000:1000`, so the container is never root (`0:20` is root: the kernel checks the uid). The project folder must be writable by that user: a folder whose permission bits don't allow it is refused before Docker starts. |
 | Image | The tag in `sandbox_image`, or a pinned `sha256` digest when `sandbox_image_digest` is set |
 | Storage | The writable layer is unlimited by default; `sandbox_disk_mb` adds Docker's `--storage-opt size`, which needs a storage driver with quota support (not Docker Desktop) |
 | Capabilities | `--cap-drop ALL`, `--security-opt no-new-privileges` |
@@ -31,6 +31,11 @@ from reaching the network when they don't need it.
 
 Out-of-range values are clamped, not ignored: a person who typed `0` gets the floor rather than an
 unbounded container.
+
+A folder the sandbox user can't write is refused with a remediation instead of failing inside the
+build. That matters most on a root host: it falls back to `1000:1000`, and a root-owned `app/` is
+not writable by that id. The permission bits are read, not ACLs, so a folder whose bits say no is
+refused even if an ACL would allow it; the error names the folder and says how to change that.
 
 ## Settings
 
@@ -132,7 +137,10 @@ The argv construction is the security boundary and is unit-tested without Docker
 mount, the network flag, the capability and privilege flags, a non-root user, clamping, and the
 command as the last argument (a shell line for a build command, a program and argv for a check). A
 stopped daemon (the `docker` client exits non-zero with its connection message) is mapped to the
-same plain error (`cargo test -p craft-anything-platform sandbox`).
+same plain error (`cargo test -p craft-anything-platform sandbox`). The user mapping and the folder
+check are unit-tested too: `writable_by_reads_the_owner_group_and_other_bits` covers the owner,
+group and other bits, and `a_folder_the_sandbox_user_cannot_write_is_refused` shows a read-only
+folder is refused before Docker starts.
 
 The policy and the check are tested without Docker too:
 
@@ -144,14 +152,18 @@ cargo test -p craft-anything-ai a_toolchain_without_an_image_is_refused_under_st
 The first shows a page with nothing to build passes under `refuse` without running anything; the
 second shows a Makefile project is recorded `unknown` rather than quietly built on this computer.
 
-The cleanup path and the check's container build are tested live against Docker when asked:
+The cleanup path, the container's identity and the check's container build are tested live against
+Docker when asked:
 
 ```sh
 cargo test -p craft-anything-platform a_timed_out_command_leaves_no_container_running -- --ignored
+cargo test -p craft-anything-platform the_container_runs_as_the_host_user_not_root -- --ignored
 cargo test -p craft-anything-ai a_strict_check_builds_a_rust_project_in_the_container -- --ignored
 ```
 
 The first runs `sleep 300` with a one-second deadline and then checks that no container carrying
-the sandbox label is still running. The second builds a Rust console app under
+the sandbox label is still running. The second asserts the container's uid and gid equal the
+`--user` value (a root host's `1000:1000` fallback, not the host's id), that it isn't root, and
+that it can write `/work`. The third builds a Rust console app under
 `sandbox_unconfined = "refuse"` and asserts the check passed with a `container` receipt, the image
 and exit code 0, and that `target/` is in the project afterwards.

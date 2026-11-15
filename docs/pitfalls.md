@@ -93,6 +93,12 @@ GitHub's branch and tag archives name it `<repository>-<branch>`, so the project
 failed its own verifier. Verify content relative to the single top-level folder and report both
 names; the folder name is packaging, not hashed data.
 
+**A source manifest regenerated in an earlier commit.** `SOURCE_INTEGRITY.json` was regenerated in
+`5e27e8f`, then five commits changed 32 files without regenerating it, so the tree at HEAD failed
+`verify-tree` even though every file matched Git. Regenerate the manifest in the commit that
+changes source, and package with `package-zip` (it refuses a stale manifest); a ZIP made outside
+that tool can still carry the old one.
+
 **A check-then-rename overwrite race.** `package_zip` checked that the destination did not exist
 and later called `os.rename`, which replaces an existing file on POSIX; another process could
 create the destination in between, have it overwritten, and still see `packaged`. Create the final
@@ -1040,6 +1046,11 @@ when the writer is usually our own script.
 whose `app/` is a symlink to the home folder would hand the container the rest of the computer.
 Resolve the folder and require it to stay inside the project before mounting; also require the
 path exists, or Docker creates a root-owned directory in its place.
+
+**A live test that compares the container with a host id the sandbox deliberately replaces.** A
+root host falls back to `1000:1000`, so `assert_eq!(container_uid, host_uid)` can never pass there.
+Assert the value `--user` names, and test the folder's writability separately: a root-owned `app/`
+is not writable by `1000:1000`.
 
 **A policy checked at the tool, not at the process.** The strict sandbox policy covered
 `build_command_run` and the checks, but `runtime_walkthrough_record` and `project_play` started the

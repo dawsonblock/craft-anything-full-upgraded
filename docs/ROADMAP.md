@@ -186,6 +186,16 @@ cheapest help we can give anyone, so nothing below should hold it up for long.
       shell, and the checker hashes, verifies and extracts one open descriptor so the receipt is
       bound to the bytes that were verified. Packaging normalizes member timestamps and modes, so
       equal source produces an equal ZIP
+- [x] Regenerate `SOURCE_INTEGRITY.json` after the sandbox branch's five commits and package the
+      verified tree with `scripts/source_bundle_integrity.py package-zip`: the manifest still
+      described `5e27e8f`, so the extracted ZIP failed its own verification even though every
+      file matched Git (found in an external audit). The archive's top-level folder now comes from
+      the manifest root instead of a renamed folder
+      — claimed: Devin, branch bugfix/sandbox-root-uid
+- [ ] Make the release path refuse a source ZIP whose manifest is stale or whose root differs from
+      the manifest: `package-zip` already does, but the external reusable workflow can attach a ZIP
+      made outside it, so the draft check needs to compare the attached archive with the preflight
+      receipt before publishing
 - [ ] Run the release source check against the first published release that attaches a
       manifest-bearing source ZIP
 - [x] Verify the final source ZIP before a release is published, not only after, and bind it to the
@@ -932,6 +942,13 @@ Owner: open · Status: in progress
       which Docker Desktop may not accept. A unit test covers the drive and UNC spellings; a
       Windows run is still owed
       — claimed: Devin, branch bugfix/sandbox-root-uid
+- [x] Refuse a project folder the sandbox user can't write, and make the live id check assert the
+      `--user` value rather than the host id: a root host falls back to `1000:1000`, so comparing
+      the container's uid with the host's 0 could never pass (found in an external audit). The
+      live check now compares the uid and gid with the `--user` value and writes to `/work`
+      — claimed: Devin, branch bugfix/sandbox-root-uid
+- [ ] Run the corrected live id/gid and writable-mount check on a host whose Docker store is
+      writable, and on a root host (where the fallback is `1000:1000`)
 - [ ] Bound the project folder's own disk use: `sandbox_disk_mb` limits the container's writable
       layer, not the `/work` bind mount, so a build can still fill the host's disk inside its
       project

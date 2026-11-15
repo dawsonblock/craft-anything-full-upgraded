@@ -137,7 +137,7 @@ impl Spec {
             "-w".into(),
             WORKDIR.into(),
             "--user".into(),
-            user_arg(host_user()),
+            sandbox_user(),
         ]);
         for (key, value) in &self.env {
             if !is_env_name(key) || value.contains('\0') {
@@ -170,6 +170,13 @@ pub fn run(spec: &Spec, command: &str, timeout: Duration, cancel: Option<Cancel>
 /// Run a program and its arguments inside a container built from `spec`, without a shell.
 pub fn run_argv(spec: &Spec, command: &[String], timeout: Duration, cancel: Option<Cancel>) -> Result<Output, ToolError> {
     let mut argv = spec.argv_for(command)?;
+    // The container runs as this user, so it must be able to write the one folder it sees. A
+    // root host's folder is often root-owned, and the fallback id is not root.
+    let user = sandbox_user();
+    if !writable_by(&spec.project, &user) {
+        return Err(ToolError::invalid(format!("The sandbox runs as {user}, which can't write the project folder {}.", spec.project.display()))
+            .with_remediation("Make the folder writable by that user, or turn the sandbox off in Settings → Build."));
+    }
     let name = container_name();
     // A name and a label let a container be found and stopped even when the Docker client that
     // started it is gone.
@@ -303,6 +310,40 @@ fn user_arg(host: Option<String>) -> String {
 /// still root), and a zero gid would give a non-root user root's group.
 fn names_root(user: &str) -> bool {
     user.split(':').any(|id| id.trim() == "0")
+}
+
+/// The user the container runs as: the host's id, except root (see [`user_arg`]).
+fn sandbox_user() -> String {
+    user_arg(host_user())
+}
+
+/// Whether `user`, a `uid:gid` pair, can write `path` by its permission bits.
+///
+/// The container runs as this user, so a folder it can't write would fail every build that
+/// writes into it. ACLs aren't read: a folder whose bits say no is refused even if an ACL would
+/// allow it, and the error says how to change that.
+#[cfg(unix)]
+fn writable_by(path: &Path, user: &str) -> bool {
+    use std::os::unix::fs::MetadataExt as _;
+    let mut ids = user.split(':');
+    let uid = ids.next().and_then(|id| id.parse::<u32>().ok());
+    let gid = ids.next().and_then(|id| id.parse::<u32>().ok());
+    let (Some(uid), Some(gid)) = (uid, gid) else { return false };
+    let Ok(meta) = std::fs::metadata(path) else { return false };
+    let bits = if uid == meta.uid() {
+        (meta.mode() >> 6) & 0o7
+    } else if gid == meta.gid() {
+        (meta.mode() >> 3) & 0o7
+    } else {
+        meta.mode() & 0o7
+    };
+    bits & 0o2 != 0
+}
+
+/// Windows has no numeric host id to check, and Docker Desktop maps the mount itself.
+#[cfg(not(unix))]
+fn writable_by(_path: &Path, _user: &str) -> bool {
+    true
 }
 
 /// The current user, so files the build writes stay theirs instead of root's.
@@ -510,20 +551,32 @@ mod tests {
         assert_eq!(user_arg(None), "1000:1000");
     }
 
-    /// Opt-in: needs Docker. The container really runs as the host user, and never as root.
+    /// Opt-in: needs Docker. The container really runs as the user the sandbox names, and never
+    /// as root; a root host falls back to `1000:1000`, so the container's id is the fallback, not
+    /// the host's.
     /// `cargo test -p craft-anything-platform the_container_runs_as_the_host_user_not_root -- --ignored`
     #[test]
     #[ignore]
     fn the_container_runs_as_the_host_user_not_root() {
         let dir = tempfile::tempdir().unwrap();
-        let spec = Spec { project: dir.path().to_path_buf(), ..Default::default() };
-        let out = run(&spec, "id -u", Duration::from_secs(60), None).expect("docker run");
-        assert!(out.success, "{}", out.stderr_text());
-        let uid = out.stdout_text().trim().to_string();
-        assert_ne!(uid, "0", "the container ran as root");
-        if let Some(host) = host_user() {
-            assert_eq!(Some(uid.as_str()), host.split(':').next(), "the container runs as the host user");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            // A root host's temp folder is root-owned; the fallback id could not write it, and
+            // the run would be refused before Docker started.
+            std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o777)).unwrap();
         }
+        let spec = Spec { project: dir.path().to_path_buf(), ..Default::default() };
+        let expected = sandbox_user();
+        let out = run(&spec, "id -u; id -g; touch /work/.sandbox-write-test", Duration::from_secs(60), None).expect("docker run");
+        assert!(out.success, "{}", out.stderr_text());
+        let stdout = out.stdout_text();
+        let ids: Vec<&str> = stdout.lines().map(str::trim).filter(|line| !line.is_empty()).collect();
+        assert_eq!(ids.len(), 2, "id prints the uid and gid: {stdout}");
+        assert_ne!(ids[0], "0", "the container ran as root");
+        let mut expected_ids = expected.split(':');
+        assert_eq!(Some(ids[0]), expected_ids.next(), "the container's uid is the one --user names ({expected})");
+        assert_eq!(Some(ids[1]), expected_ids.next(), "the container's gid is the one --user names ({expected})");
     }
 
     #[test]
@@ -576,5 +629,36 @@ mod tests {
         let text = joined(&Spec { project: link, ..Default::default() }.argv("x").unwrap_or_default());
         let real = std::fs::canonicalize(dir.path()).unwrap();
         assert!(text.contains(&format!("-v {}:{WORKDIR}", real.display())), "{text}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn writable_by_reads_the_owner_group_and_other_bits() {
+        use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
+        let dir = tempfile::tempdir().unwrap();
+        let meta = std::fs::metadata(dir.path()).unwrap();
+        let owner = format!("{}:{}", meta.uid(), meta.gid());
+        let other = format!("{}:{}", meta.uid().wrapping_add(1), meta.gid().wrapping_add(1));
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(writable_by(dir.path(), &owner));
+        assert!(!writable_by(dir.path(), &other));
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o770)).unwrap();
+        let group = format!("{}:{}", meta.uid().wrapping_add(1), meta.gid());
+        assert!(writable_by(dir.path(), &group), "group write");
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o707)).unwrap();
+        assert!(writable_by(dir.path(), &other), "other write");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_the_sandbox_user_cannot_write_is_refused() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o500)).unwrap();
+        let spec = Spec { project: dir.path().to_path_buf(), ..Default::default() };
+        let err = run_argv(&spec, &["true".into()], Duration::from_secs(1), None).expect_err("read-only folder");
+        assert!(err.message.contains("can't write"), "{err:?}");
+        assert!(err.remediation.as_deref().is_some_and(|text| text.contains("writable")), "{err:?}");
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
     }
 }
