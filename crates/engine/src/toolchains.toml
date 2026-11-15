@@ -7,6 +7,7 @@ name = "Rust"
 found_by = ["Cargo.toml"]
 build = ["cargo", "build", "--quiet"]
 test = ["cargo", "test", "--quiet"]
+image = "rust:1.99-slim-bookworm"
 
 [[toolchain]]
 name = "Node.js"
@@ -16,6 +17,7 @@ test = ["npm", "test"]
 test_script = "test"
 no_tests = ['echo "Error: no test specified" && exit 1']
 windows_program = "npm.cmd"
+image = "node:22-bookworm"
 
 [[toolchain]]
 name = "Python"

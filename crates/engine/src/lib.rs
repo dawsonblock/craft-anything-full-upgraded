@@ -294,7 +294,7 @@ impl Engine {
         } else if class == craft_anything_platform::execution::Class::Agent {
             execution::Policy::of(&session.settings.build).check(execution::Route::Agent)?;
         }
-        let policy = std::sync::Arc::new(execution::BuildPolicy { build: session.settings.build.clone() });
+        let policy = std::sync::Arc::new(execution::BuildPolicy { build: session.settings.build.clone(), build_check_confined: false });
         let run = spec.run;
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             craft_anything_platform::execution::with_policy(policy, class, || {

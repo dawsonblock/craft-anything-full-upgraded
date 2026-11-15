@@ -187,11 +187,26 @@ pub fn check_class(check: &str) -> Class {
 pub struct Policy {
     pub sandbox: SandboxMode,
     pub unconfined: Unconfined,
+    /// Whether this run's check builds in the container, because its toolchain has an image. It
+    /// is the check that decides, from the project it is judging.
+    pub build_check_confined: bool,
 }
 
 impl Policy {
     pub fn of(build: &BuildSettings) -> Policy {
-        Policy { sandbox: build.sandbox, unconfined: build.sandbox_unconfined }
+        Policy { sandbox: build.sandbox, unconfined: build.sandbox_unconfined, build_check_confined: false }
+    }
+
+    /// The same policy, with the check's own build confined in this run.
+    pub fn with_confined_build(mut self, confined: bool) -> Policy {
+        self.build_check_confined = confined;
+        self
+    }
+
+    /// What confines `route` in this run: a check whose toolchain has an image builds in the
+    /// container instead of on this computer.
+    fn confinement(self, route: Route) -> Confinement {
+        if route == Route::BuildCheck && self.build_check_confined { Confinement::Container } else { route.confinement() }
     }
 
     /// Why `route` runs on this computer when the person asked for confinement, if it does.
@@ -199,7 +214,7 @@ impl Policy {
     /// The caller puts this in its approval card or result, so an unconfined run is never
     /// mistaken for a confined one.
     pub fn outside(self, route: Route) -> Option<&'static str> {
-        match (self.sandbox, route.confinement()) {
+        match (self.sandbox, self.confinement(route)) {
             (SandboxMode::Docker, Confinement::HostOnly(why)) => Some(why),
             _ => None,
         }
@@ -233,6 +248,8 @@ pub fn outside_note(policy: Policy, route: Route) -> Option<String> {
 /// The policy installed at every tool, check and agent boundary.
 pub struct BuildPolicy {
     pub build: BuildSettings,
+    /// Whether the check now running builds in the container (see [`Policy`]).
+    pub build_check_confined: bool,
 }
 
 impl craft_anything_platform::execution::Policy for BuildPolicy {
@@ -243,7 +260,7 @@ impl craft_anything_platform::execution::Policy for BuildPolicy {
             Class::Unclassified => Route::Unclassified,
             Class::TargetTool | Class::Installer | Class::Housekeeping => return Ok(()),
         };
-        Policy::of(&self.build).check(route)
+        Policy::of(&self.build).with_confined_build(self.build_check_confined).check(route)
     }
 }
 
@@ -312,6 +329,33 @@ mod tests {
         assert_eq!(outside_note(policy, Route::BuildCommand), None);
     }
 
+    /// A check whose toolchain has an image builds in the container, so `refuse` lets it run and
+    /// verify the build instead of recording it as unknown.
+    #[test]
+    fn a_confined_build_check_is_not_refused() {
+        let policy = Policy::of(&build(SandboxMode::Docker, Unconfined::Refuse)).with_confined_build(true);
+        assert!(policy.check(Route::BuildCheck).is_ok());
+        assert_eq!(policy.outside(Route::BuildCheck), None);
+        assert_eq!(outside_note(policy, Route::BuildCheck), None);
+        for route in HOST_ONLY.into_iter().filter(|r| *r != Route::BuildCheck) {
+            assert!(policy.check(route).is_err(), "{route:?}");
+        }
+        let off = Policy::of(&build(SandboxMode::Off, Unconfined::Refuse)).with_confined_build(true);
+        assert_eq!(off.outside(Route::BuildCheck), None, "with the sandbox off every route runs here anyway");
+    }
+
+    /// The process boundary sees the check's own `docker` launch under `build-check`; it is only
+    /// allowed when that check was given a container.
+    #[test]
+    fn the_installed_policy_allows_a_confined_checks_class_only() {
+        use craft_anything_platform::execution::Policy as _;
+        let refused = build(SandboxMode::Docker, Unconfined::Refuse);
+        let confined = BuildPolicy { build: refused.clone(), build_check_confined: true };
+        assert!(confined.check(Class::Generated("build-check")).is_ok());
+        let host = BuildPolicy { build: refused, build_check_confined: false };
+        assert!(host.check(Class::Generated("build-check")).is_err());
+    }
+
     #[test]
     fn refuse_stops_every_route_that_would_run_outside() {
         let policy = Policy::of(&build(SandboxMode::Docker, Unconfined::Refuse));
@@ -355,7 +399,7 @@ mod tests {
 
     #[test]
     fn the_installed_policy_refuses_host_only_and_unclassified_launches() {
-        let policy = BuildPolicy { build: build(SandboxMode::Docker, Unconfined::Refuse) };
+        let policy = BuildPolicy { build: build(SandboxMode::Docker, Unconfined::Refuse), build_check_confined: false };
         use craft_anything_platform::execution::Policy as _;
         for class in [
             Class::Generated("game-probe"),

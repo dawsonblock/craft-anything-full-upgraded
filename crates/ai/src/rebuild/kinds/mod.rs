@@ -21,7 +21,7 @@ pub use screenshot::ScreenshotCheck;
 pub use self_test::SelfTestCheck;
 pub use website::{WebVisualCheck, WebsiteKind};
 
-use super::check::build_check;
+use super::check::{build_check_in, container_for, nothing_to_build};
 use super::*;
 
 /// What a kind is recognised from: the person's words, the target and the stack (when chosen).
@@ -304,9 +304,11 @@ impl Worker {
             self.emit(RunEvent::Step { step, text: format!("{doing} ({} of {}): {}…", i + 1, checks.len(), c.id()) });
             // The check's own process launches are held to the policy at the process boundary, with
             // the check's route as their class. An unknown check is unclassified: under `refuse` a
-            // program it starts does not start.
+            // program it starts does not start. A check whose build runs in a container is told to
+            // the boundary, so its `docker` launch is allowed.
             let build = self.engine.session().settings.build.clone();
-            let policy = std::sync::Arc::new(craft_anything_engine::execution::BuildPolicy { build });
+            let confined = c.container(&cx).is_some();
+            let policy = std::sync::Arc::new(craft_anything_engine::execution::BuildPolicy { build, build_check_confined: confined });
             let class = if c.id() == CheckResult::BUILD && ws.manifest.own_project() {
                 craft_anything_platform::execution::Class::Generated("own-check")
             } else {
@@ -337,6 +339,12 @@ pub trait Check: Send + Sync {
     fn required(&self) -> bool {
         true
     }
+    /// The container this check's own build can run in, when the sandbox is on and the project's
+    /// toolchain has an image. `None` means it runs on this computer (and says why under
+    /// `refuse`).
+    fn container(&self, _cx: &CheckCx) -> Option<craft_anything_platform::sandbox::Spec> {
+        None
+    }
     fn run(&self, cx: &mut CheckCx) -> Result<CheckResult, ToolError>;
 }
 
@@ -363,22 +371,37 @@ impl Check for BuildCheck {
     fn id(&self) -> &'static str {
         CheckResult::BUILD
     }
+
+    fn container(&self, cx: &CheckCx) -> Option<craft_anything_platform::sandbox::Spec> {
+        container_for(&cx.ws.app_dir(), &cx.ws.manifest.stack, &cx.build_settings())
+    }
+
     fn run(&self, cx: &mut CheckCx) -> Result<CheckResult, ToolError> {
-        // The check's own build runs the project's toolchain on this computer; it can't be put in
-        // the container (the image may not have the toolchain, and an engine's editor needs the
-        // host). Refuse it with the rest when the person refused unconfined runs.
-        let policy = craft_anything_engine::execution::Policy::of(&cx.build_settings());
+        let app = cx.ws.app_dir();
+        // Nothing runs for a page with no toolchain or engine to build it, so there is nothing to
+        // confine: it passes as it is, even when the person refused unconfined runs.
+        if nothing_to_build(&app, &cx.ws.manifest.stack) {
+            return Ok(CheckResult::with_outcome(self.id(), cx.round, Outcome::Passed, "Nothing to build: a static site."));
+        }
+        // The check's own build runs the project's toolchain on this computer unless that
+        // toolchain has an image; the policy says which, and refuses it under `refuse` when it
+        // has none.
+        let container = container_for(&app, &cx.ws.manifest.stack, &cx.build_settings());
+        let policy = craft_anything_engine::execution::Policy::of(&cx.build_settings()).with_confined_build(container.is_some());
         if let Err(e) = policy.check(craft_anything_engine::execution::Route::BuildCheck) {
             return Ok(CheckResult::unknown(self.id(), cx.round, e.message));
         }
-        let outside = craft_anything_engine::execution::outside_note(policy, craft_anything_engine::execution::Route::BuildCheck).unwrap_or_default();
-        let (outcome, note) = build_check(&cx.ws.app_dir(), cx.ws.app_place(), &cx.ws.manifest.stack, cx.editor(), &cx.stop());
+        let where_ran = match &container {
+            Some(spec) => format!(" It ran in a Docker container (`{}`).", spec.image),
+            None => craft_anything_engine::execution::outside_note(policy, craft_anything_engine::execution::Route::BuildCheck).unwrap_or_default(),
+        };
+        let (outcome, note, receipt) = build_check_in(&app, cx.ws.app_place(), &cx.ws.manifest.stack, cx.editor(), &cx.stop(), container.as_ref());
         // #736: a failed build of an empty app/ says first that nothing was written.
         let note = if outcome == Outcome::Failed && app_is_empty(cx.ws) { format!("{} {note}", no_files_yet(cx.ws)) } else { note };
-        // A build that ran says it ran on the host, so an allowed unconfined check is never
-        // mistaken for a confined one.
-        let note = if matches!(outcome, Outcome::Passed | Outcome::Failed) { format!("{note}{outside}") } else { note };
-        Ok(CheckResult::with_outcome(self.id(), cx.round, outcome, note))
+        // A build that ran says where it ran, so an unconfined check is never mistaken for a
+        // confined one.
+        let note = if matches!(outcome, Outcome::Passed | Outcome::Failed) { format!("{note}{where_ran}") } else { note };
+        Ok(CheckResult { receipt, ..CheckResult::with_outcome(self.id(), cx.round, outcome, note) })
     }
 }
 

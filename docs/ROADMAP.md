@@ -943,9 +943,21 @@ Owner: open · Status: in progress
 - [ ] Put the sandbox in Settings → Build, with a Docker image field: today it is only
       `[build] sandbox = "docker"` in `config.toml`, because new UI strings need every
       translation catalogue
-- [ ] Run the check's own build in the container when the image has the toolchain, so
+- [x] Run the check's own build in the container when the image has the toolchain, so
       `sandbox_unconfined = "refuse"` can verify a build instead of recording the build check as
-      `unknown` — claimed: Devin, branch feature/r3.0-containerized-check
+      `unknown`: Rust and Node.js have images (`rust:1.99-slim-bookworm`, `node:22-bookworm`), the
+      build runs as a program and argv with no shell, and the check records a receipt (runner,
+      image, command, exit code, output SHA-256). A static site passes without running anything,
+      and a toolchain without an image is still recorded `unknown`
+      — claimed: Devin, branch feature/r3.0-containerized-check
+- [ ] Pin the check images by `sha256` digest, as a build command's image can be: today they are
+      fixed tags
+- [ ] Give Python, Go, .NET, Maven, Gradle and Make check images, so `refuse` can verify those
+      builds too
+- [ ] Run a person's own project's build and tests in the container when its toolchain has an
+      image: a project-local `.venv/bin/python` or `mvnw` is not in the image, so those still run
+      on this computer
+- [ ] Live-check a Node.js check in the container (only a Rust console app has been run live)
 - [x] Clean room outside builds (#564): a chat or question with Claude Code refuses the agent's own
       file, shell and web tools outright (`--disallowedTools`), not through its defaults; an ACP chat
       refuses them through an approver instead of a consent card (`docs/claude-code.md`)

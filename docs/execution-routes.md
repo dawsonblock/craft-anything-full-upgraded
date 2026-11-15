@@ -37,7 +37,7 @@ found by the third search are tests (`apple_runtime.rs`'s Windows fixture and th
 |---|---|---|---|---|
 | `build_command_run` | `tools/build_tools.rs` | A shell command the builder proposed | Docker (`platform::sandbox`) | `TOOL_ROUTES` in `Engine::call` |
 | `build_probe_run` | `tools/build_tools.rs` | The independent replay probe and the built game | Host-only | `TOOL_ROUTES` in `Engine::call` |
-| `BuildCheck` | `rebuild/kinds/mod.rs` | `cargo build`, `npm run build`, an engine's build | Host-only | `Policy::check` in the check |
+| `BuildCheck` | `rebuild/kinds/mod.rs` | `cargo build`, `npm run build`, an engine's build | Docker when the toolchain has an image; host-only otherwise | `Check::container` and `Policy::check` in the check |
 | `RunsCheck` | `rebuild/kinds/runs.rs` | The built console program with the original's inputs | Host-only | `Policy::check` in the check |
 | `OwnBuildCheck`, `OwnTestsCheck` | `rebuild/kinds/own.rs` | A person's own project's build and tests | Host-only | `Policy::check` in the checks |
 | `ScreenshotCheck`, `SelfTestCheck` | `rebuild/kinds/screenshot.rs`, `self_test.rs` | The built program with `--screenshot` or `--self-test` | Host-only | `Policy::check` in `run_with` |
@@ -96,6 +96,11 @@ PR 2 landed the controller:
   `Generated` route before the tool runs, so a refusal does not show an approval card first.
 - `RebuildRun::start` installs the policy on the run's worker with `Class::Agent`; `run_checks`
   narrows it per check with `check_class` (an own project's `build` is `own-check`).
+- `Check::container` is how a check says it can be confined: `BuildCheck` returns the project
+  toolchain's image when the sandbox is on, the build is a program the image has, and it isn't an
+  engine's build. `run_checks_within` puts that in `BuildPolicy::build_check_confined`, so the
+  check's own `docker` launch under `Class::Generated("build-check")` is allowed; `Policy` then
+  treats `Route::BuildCheck` as confined instead of host-only.
 - `AiHub::start` installs it around an agent chat, so a chat or question is held to `Route::Agent`.
 - `TOOL_ROUTES` is gone. `tool_class` is the one table at the tool boundary; a tool not in it is
   `Unclassified`, and a program it starts fails under `refuse`.
@@ -105,7 +110,14 @@ PR 2 landed the controller:
 ```sh
 cargo test -p craft-anything-engine a_walkthrough_is_refused_when_the_sandbox_refuses_unconfined_runs
 cargo test -p craft-anything-engine playing_a_build_is_refused_when_the_sandbox_refuses_unconfined_runs
+cargo test -p craft-anything-ai a_static_site_passes_under_strict_without_running_anything
+cargo test -p craft-anything-ai a_toolchain_without_an_image_is_refused_under_strict
+cargo test -p craft-anything-ai a_strict_check_builds_a_rust_project_in_the_container -- --ignored
 ```
 
-Both assert the secure behavior and pass: `sandbox_unconfined = "refuse"` stops
-`runtime_walkthrough_record` and `project_play` before the program starts.
+The first two assert the secure behavior and pass: `sandbox_unconfined = "refuse"` stops
+`runtime_walkthrough_record` and `project_play` before the program starts. The third shows a page
+with nothing to build passes under `refuse` without running anything. The fourth shows a toolchain
+without an image is recorded `unknown`, not run on this computer. The last is the live Docker run:
+a Rust console app's check builds in the container under `refuse` and passes with a `container`
+receipt.

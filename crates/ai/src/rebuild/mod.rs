@@ -23,7 +23,7 @@ use craft_anything_engine::inbox::{Answer, Inbox, InboxDir, Request};
 use craft_anything_engine::project::{Project, Purpose};
 use craft_anything_engine::questions::AskedQuestion;
 use craft_anything_engine::workspace::progress::{AppFingerprintCache, BuildProgress};
-use craft_anything_engine::workspace::{CheckResult, Outcome, ProjectUsage, Status, TargetRef, Workspace};
+use craft_anything_engine::workspace::{CheckReceipt, CheckResult, CheckRunner, Outcome, ProjectUsage, Status, TargetRef, Workspace};
 use craft_anything_engine::{CallOptions, Caller, CancelToken, Engine, ToolOutput};
 use craft_anything_engines::game;
 use craft_anything_evidence::{ErrorCode, ToolError};
@@ -328,7 +328,7 @@ impl RebuildRun {
         };
         let r2 = running.clone();
         let key_store = hub.keys.clone();
-        let policy = std::sync::Arc::new(craft_anything_engine::execution::BuildPolicy { build });
+        let policy = std::sync::Arc::new(craft_anything_engine::execution::BuildPolicy { build, build_check_confined: false });
         std::thread::Builder::new()
             .name("rebuild".into())
             .spawn(move || {

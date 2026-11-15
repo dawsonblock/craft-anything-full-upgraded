@@ -3,9 +3,55 @@
 //! itself the way its toolchain says.
 
 use super::*;
+use craft_anything_platform::sandbox::Spec;
 
-/// Run a step of a project's build in `app`: whether it succeeded, and what it printed.
-fn run_in(app: &Path, prog: &Path, args: &[String], minutes: u64, stop: &CheckStop) -> Result<(bool, String), String> {
+/// What running one build step printed and how it ended.
+#[derive(Debug)]
+struct Ran {
+    success: bool,
+    output: String,
+    /// Where and how it ran, for the check's result.
+    receipt: CheckReceipt,
+}
+
+/// Why a step couldn't run, with what to do about it when the error says.
+fn why(e: ToolError) -> String {
+    match e.remediation {
+        Some(remediation) => format!("{} {remediation}", e.message),
+        None => e.message,
+    }
+}
+
+/// The container this check's own build can run in: the project's toolchain image, when the
+/// sandbox is on and the build is a program the image has. `None` means it runs on this computer.
+///
+/// A project's own interpreter or wrapper (`.venv/bin/python`, `mvnw`) is not in the image, an
+/// engine's build runs its editor, and a static site has nothing to run.
+pub(super) fn container_for(app: &Path, stack: &str, build: &craft_anything_engine::settings::BuildSettings) -> Option<Spec> {
+    use craft_anything_engine::settings::SandboxMode;
+    if build.sandbox != SandboxMode::Docker || nothing_to_build(app, stack) || engine_for(stack, app).is_some() {
+        return None;
+    }
+    let tool = stacks::toolchain_in(app)?;
+    let image = tool.image.clone()?;
+    if tool.command(app, &tool.build)?.0.is_absolute() {
+        return None;
+    }
+    Some(Spec {
+        image,
+        project: app.to_path_buf(),
+        network: build.sandbox_network,
+        storage_mb: build.sandbox_disk_mb,
+        // The container runs as the host's numeric id, which has no home there: give tools a
+        // writable home, and cargo its cache, both inside the container.
+        env: vec![("HOME".into(), "/tmp".into()), ("CARGO_HOME".into(), "/tmp/cargo".into())],
+        ..Default::default()
+    })
+}
+
+/// Run a step of a project's build in `app`: whether it succeeded, and what it printed. In
+/// `container` when one is given, which sees only the project folder.
+fn run_in(app: &Path, prog: &Path, args: &[String], minutes: u64, stop: &CheckStop, container: Option<&Spec>) -> Result<Ran, String> {
     // A round with a time limit (the builder's own checks) cuts a step that would run past it,
     // instead of waiting out the step's own, much longer, deadline.
     let limit = Duration::from_secs(minutes * 60);
@@ -14,25 +60,44 @@ fn run_in(app: &Path, prog: &Path, args: &[String], minutes: u64, stop: &CheckSt
     // zero deadline is seen and count as passed.
     stop.check().map_err(|e| e.message)?;
     let s = stop.clone();
-    craft_anything_platform::Process::new(prog)
-        .args(args)
-        .cwd(app)
-        .timeout(timeout)
-        // Engines go quiet for long stretches (shader compiles, cooking, a cold cargo build).
-        .idle_timeout(Duration::from_secs(60 * 60))
-        .stdout_cap(8 << 20)
-        // A pause stops the program now; the round's limit reaches it as the clamped deadline
-        // above, which says the step took longer than allowed.
-        .cancel_when(move || s.paused())
-        .run()
-        .map(|o| (o.success, format!("{}{}", o.stdout_text(), o.stderr_text())))
-        .map_err(|e| e.message)
+    let cancel: craft_anything_platform::process::Cancel = std::sync::Arc::new(move || s.paused());
+    let command: Vec<String> = std::iter::once(prog.to_string_lossy().into_owned()).chain(args.iter().cloned()).collect();
+    let out = match container {
+        Some(spec) => craft_anything_platform::sandbox::run_argv(spec, &command, timeout, Some(cancel)).map_err(why)?,
+        None => {
+            let paused = cancel.clone();
+            craft_anything_platform::Process::new(prog)
+                .args(args)
+                .cwd(app)
+                .timeout(timeout)
+                // Engines go quiet for long stretches (shader compiles, cooking, a cold cargo build).
+                .idle_timeout(Duration::from_secs(60 * 60))
+                .stdout_cap(8 << 20)
+                // A pause stops the program now; the round's limit reaches it as the clamped deadline
+                // above, which says the step took longer than allowed.
+                .cancel_when(move || paused())
+                .run()
+                .map_err(why)?
+        }
+    };
+    let output = format!("{}{}", out.stdout_text(), out.stderr_text());
+    Ok(Ran {
+        success: out.success,
+        receipt: CheckReceipt {
+            runner: if container.is_some() { CheckRunner::Container } else { CheckRunner::Host },
+            image: container.map(|spec| spec.image.clone()),
+            command: command.join(" "),
+            exit_code: out.code,
+            output_sha256: craft_anything_evidence::sha256_hex(output.as_bytes()),
+        },
+        output,
+    })
 }
 
 /// Run one of a toolchain's commands in `app`.
-fn run_tool(app: &Path, tool: &stacks::Toolchain, command: &[String], minutes: u64, stop: &CheckStop) -> Result<(bool, String), String> {
+fn run_tool(app: &Path, tool: &stacks::Toolchain, command: &[String], minutes: u64, stop: &CheckStop, container: Option<&Spec>) -> Result<Ran, String> {
     let Some((program, args)) = tool.command(app, command) else { return Err(format!("{} has no such command.", tool.name)) };
-    run_in(app, &program, &args, minutes, stop)
+    run_in(app, &program, &args, minutes, stop, container)
 }
 
 /// What a Unity without a licence prints, and what to tell the person.
@@ -60,18 +125,18 @@ fn own_unity_args(app: &Path) -> Vec<String> {
 }
 
 fn own_unity_check(app: &Path, editor: &Path, stop: &CheckStop) -> (Outcome, String) {
-    match run_in(app, editor, &own_unity_args(app), 4 * 60, stop) {
-        Ok((_, out)) if out.contains(UNITY_NO_LICENCE) => (Outcome::Failed, UNITY_LICENCE_FIX.into()),
-        Ok((true, _)) => (Outcome::Passed, "The Unity project opened and its scripts compiled.".into()),
-        Ok((false, out)) => (Outcome::Failed, format!("Build failed: {}", error_lines(&out))),
+    match run_in(app, editor, &own_unity_args(app), 4 * 60, stop, None) {
+        Ok(r) if r.output.contains(UNITY_NO_LICENCE) => (Outcome::Failed, UNITY_LICENCE_FIX.into()),
+        Ok(r) if r.success => (Outcome::Passed, "The Unity project opened and its scripts compiled.".into()),
+        Ok(r) => (Outcome::Failed, format!("Build failed: {}", error_lines(&r.output))),
         Err(e) => (Outcome::Unknown, format!("Couldn't run the build: {e}")),
     }
 }
 
 fn own_build(app: &Path, tool: &stacks::Toolchain, stop: &CheckStop) -> (Outcome, String) {
-    match run_tool(app, tool, &tool.build, 2 * 60, stop) {
-        Ok((true, _)) => (Outcome::Passed, format!("`{}` passed.", tool.build.join(" "))),
-        Ok((false, out)) => (Outcome::Failed, format!("Build failed: {}", error_lines(&out))),
+    match run_tool(app, tool, &tool.build, 2 * 60, stop, None) {
+        Ok(r) if r.success => (Outcome::Passed, format!("`{}` passed.", tool.build.join(" "))),
+        Ok(r) => (Outcome::Failed, format!("Build failed: {}", error_lines(&r.output))),
         Err(e) => (Outcome::Unknown, format!("Couldn't run the build: {e}")),
     }
 }
@@ -89,11 +154,11 @@ pub(super) fn own_tests_check(app: &Path, tool: Option<&stacks::Toolchain>, stop
             return (Outcome::Skipped, format!("No tests ran: package.json has no `{name}` script to run."));
         }
     }
-    match run_tool(app, tool, &tool.test, 30, stop) {
-        Ok((true, _)) => (Outcome::Passed, format!("`{}` passed.", tool.test.join(" "))),
-        Ok((false, out)) => match says_none(&out).filter(|_| tool.test_script.is_none()) {
+    match run_tool(app, tool, &tool.test, 30, stop, None) {
+        Ok(r) if r.success => (Outcome::Passed, format!("`{}` passed.", tool.test.join(" "))),
+        Ok(r) => match says_none(&r.output).filter(|_| tool.test_script.is_none()) {
             Some(why) => (Outcome::Skipped, format!("No tests ran: {}.", why.trim_end_matches('.'))),
-            None => (Outcome::Failed, format!("The project's tests failed:\n{}", last_lines(&out, 20))),
+            None => (Outcome::Failed, format!("The project's tests failed:\n{}", last_lines(&r.output, 20))),
         },
         Err(e) => (Outcome::Unknown, format!("Couldn't run the tests: {e}")),
     }
@@ -110,23 +175,47 @@ fn last_lines(out: &str, n: usize) -> String {
 /// Godot) and report whether it succeeded, with a note (the first error lines when it didn't).
 /// `place` says where `app` is, for messages (`Workspace::app_place`).
 pub(super) fn build_check(app: &Path, place: &str, stack: &str, editor: Option<&Path>, stop: &CheckStop) -> (Outcome, String) {
-    let run = |prog: &Path, args: &[String], minutes: u64| run_in(app, prog, args, minutes, stop).map_err(|e| format!("Couldn't run the build: {e}"));
+    let (outcome, note, _) = build_check_in(app, place, stack, editor, stop, None);
+    (outcome, note)
+}
+
+/// As [`build_check`], in `container` when its toolchain has an image, and with the receipt of
+/// what it ran.
+pub(super) fn build_check_in(
+    app: &Path,
+    place: &str,
+    stack: &str,
+    editor: Option<&Path>,
+    stop: &CheckStop,
+    container: Option<&Spec>,
+) -> (Outcome, String, Option<CheckReceipt>) {
+    let run =
+        |prog: &Path, args: &[String], minutes: u64| run_in(app, prog, args, minutes, stop, container).map_err(|e| format!("Couldn't run the build: {e}"));
+    // An engine's build starts its editor, which is native to this computer and not in any image.
+    let run_here =
+        |prog: &Path, args: &[String], minutes: u64| run_in(app, prog, args, minutes, stop, None).map_err(|e| format!("Couldn't run the build: {e}"));
     let app_s = app.display().to_string();
     let built = || packaged_program(&app.join("Build")).is_some();
-    let result: Result<(bool, String), String> = match (engine_for(stack, app), editor) {
+    let result: Result<Ran, String> = match (engine_for(stack, app), editor) {
         (Some(game::Builder::Unity), Some(ed)) => {
             if !app.join("Assets").is_dir() {
-                return (Outcome::Failed, missing(app, place, format!("No Unity project found in {place} yet.")));
+                return (Outcome::Failed, missing(app, place, format!("No Unity project found in {place} yet.")), None);
             }
             let args = ["-batchmode", "-quit", "-nographics", "-projectPath", &app_s, "-executeMethod", "CraftBuild.Build", "-logFile", "-"].map(String::from);
-            run(ed, &args, 4 * 60).map(|(ok, out)| if out.contains(UNITY_NO_LICENCE) { (false, UNITY_LICENCE_FIX.into()) } else { (ok && built(), out) })
+            run_here(ed, &args, 4 * 60).map(|r| {
+                if r.output.contains(UNITY_NO_LICENCE) {
+                    Ran { success: false, output: UNITY_LICENCE_FIX.into(), receipt: r.receipt }
+                } else {
+                    Ran { success: r.success && built(), ..r }
+                }
+            })
         }
         (Some(game::Builder::Unreal), Some(ed)) => {
             let Some(uproject) = uproject(app) else {
-                return (Outcome::Failed, missing(app, place, format!("No Unreal project (.uproject) found in {place} yet.")));
+                return (Outcome::Failed, missing(app, place, format!("No Unreal project (.uproject) found in {place} yet.")), None);
             };
             // The editor is <engine>/Engine/Binaries/<platform>/UnrealEditor; its packager is beside it.
-            let Some(root) = ed.ancestors().nth(4) else { return (Outcome::Unknown, "Couldn't find Unreal's build tools.".into()) };
+            let Some(root) = ed.ancestors().nth(4) else { return (Outcome::Unknown, "Couldn't find Unreal's build tools.".into(), None) };
             let uat = root.join("Engine/Build/BatchFiles").join(if cfg!(windows) { "RunUAT.bat" } else { "RunUAT.sh" });
             let platform = if cfg!(windows) {
                 "Win64"
@@ -152,40 +241,36 @@ pub(super) fn build_check(app: &Path, place: &str, stack: &str, editor: Option<&
             ];
             // A first Unreal build compiles and cooks for a long while. Run RunUAT.bat directly:
             // std quotes .bat launches itself, whereas `cmd /C "<path with spaces>" "<arg>"` strips the quotes.
-            run(&uat, &args, 8 * 60).map(|(ok, out)| (ok && built(), out))
+            run_here(&uat, &args, 8 * 60).map(|r| Ran { success: r.success && built(), ..r })
         }
         (Some(game::Builder::Godot), Some(ed)) => {
             if !app.join("project.godot").is_file() {
-                return (Outcome::Failed, missing(app, place, format!("No Godot project (project.godot) found in {place} yet.")));
+                return (Outcome::Failed, missing(app, place, format!("No Godot project (project.godot) found in {place} yet.")), None);
             }
             let import = ["--headless", "--path", &app_s, "--import"].map(String::from);
             let play = ["--headless", "--path", &app_s, "--quit-after", "120"].map(String::from);
             // Godot exits cleanly even when scripts fail, so its error lines decide.
-            run(ed, &import, 60).and_then(|(_, a)| run(ed, &play, 10).map(|(ok, b)| (ok, a + &b))).map(|(ok, out)| {
-                let bad = out.lines().any(|l| l.contains("SCRIPT ERROR") || l.contains("Parse Error") || l.trim_start().starts_with("ERROR:"));
-                (ok && !bad, out)
+            run_here(ed, &import, 60).and_then(|a| {
+                run_here(ed, &play, 10).map(|b| {
+                    let output = a.output + &b.output;
+                    let bad = output.lines().any(|l| l.contains("SCRIPT ERROR") || l.contains("Parse Error") || l.trim_start().starts_with("ERROR:"));
+                    Ran { success: b.success && !bad, output, receipt: b.receipt }
+                })
             })
         }
         _ if app.join("Cargo.toml").is_file() => run(Path::new("cargo"), &["build".into(), "--quiet".into()], 2 * 60),
         _ if app.join("package.json").is_file() => run(Path::new(if cfg!(windows) { "npm.cmd" } else { "npm" }), &["run".into(), "build".into()], 2 * 60),
-        (None, _) => {
-            return stacks::toolchain_in(app).map_or_else(
-                || {
-                    if static_site(app) {
-                        (Outcome::Passed, "Nothing to build: a static site.".into())
-                    } else {
-                        (Outcome::Failed, missing(app, place, format!("No project to build found in {place} yet.")))
-                    }
-                },
-                |tool| own_build(app, tool, stop),
-            );
-        }
-        _ => return (Outcome::Failed, missing(app, place, format!("No project to build found in {place} yet."))),
+        (None, _) => match stacks::toolchain_in(app) {
+            Some(tool) => run_tool(app, tool, &tool.build, 2 * 60, stop, container).map_err(|e| format!("Couldn't run the build: {e}")),
+            None if static_site(app) => return (Outcome::Passed, "Nothing to build: a static site.".into(), None),
+            None => return (Outcome::Failed, missing(app, place, format!("No project to build found in {place} yet.")), None),
+        },
+        _ => return (Outcome::Failed, missing(app, place, format!("No project to build found in {place} yet.")), None),
     };
     match result {
-        Ok((true, _)) => (Outcome::Passed, "Build succeeded.".into()),
-        Ok((false, out)) => (Outcome::Failed, format!("Build failed: {}", error_lines(&out))),
-        Err(e) => (Outcome::Unknown, e),
+        Ok(r) if r.success => (Outcome::Passed, "Build succeeded.".into(), Some(r.receipt)),
+        Ok(r) => (Outcome::Failed, format!("Build failed: {}", error_lines(&r.output)), Some(r.receipt)),
+        Err(e) => (Outcome::Unknown, e, None),
     }
 }
 
@@ -203,6 +288,12 @@ fn engine_for(stack: &str, app: &Path) -> Option<game::Builder> {
 /// Whether `app` is a static site with nothing to build: a page with something in it, as the
 /// preview finds it, and no game engine's project beside it. A site's `assets/` folder is no sign
 /// of Unity (file names ignore case on Windows and macOS), so Unity needs its settings folder too.
+/// Nothing runs for this project: a page, with no toolchain or engine to build it. It passes as
+/// it is, even when the person refused unconfined runs, because there is nothing to confine.
+pub(super) fn nothing_to_build(app: &Path, stack: &str) -> bool {
+    stacks::toolchain_in(app).is_none() && engine_for(stack, app).is_none() && static_site(app)
+}
+
 fn static_site(app: &Path) -> bool {
     let engine = app.join("project.godot").is_file() || uproject(app).is_some() || (app.join("Assets").is_dir() && app.join("ProjectSettings").is_dir());
     let page = |site: PathBuf| std::fs::read(site.join("index.html")).is_ok_and(|html| html.iter().any(|b| !b.is_ascii_whitespace()));
@@ -371,7 +462,7 @@ mod tests {
         let limited = CheckStop::limited(Instant::now() + Duration::from_millis(1_200));
         let args = ["-c", "sleep 30; exit 7"].map(String::from).to_vec();
         let began = Instant::now();
-        let out = run_in(d.path(), Path::new("sh"), &args, 60, &limited).unwrap_err();
+        let out = run_in(d.path(), Path::new("sh"), &args, 60, &limited, None).unwrap_err();
         assert!(began.elapsed() < Duration::from_secs(10), "the step ran past the round's limit: {} s", began.elapsed().as_secs());
         assert!(out.contains("stopped"), "the step's own program was stopped: {out}");
         assert!(limited.expired() && limited.cancelled() && limited.time_left().is_some_and(|l| l.is_zero()));
@@ -390,7 +481,7 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         let marker = d.path().join("started");
         let args = ["-c", "touch started"].map(String::from).to_vec();
-        let started = |stop: &CheckStop| run_in(d.path(), Path::new("sh"), &args, 60, stop);
+        let started = |stop: &CheckStop| run_in(d.path(), Path::new("sh"), &args, 60, stop, None);
         let e = started(&CheckStop::limited(Instant::now())).unwrap_err();
         assert!(e.contains("time limit"), "{e}");
         assert!(!marker.exists(), "the step ran after the round's limit");
@@ -467,6 +558,45 @@ mod tests {
         let unity = Path::new("C:/Engines/Unity/Editor/Unity.exe");
         let note = build_check(app, "app/", "Unity", Some(unity), &stop).1;
         assert!(note.starts_with("No Unity project found in app/ yet. There's a Cargo.toml one folder down, in app/app/"), "{note}");
+    }
+
+    /// A toolchain with an image builds its check in the container; one without builds here.
+    #[test]
+    fn a_toolchain_with_an_image_builds_its_check_in_the_container() {
+        use craft_anything_engine::settings::{BuildSettings, SandboxMode};
+        let d = tempfile::tempdir().unwrap();
+        let app = d.path();
+        std::fs::write(app.join("Cargo.toml"), "[package]\nname = \"x\"\nversion = \"0.1.0\"\n").unwrap();
+        let docker = BuildSettings { sandbox: SandboxMode::Docker, ..Default::default() };
+        let spec = container_for(app, "", &docker).expect("Rust has an image");
+        assert_eq!(spec.image, "rust:1.99-slim-bookworm");
+        assert_eq!(spec.project, app.to_path_buf());
+        assert_eq!(spec.env.iter().map(|(key, _)| key.as_str()).collect::<Vec<_>>(), ["HOME", "CARGO_HOME"], "a writable home for the host id");
+        assert!(container_for(app, "", &BuildSettings::default()).is_none(), "the sandbox is off");
+        std::fs::remove_file(app.join("Cargo.toml")).unwrap();
+        std::fs::write(app.join("Makefile"), "all:\n").unwrap();
+        assert!(container_for(app, "", &docker).is_none(), "Make has no image");
+    }
+
+    /// An engine's build runs its editor, and a project's own interpreter is not in the image:
+    /// both build here.
+    #[cfg(unix)]
+    #[test]
+    fn an_engine_build_or_a_projects_own_interpreter_is_not_confined() {
+        use craft_anything_engine::settings::{BuildSettings, SandboxMode};
+        let docker = BuildSettings { sandbox: SandboxMode::Docker, ..Default::default() };
+        let game = tempfile::tempdir().unwrap();
+        std::fs::write(game.path().join("project.godot"), "").unwrap();
+        assert!(container_for(game.path(), "Godot", &docker).is_none(), "the editor is native to this computer");
+        let python = tempfile::tempdir().unwrap();
+        std::fs::write(python.path().join("pyproject.toml"), "").unwrap();
+        std::fs::create_dir_all(python.path().join(".venv/bin")).unwrap();
+        std::fs::write(python.path().join(".venv/bin/python"), "").unwrap();
+        assert!(container_for(python.path(), "Python", &docker).is_none(), "the project's own interpreter is not in the image");
+        // Nothing runs for a page with nothing to build it.
+        let site = tempfile::tempdir().unwrap();
+        std::fs::write(site.path().join("index.html"), "<h1>Hello</h1>").unwrap();
+        assert!(container_for(site.path(), "Plain HTML and CSS", &docker).is_none());
     }
 
     #[test]

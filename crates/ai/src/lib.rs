@@ -902,7 +902,7 @@ impl AiHub {
                 .try_session()
                 .map(|s| s.settings.build.clone())
                 .unwrap_or_else(|| craft_anything_engine::Settings::load_from(&self.settings_path()).build);
-            let policy = std::sync::Arc::new(craft_anything_engine::execution::BuildPolicy { build });
+            let policy = std::sync::Arc::new(craft_anything_engine::execution::BuildPolicy { build, build_check_confined: false });
             return Ok(Box::new(craft_anything_platform::execution::with_policy(policy, craft_anything_platform::execution::Class::Agent, || {
                 cli_agents::SharedConversation::new(self.engine.clone(), self.keys.clone(), first, beginner)
             })?));

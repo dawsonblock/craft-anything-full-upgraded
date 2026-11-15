@@ -47,21 +47,41 @@ pub struct Spec {
     /// Writable-layer ceiling in MiB; 0 leaves Docker's default. Needs a storage driver with
     /// quota support (overlay2 with pquota; not Docker Desktop).
     pub storage_mb: u64,
+    /// Environment variables the container gets, set by the caller. The host's environment is
+    /// never passed: a build that needs one has it named here.
+    pub env: Vec<(String, String)>,
 }
 
 impl Default for Spec {
     fn default() -> Self {
-        Spec { image: DEFAULT_IMAGE.to_string(), digest: None, project: PathBuf::new(), network: false, memory_mb: 4096, cpus: 2.0, pids: 512, storage_mb: 0 }
+        Spec {
+            image: DEFAULT_IMAGE.to_string(),
+            digest: None,
+            project: PathBuf::new(),
+            network: false,
+            memory_mb: 4096,
+            cpus: 2.0,
+            pids: 512,
+            storage_mb: 0,
+            env: Vec::new(),
+        }
     }
 }
 
 impl Spec {
-    /// The `docker run` arguments for `command`, after the program name.
+    /// The `docker run` arguments for `command`, a shell line.
     ///
     /// Everything the command can touch is decided here, so this is the security boundary and the
     /// tests read it directly. Values outside their range are clamped rather than refused: a
     /// person who typed `0` gets the floor, not a command that runs unbounded.
     pub fn argv(&self, command: &str) -> Result<Vec<String>, ToolError> {
+        self.argv_for(&["sh".to_string(), "-c".to_string(), command.to_string()])
+    }
+
+    /// The `docker run` arguments for a program and its arguments, run without a shell between
+    /// them. A check's own build is a program and argv from the toolchain table, so no quoting is
+    /// involved.
+    pub fn argv_for(&self, command: &[String]) -> Result<Vec<String>, ToolError> {
         let image = self.image.trim();
         if image.is_empty() || image.starts_with('-') || image.chars().any(char::is_whitespace) {
             return Err(ToolError::invalid(format!("`{}` isn't a Docker image name.", self.image))
@@ -119,14 +139,37 @@ impl Spec {
             "--user".into(),
             user_arg(host_user()),
         ]);
-        argv.extend([image_ref, "sh".into(), "-c".into(), command.to_string()]);
+        for (key, value) in &self.env {
+            if !is_env_name(key) || value.contains('\0') {
+                return Err(ToolError::invalid(format!("`{key}` isn't a usable environment variable name."))
+                    .with_remediation("Use a name of letters, digits and underscores, and a value without a NUL."));
+            }
+            argv.push("-e".into());
+            argv.push(format!("{key}={value}"));
+        }
+        if command.first().is_none_or(|program| program.trim().is_empty()) {
+            return Err(ToolError::invalid("The sandbox needs a program to run."));
+        }
+        argv.push(image_ref);
+        argv.extend(command.iter().cloned());
         Ok(argv)
     }
 }
 
-/// Run `command` inside a container built from `spec`.
+/// Whether `key` is a POSIX environment variable name.
+fn is_env_name(key: &str) -> bool {
+    let mut chars = key.chars();
+    chars.next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_') && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+/// Run `command`, a shell line, inside a container built from `spec`.
 pub fn run(spec: &Spec, command: &str, timeout: Duration, cancel: Option<Cancel>) -> Result<Output, ToolError> {
-    let mut argv = spec.argv(command)?;
+    run_argv(spec, &["sh".to_string(), "-c".to_string(), command.to_string()], timeout, cancel)
+}
+
+/// Run a program and its arguments inside a container built from `spec`, without a shell.
+pub fn run_argv(spec: &Spec, command: &[String], timeout: Duration, cancel: Option<Cancel>) -> Result<Output, ToolError> {
+    let mut argv = spec.argv_for(command)?;
     let name = container_name();
     // A name and a label let a container be found and stopped even when the Docker client that
     // started it is gone.
@@ -355,6 +398,35 @@ mod tests {
     fn the_command_is_the_last_argument() {
         let argv = spec().argv("cargo build --release").unwrap_or_default();
         assert_eq!(argv.get(argv.len() - 3..), Some(["sh".to_string(), "-c".to_string(), "cargo build --release".to_string()].as_slice()));
+    }
+
+    /// A check's build is a program and its argv, so it runs as it is, with no shell to quote.
+    #[test]
+    fn a_direct_command_runs_without_a_shell() {
+        let command = ["cargo".to_string(), "build".to_string(), "--quiet".to_string()];
+        let argv = spec().argv_for(&command).unwrap_or_default();
+        assert_eq!(argv.get(argv.len() - 3..), Some(command.as_slice()));
+        assert!(!argv.iter().any(|a| a == "sh" || a == "-c"), "{argv:?}");
+        assert!(spec().argv_for(&[]).is_err(), "nothing to run");
+        assert!(spec().argv_for(&[" ".to_string()]).is_err(), "an empty program");
+    }
+
+    /// The container gets the environment the caller names, and never the host's.
+    #[test]
+    fn only_our_own_environment_reaches_the_container() {
+        assert!(!joined(&spec().argv("x").unwrap_or_default()).contains("-e "), "the default spec passes nothing");
+        let with = Spec { env: vec![("HOME".into(), "/tmp".into()), ("CARGO_HOME".into(), "/tmp/cargo".into())], ..spec() };
+        let argv = with.argv("x").unwrap_or_default();
+        let at = argv.iter().position(|a| a == "-e").unwrap_or_default();
+        assert_eq!(argv.get(at + 1).map(String::as_str), Some("HOME=/tmp"), "{argv:?}");
+        assert!(joined(&argv).contains("-e CARGO_HOME=/tmp/cargo"), "{argv:?}");
+        // They come before the image, as Docker's options do.
+        let image = argv.iter().position(|a| a == DEFAULT_IMAGE).unwrap_or_default();
+        assert!(at < image, "{argv:?}");
+        for (key, value) in [("".to_string(), "x".to_string()), ("A B".to_string(), "x".to_string()), ("HOME".to_string(), "a\0b".to_string())] {
+            let bad = Spec { env: vec![(key.clone(), value.clone())], ..spec() };
+            assert!(bad.argv("x").is_err(), "{key:?}={value:?} should be refused");
+        }
     }
 
     #[test]
