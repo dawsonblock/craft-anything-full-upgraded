@@ -927,6 +927,12 @@ Owner: open · Status: in progress
       host whose primary group was not root (`0:20`) still ran as root in the container (found in
       review of R3.0 PR 3)
       — claimed: Devin, branch bugfix/sandbox-root-uid
+- [ ] Strip Windows' verbatim prefix (`\\?\C:\…`) from a canonicalized project path before `-v`:
+      `std::fs::canonicalize` returns it, and replacing the backslashes turns it into `//?/C:/…`,
+      which Docker Desktop may not accept. Needs a unit test and a Windows run
+- [ ] Bound the project folder's own disk use: `sandbox_disk_mb` limits the container's writable
+      layer, not the `/work` bind mount, so a build can still fill the host's disk inside its
+      project
 - [ ] **decision** Whether `sandbox_unconfined` should default to `"refuse"`: today turning the
       sandbox on still runs the check's own build, the runs comparison, a person's own project's
       build or tests, the probe, a self-test and a coding agent outside it (each says so), because
