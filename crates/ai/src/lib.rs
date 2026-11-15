@@ -895,7 +895,18 @@ impl AiHub {
                 .with_remediation("Turn it on in Settings → AI, or choose another backend for this conversation."));
         }
         if first.config.kind == BackendKind::AgentCli {
-            return Ok(Box::new(cli_agents::SharedConversation::new(self.engine.clone(), self.keys.clone(), first, beginner)?));
+            // A chat with an agent is a generated-code route too: the agent runs its own tools. A
+            // thread-local policy installed here would be gone by the time the shared worker starts
+            // the agent, so refuse now and give the worker the policy to install on its own thread.
+            let build = self
+                .engine
+                .try_session()
+                .map(|s| s.settings.build.clone())
+                .unwrap_or_else(|| craft_anything_engine::Settings::load_from(&self.settings_path()).build);
+            craft_anything_engine::execution::Policy::of(&build).check(craft_anything_engine::execution::Route::Agent)?;
+            let policy: std::sync::Arc<dyn craft_anything_platform::execution::Policy> =
+                std::sync::Arc::new(craft_anything_engine::execution::BuildPolicy { build, build_check_confined: false });
+            return Ok(Box::new(cli_agents::SharedConversation::new(self.engine.clone(), self.keys.clone(), first, beginner, policy)?));
         }
         let mut chain = vec![self.build_model(&first)?];
         for name in cfg.chain_from(&first.config.name).into_iter().skip(1) {

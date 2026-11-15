@@ -255,6 +255,27 @@ fn disabled_backends_are_refused_when_chat_starts() {
     }
 }
 
+/// A chat or question with a CLI agent is a generated-code route: under `refuse` it is stopped
+/// before the shared worker, and so the agent process, exists. The desktop and the CLI both start
+/// chats through this call.
+#[test]
+fn a_chat_with_an_agent_is_refused_under_strict_before_it_starts() {
+    use craft_anything_engine::settings::{SandboxMode, Unconfined};
+    let dir = tempfile::tempdir().unwrap();
+    let mut session = craft_anything_engine::testing::session();
+    session.settings.build.sandbox = SandboxMode::Docker;
+    session.settings.build.sandbox_unconfined = Unconfined::Refuse;
+    let h = AiHub::with_stores(Arc::new(Engine::new(session)), dir.path().join("config.toml"), KeyStore::file_only(dir.path().join("ai-keys.toml")));
+    h.add_backend(
+        BackendConfig { name: "Agent".into(), kind: BackendKind::AgentCli, model: "opencode".into(), base_url: None, ssh_host: None, enabled: true },
+        None,
+    )
+    .unwrap();
+    let error = h.start(Some("Agent"), false).err().expect("refuse must stop an agent chat");
+    assert_eq!(error.code, ErrorCode::FeatureMissing, "{error:?}");
+    assert!(error.message.contains("coding agent") && error.message.contains("outside the Docker sandbox"), "{}", error.message);
+}
+
 /// R2.9: an API backend's kept transcript is resumed only in the mode that saved it.
 #[test]
 fn an_api_transcript_is_resumed_only_in_its_mode() {

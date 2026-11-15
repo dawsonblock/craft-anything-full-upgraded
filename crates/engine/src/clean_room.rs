@@ -85,6 +85,8 @@ pub const TOOLS: &[&str] = &[
     "build_file_edit",
     "build_checklist",
     "build_command_run",
+    // The probe drives the builder's own built game and reads no original.
+    "build_probe_run",
     // Settings, engines, plugins and this computer's setup.
     "settings_show",
     "settings_set",
@@ -193,6 +195,13 @@ mod tests {
         }
         assert!(availability("web_site_capture", true).is_none());
         assert!(is_refusal(&refusal("native_functions_list")));
+    }
+
+    /// The probe drives the build's own game and reads no original, so Clean room runs it.
+    #[test]
+    fn the_builders_own_probe_runs_in_clean_room() {
+        assert!(allows("build_probe_run"));
+        assert!(availability("build_probe_run", true).is_none());
     }
 
     #[test]

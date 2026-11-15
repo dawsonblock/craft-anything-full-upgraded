@@ -7,7 +7,7 @@ import sys
 import tempfile
 import unittest
 
-SCRIPT = Path(__file__).resolve().parents[1] / "independent_game_probe.py"
+SCRIPT = Path(__file__).resolve().parents[2] / "crates/engine/src/tools/independent_game_probe.py"
 FIXTURE = Path(__file__).resolve().parent / "fixture_probe_game.py"
 
 CASE = {
@@ -60,6 +60,13 @@ class IndependentGameProbeTests(unittest.TestCase):
         self.assertEqual(len(report["case_sha256"]), 64)
         self.assertTrue(Path(report["capture_folder"]).name.startswith("replay-"))
 
+    def test_timeout_outside_the_probe_range_is_refused(self):
+        for timeout in (0, 121):
+            code, report = self.check_mode("good", timeout=timeout)
+            self.assertNotEqual(code, 0, report)
+            self.assertEqual(report["status"], "error", report)
+            self.assertIn("between 1 and 120", report["error"], report)
+
     def test_regressions_are_rejected(self):
         faults = {
             "no_move": "position_moved",
@@ -102,6 +109,7 @@ class IndependentGameProbeTests(unittest.TestCase):
 
     def test_saved_report_can_be_revalidated_and_tampering_is_detected(self):
         sys.path.insert(0, str(SCRIPT.parent))
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
         from independent_game_probe import ProbeError, run_probe
         from verify_probe_report import verify
         with tempfile.TemporaryDirectory() as temp:
@@ -134,7 +142,7 @@ class IndependentGameProbeTests(unittest.TestCase):
             )
             self.assertEqual(initial.returncode, 0, initial.stdout)
             verified = subprocess.run(
-                [sys.executable, str(SCRIPT.parent / "verify_probe_report.py"),
+                [sys.executable, str(Path(__file__).resolve().parents[1] / "verify_probe_report.py"),
                  "--case", str(case_path), "--report", str(report_path)],
                 capture_output=True, text=True, timeout=10, check=False,
             )

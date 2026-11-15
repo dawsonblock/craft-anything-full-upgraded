@@ -529,6 +529,7 @@ fn a_note_written_for_the_hook_carries_its_answers() {
         root: ws.root.clone(),
         started: Instant::now(),
         activity,
+        outside: None,
     };
     let id = run.add_note("make it blue".into(), "make it blue".into(), Vec::new());
     let note = run.waiting().pop().unwrap();
@@ -1671,6 +1672,27 @@ mod picking_up_a_build {
         assert_eq!(keys.get("fal"), Some("k-1"));
     }
 
+    /// A coding agent runs its own tools and signs in as the person, so it can't be put in the
+    /// container. When the person asked for confinement and refused unconfined runs, the build
+    /// says so before it starts instead of running the agent outside the boundary.
+    #[test]
+    fn an_agent_build_is_refused_when_the_sandbox_refuses_unconfined_runs() {
+        let b = bench();
+        {
+            let mut s = b.hub.engine.session();
+            s.settings.build.sandbox = craft_anything_engine::settings::SandboxMode::Docker;
+            s.settings.build.sandbox_unconfined = craft_anything_engine::settings::Unconfined::Refuse;
+        }
+        let ws = Workspace::create(&b.projects, "x", "Build a notes app", TargetRef::None).unwrap();
+        let opts = RunOptions { backend: Some("Stand-in".into()), ..Default::default() };
+        let err = match RebuildRun::start(&b.hub, Workspace::open(&ws.root).unwrap(), opts) {
+            Ok(_) => panic!("the run started outside the boundary"),
+            Err(e) => e,
+        };
+        assert_eq!(err.code, craft_anything_evidence::ErrorCode::FeatureMissing, "{}", err.message);
+        assert!(err.message.contains("coding agent") && err.message.contains("outside the Docker sandbox"), "{}", err.message);
+    }
+
     fn try_it(b: &Bench, ws: &Workspace) -> (bool, Vec<feed::FeedItem>) {
         try_with(b, ws, RunOptions::default())
     }
@@ -2580,8 +2602,14 @@ fn a_saved_asset_key_gets_an_api_builders_tool_past_the_key_check() {
 }
 
 fn check_worker(ws: &Workspace, deep: bool) -> Worker {
+    check_worker_in(ws, deep, craft_anything_engine::settings::BuildSettings::default())
+}
+
+/// As [`check_worker`], with the `[build]` settings a run would have (the sandbox and its policy).
+fn check_worker_in(ws: &Workspace, deep: bool, build: craft_anything_engine::settings::BuildSettings) -> Worker {
     let mut s = craft_anything_engine::testing::session();
     s.settings.deep_mode = deep;
+    s.settings.build = build;
     let (tx, _rx) = std::sync::mpsc::channel();
     Worker {
         wake: Default::default(),
@@ -2601,6 +2629,89 @@ fn check_worker(ws: &Workspace, deep: bool) -> Worker {
         reset_progress_after_notes: false,
         keys: crate::KeyStore::file_only(ws.root.join("keys.toml")),
     }
+}
+
+/// Only the build check, for a test about how a build runs.
+struct BuildOnly;
+
+impl TargetKind for BuildOnly {
+    fn id(&self) -> &'static str {
+        "build-only"
+    }
+    fn words(&self) -> KindWords {
+        KindWords { button: "Build", icon: "build", ready: "Ready", change_hint: "Ask for a change" }
+    }
+    fn detect(&self, _cx: &DetectCx) -> Option<u32> {
+        None
+    }
+    fn default_stack(&self, _cx: &DetectCx) -> &'static str {
+        "Rust"
+    }
+    fn goal(&self) -> &'static str {
+        "a program"
+    }
+    fn checks(&self, _ws: &Workspace) -> Vec<Box<dyn Check>> {
+        vec![Box::new(kinds::BuildCheck)]
+    }
+}
+
+/// A page with nothing to build passes even under `refuse`: nothing runs, so nothing can be
+/// unconfined, and a required check that had nothing to do can't keep the build from Ready.
+#[test]
+fn a_static_site_passes_under_strict_without_running_anything() {
+    use craft_anything_engine::settings::{BuildSettings, SandboxMode, Unconfined};
+    let d = tempfile::tempdir().unwrap();
+    let ws = Workspace::create(d.path(), "Site", "A landing page", TargetRef::None).unwrap();
+    std::fs::create_dir_all(ws.app_dir()).unwrap();
+    std::fs::write(ws.app_dir().join("index.html"), "<h1>Hello</h1>").unwrap();
+    let build = BuildSettings { sandbox: SandboxMode::Docker, sandbox_unconfined: Unconfined::Refuse, ..Default::default() };
+    let r = check_worker_in(&ws, false, build).run_checks(&ws, &BuildOnly, 1).unwrap();
+    assert_eq!(r.len(), 1, "{r:?}");
+    assert!(r[0].passed(), "{}", r[0].note);
+    assert_eq!(r[0].receipt, None, "nothing ran, so there is no receipt");
+    assert!(r[0].note.contains("static site"), "{}", r[0].note);
+}
+
+/// A toolchain without an image is still refused under `refuse`: the build is recorded unknown
+/// instead of quietly running on this computer.
+#[test]
+fn a_toolchain_without_an_image_is_refused_under_strict() {
+    use craft_anything_engine::settings::{BuildSettings, SandboxMode, Unconfined};
+    let d = tempfile::tempdir().unwrap();
+    let ws = Workspace::create(d.path(), "Notes", "A notes tool", TargetRef::None).unwrap();
+    std::fs::create_dir_all(ws.app_dir()).unwrap();
+    std::fs::write(ws.app_dir().join("Makefile"), "all:\n\techo built\n").unwrap();
+    let build = BuildSettings { sandbox: SandboxMode::Docker, sandbox_unconfined: Unconfined::Refuse, ..Default::default() };
+    let r = check_worker_in(&ws, false, build).run_checks(&ws, &BuildOnly, 1).unwrap();
+    assert_eq!(r.len(), 1, "{r:?}");
+    assert_eq!(r[0].outcome, Outcome::Unknown, "{:?}", r[0]);
+    assert!(r[0].note.contains("outside the Docker sandbox"), "{}", r[0].note);
+    assert_eq!(r[0].receipt, None, "nothing ran");
+}
+
+/// Opt-in: needs Docker and the Rust image. `cargo test -p craft-anything-ai
+/// a_strict_check_builds_a_rust_project_in_the_container -- --ignored`
+#[test]
+#[ignore]
+fn a_strict_check_builds_a_rust_project_in_the_container() {
+    use craft_anything_engine::settings::{BuildSettings, SandboxMode, Unconfined};
+    let d = tempfile::tempdir().unwrap();
+    let ws = Workspace::create(d.path(), "Hello", "A hello program", TargetRef::None).unwrap();
+    let app = ws.app_dir();
+    std::fs::create_dir_all(app.join("src")).unwrap();
+    std::fs::write(app.join("Cargo.toml"), "[package]\nname = \"hello\"\nversion = \"0.1.0\"\nedition = \"2021\"\n").unwrap();
+    std::fs::write(app.join("src/main.rs"), "fn main() {\n    println!(\"hello\");\n}\n").unwrap();
+    let build = BuildSettings { sandbox: SandboxMode::Docker, sandbox_unconfined: Unconfined::Refuse, sandbox_network: false, ..Default::default() };
+    let r = check_worker_in(&ws, false, build).run_checks(&ws, &BuildOnly, 1).unwrap();
+    assert_eq!(r.len(), 1, "{r:?}");
+    assert!(r[0].passed(), "{}", r[0].note);
+    let receipt = r[0].receipt.as_ref().expect("a build ran");
+    assert_eq!(receipt.runner, CheckRunner::Container, "{receipt:?}");
+    assert_eq!(receipt.image.as_deref(), Some("rust:1.99-slim-bookworm"));
+    assert_eq!(receipt.exit_code, Some(0));
+    assert_eq!(receipt.output_sha256.len(), 64);
+    assert!(r[0].note.contains("Docker container"), "{}", r[0].note);
+    assert!(app.join("target").is_dir(), "the build's artifacts are in the project, where the next step finds them");
 }
 
 /// A new Python project reaches the same build/screenshot path as a packaged app. The local

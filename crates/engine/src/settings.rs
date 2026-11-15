@@ -155,11 +155,64 @@ pub struct BuildSettings {
     pub picture_good_enough: Option<f64>,
     /// Projects that may build at the same time; more wait their turn (at least 1).
     pub parallel: usize,
+    /// How a build's shell commands run (`sandbox = "docker"` in `[build]`). Off runs them on this
+    /// computer; Docker runs them in a container that sees only the project folder.
+    pub sandbox: SandboxMode,
+    /// Image a sandboxed build runs in. A build that needs Node, Rust or Python needs an image
+    /// that has it.
+    pub sandbox_image: String,
+    /// Digest the image must match (`sha256:...`); empty uses the tag in [`BuildSettings::sandbox_image`].
+    pub sandbox_image_digest: Option<String>,
+    /// Writable-layer ceiling for a sandboxed build in MiB; 0 leaves Docker's default. Needs a
+    /// storage driver with quota support (overlay2 with pquota; not Docker Desktop).
+    pub sandbox_disk_mb: u64,
+    /// Whether a sandboxed build may reach the network. Package installs need it; a build that
+    /// only compiles what it already has doesn't.
+    pub sandbox_network: bool,
+    /// What happens to a build route that can't be confined (a native game, a self-test, a coding
+    /// agent) while the sandbox is on: it runs here and says so, or it is refused.
+    pub sandbox_unconfined: Unconfined,
+}
+
+/// How a build's commands run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SandboxMode {
+    /// On this computer, with the person's approvals as before.
+    #[default]
+    Off,
+    /// In a Docker container: only the project folder is mounted, and the network is off unless
+    /// [`BuildSettings::sandbox_network`] allows it.
+    Docker,
+}
+
+/// What happens to a build route that can't run in the container while the sandbox is on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Unconfined {
+    /// It runs on this computer, and its approval card and result say so.
+    #[default]
+    Allow,
+    /// It is refused with a plain error naming this setting.
+    Refuse,
 }
 
 impl Default for BuildSettings {
     fn default() -> Self {
-        BuildSettings { good_enough: 90.0, max_rounds: 6, web_widths: vec![1440, 768, 390], max_pages: 4, picture_good_enough: None, parallel: 2 }
+        BuildSettings {
+            good_enough: 90.0,
+            max_rounds: 6,
+            web_widths: vec![1440, 768, 390],
+            max_pages: 4,
+            picture_good_enough: None,
+            parallel: 2,
+            sandbox: SandboxMode::Off,
+            sandbox_image: craft_anything_platform::sandbox::DEFAULT_IMAGE.to_string(),
+            sandbox_image_digest: None,
+            sandbox_disk_mb: 0,
+            sandbox_network: true,
+            sandbox_unconfined: Unconfined::Allow,
+        }
     }
 }
 
@@ -488,6 +541,35 @@ auto_mode = true
     }
 
     use super::*;
+
+    #[test]
+    fn a_build_is_not_sandboxed_until_the_person_asks() {
+        assert_eq!(Settings::default().build.sandbox, SandboxMode::Off);
+        assert_eq!(Settings::default().build.sandbox_unconfined, Unconfined::Allow, "a route outside the container runs and says so unless the person refuses");
+        let old: Settings = toml::from_str("version = 1\n").unwrap();
+        assert_eq!(old.build.sandbox, SandboxMode::Off, "configs written before the sandbox load as off");
+        assert_eq!(old.build.sandbox_unconfined, Unconfined::Allow, "configs written before the policy load as allow");
+        assert_eq!(Settings::default().build.sandbox_image_digest, None);
+        assert_eq!(Settings::default().build.sandbox_disk_mb, 0);
+        let digest = format!("sha256:{}", "a".repeat(64));
+        let asked: Settings = toml::from_str(&format!(
+            "[build]
+sandbox = \"docker\"
+sandbox_image = \"node:22\"
+sandbox_image_digest = \"{digest}\"
+sandbox_disk_mb = 2048
+sandbox_network = false
+sandbox_unconfined = \"refuse\"
+"
+        ))
+        .unwrap();
+        assert_eq!(asked.build.sandbox, SandboxMode::Docker);
+        assert_eq!(asked.build.sandbox_image, "node:22");
+        assert_eq!(asked.build.sandbox_image_digest.as_deref(), Some(digest.as_str()));
+        assert_eq!(asked.build.sandbox_disk_mb, 2048);
+        assert!(!asked.build.sandbox_network);
+        assert_eq!(asked.build.sandbox_unconfined, Unconfined::Refuse);
+    }
 
     #[test]
     fn only_configured_finds_no_engine_from_this_computer_but_keeps_the_ones_set() {

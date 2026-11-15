@@ -271,6 +271,7 @@ impl Process {
 
     /// Start the child and supervise it on a background thread.
     pub fn spawn(self) -> Result<RunningProcess, ToolError> {
+        crate::execution::check()?;
         let name = self.display();
         let (program, lead) = crate::which::launch_target(&self.program);
         let mut wrap = CommandWrap::with_new(&program, |cmd| {
@@ -957,6 +958,7 @@ impl Launch {
     /// Start the program and return at once, with a handle that tells when it ends and can stop
     /// it. Dropping the handle leaves the program running.
     pub fn start_watched(self) -> Result<Launched, ToolError> {
+        crate::execution::check()?;
         let name = self.display();
         let mut cmd = std::process::Command::new(&self.program);
         cmd.args(&self.args).stdin(Stdio::null());

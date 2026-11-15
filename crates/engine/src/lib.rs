@@ -6,6 +6,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 pub mod clean_room;
+pub mod execution;
 
 /// Tools an agent app may be told to approve on its own side (Codex's `approval_mode`): each one
 /// asks the person itself (`Effects::needs_consent`), so approving it there skips nothing.
@@ -281,10 +282,25 @@ impl Engine {
                     .with_details(serde_json::json!({"tool": spec.id})));
             }
         }
+        // The execution context: a generated route that can't run in the container is refused here,
+        // before the tool starts, and every process the tool launches is held to the same policy at
+        // the process boundary. A tool that starts a program without a class fails there under
+        // `refuse`.
+        let class = execution::tool_class(spec.id);
+        if let craft_anything_platform::execution::Class::Generated(id) = class {
+            if let Some(route) = execution::route_by_id(id) {
+                execution::Policy::of(&session.settings.build).check(route)?;
+            }
+        } else if class == craft_anything_platform::execution::Class::Agent {
+            execution::Policy::of(&session.settings.build).check(execution::Route::Agent)?;
+        }
+        let policy = std::sync::Arc::new(execution::BuildPolicy { build: session.settings.build.clone(), build_check_confined: false });
         let run = spec.run;
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let mut ctx = Ctx { tool: spec.id, session: &mut session, cancel: opts.cancel.clone(), progress: opts.progress, caller: opts.caller };
-            run(&mut ctx, params)
+            craft_anything_platform::execution::with_policy(policy, class, || {
+                let mut ctx = Ctx { tool: spec.id, session: &mut session, cancel: opts.cancel.clone(), progress: opts.progress, caller: opts.caller };
+                run(&mut ctx, params)
+            })
         }));
         let output = match result {
             Ok(r) => r?,

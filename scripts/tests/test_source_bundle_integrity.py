@@ -384,6 +384,19 @@ class SourceBundleIntegrityTests(unittest.TestCase):
             with self.assertRaises(IntegrityError):
                 verify_tree(root)
 
+    def test_root_tool_caches_are_ignored_but_nested_cache_files_are_not(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = self.sample(Path(temp))
+            for cache in (".ruff_cache", ".pytest_cache"):
+                (root / cache / "v").mkdir(parents=True)
+                (root / cache / "CACHEDIR.TAG").write_text("Signature: 8a477f597d28d172789f06886806bc55", encoding="utf-8")
+                (root / cache / "v" / "cache").write_bytes(b"transient")
+            self.assertEqual(verify_tree(root)["status"], "verified")
+            (root / "src" / ".ruff_cache").mkdir()
+            (root / "src" / ".ruff_cache" / "not-a-cache.rs").write_text("fn main() {}\n", encoding="utf-8")
+            with self.assertRaises(IntegrityError):
+                verify_tree(root)
+
     def test_tampered_missing_and_extra_tree_files_are_rejected(self):
         with tempfile.TemporaryDirectory() as temp:
             root = self.sample(Path(temp))
