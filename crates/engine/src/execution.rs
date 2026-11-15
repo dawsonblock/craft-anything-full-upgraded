@@ -7,9 +7,14 @@
 //! has asked for confinement. `[build] sandbox_unconfined = "refuse"` turns every route that
 //! can't be confined into a plain error (a tool) or a check that records `unknown` with the
 //! reason, instead of a quiet fallback.
+//!
+//! The policy is also installed as a [`craft_anything_platform::execution::Policy`] around every
+//! tool call, check and agent run, so a process launch the route list misses still fails before it
+//! starts under `refuse` ([`BuildPolicy`], [`tool_class`], [`check_class`]).
 
 use crate::settings::{BuildSettings, SandboxMode, Unconfined};
 use craft_anything_evidence::{ErrorCode, ToolError};
+use craft_anything_platform::execution::Class;
 use serde_json::json;
 
 /// A route by which a build's own generated code runs.
@@ -27,8 +32,20 @@ pub enum Route {
     GameProbe,
     /// A build's own self-test or screenshot run of the built program.
     SelfTest,
+    /// Playing the built app or game (`project_play`, `project_pin_open`).
+    ProjectPlay,
+    /// Running a program under a terminal with scripted input (`runtime_walkthrough_record`).
+    RuntimeWalkthrough,
+    /// Starting a program to picture its window (`native_window_capture`).
+    NativeWindowCapture,
+    /// A browser running the built website.
+    Website,
+    /// The built Electron app.
+    Electron,
     /// A coding agent process (Claude Code, Codex, Gemini CLI, …).
     Agent,
+    /// A process launch no boundary classified.
+    Unclassified,
 }
 
 /// What confines a route, as the code can actually enforce it today.
@@ -50,7 +67,13 @@ impl Route {
             Route::OwnCheck => Confinement::HostOnly("the project's own toolchain runs on this computer"),
             Route::GameProbe => Confinement::HostOnly("the built game is native to this computer"),
             Route::SelfTest => Confinement::HostOnly("the built program is native to this computer and opens a window"),
+            Route::ProjectPlay => Confinement::HostOnly("the built program is native to this computer"),
+            Route::RuntimeWalkthrough => Confinement::HostOnly("the program is native to this computer"),
+            Route::NativeWindowCapture => Confinement::HostOnly("the program is native to this computer and opens a window"),
+            Route::Website => Confinement::HostOnly("the browser runs the built website on this computer"),
+            Route::Electron => Confinement::HostOnly("the built Electron app is native to this computer"),
             Route::Agent => Confinement::HostOnly("the agent runs its own tools and signs in as you"),
+            Route::Unclassified => Confinement::HostOnly("this launch is not classified"),
         }
     }
 
@@ -63,7 +86,13 @@ impl Route {
             Route::OwnCheck => "own-check",
             Route::GameProbe => "game-probe",
             Route::SelfTest => "self-test",
+            Route::ProjectPlay => "project-play",
+            Route::RuntimeWalkthrough => "runtime-walkthrough",
+            Route::NativeWindowCapture => "native-window-capture",
+            Route::Website => "website",
+            Route::Electron => "electron",
             Route::Agent => "coding-agent",
+            Route::Unclassified => "unclassified",
         }
     }
 
@@ -76,20 +105,81 @@ impl Route {
             Route::OwnCheck => "A person's own project build or tests",
             Route::GameProbe => "The game probe",
             Route::SelfTest => "A build's screenshot or self-test",
+            Route::ProjectPlay => "Playing the build",
+            Route::RuntimeWalkthrough => "The runtime walkthrough",
+            Route::NativeWindowCapture => "The window capture",
+            Route::Website => "The built website",
+            Route::Electron => "The built Electron app",
             Route::Agent => "A coding agent",
+            Route::Unclassified => "An unclassified launch",
         }
     }
 }
 
-/// The tools whose route the engine checks before it runs them.
-///
-/// A tool that runs a build's code but isn't here is checked by its own code (a check) or by
-/// the build that starts it (an agent); a test keeps this list in step with the build tools.
-pub const TOOL_ROUTES: &[(&str, Route)] = &[("build_command_run", Route::BuildCommand), ("build_probe_run", Route::GameProbe)];
+/// The route id a process class names, when it names a known route.
+pub fn route_by_id(id: &str) -> Option<Route> {
+    Some(match id {
+        "build-command" => Route::BuildCommand,
+        "build-check" => Route::BuildCheck,
+        "runs-check" => Route::RunsCheck,
+        "own-check" => Route::OwnCheck,
+        "game-probe" => Route::GameProbe,
+        "self-test" => Route::SelfTest,
+        "project-play" => Route::ProjectPlay,
+        "runtime-walkthrough" => Route::RuntimeWalkthrough,
+        "native-window-capture" => Route::NativeWindowCapture,
+        "website" => Route::Website,
+        "electron" => Route::Electron,
+        _ => return None,
+    })
+}
 
-/// The route a tool id runs, when the engine can decide it before the tool starts.
-pub fn route_of(tool: &str) -> Option<Route> {
-    TOOL_ROUTES.iter().find(|(id, _)| *id == tool).map(|(_, route)| *route)
+/// What a tool's process launches are, at the engine boundary.
+///
+/// A tool that starts a program but is not here is [`Class::Unclassified`], which `refuse` stops
+/// at the process boundary. That is deliberate: a new tool must say what it is before it can run
+/// code under the strict policy.
+pub fn tool_class(tool: &str) -> Class {
+    match tool {
+        "build_command_run" => Class::Generated("build-command"),
+        "build_probe_run" => Class::Generated("game-probe"),
+        "project_play" | "project_pin_open" => Class::Generated("project-play"),
+        "runtime_walkthrough_record" => Class::Generated("runtime-walkthrough"),
+        "native_window_capture" => Class::Generated("native-window-capture"),
+        "web_site_open" | "web_site_capture" | "web_page_show" | "web_page_states_capture" | "web_page_screenshot_take" | "web_walkthrough_check" => {
+            Class::Generated("website")
+        }
+        _ if tool.starts_with("electron_") => Class::Generated("electron"),
+        _ if tool.starts_with("adb_")
+            || tool.starts_with("frida_")
+            || tool.starts_with("gdb_")
+            || tool.starts_with("rizin_")
+            || tool.starts_with("packet_")
+            || tool.starts_with("external_disasm_")
+            || tool.starts_with("apple_")
+            || tool.starts_with("ghidra_")
+            || tool.starts_with("jadx_")
+            || tool.starts_with("apktool_")
+            || tool.starts_with("mcp_") =>
+        {
+            Class::TargetTool
+        }
+        _ if tool.starts_with("install_") || tool == "engines_install" => Class::Installer,
+        "project_open_folder" | "project_preview" => Class::Housekeeping,
+        _ => Class::Unclassified,
+    }
+}
+
+/// What a check's process launches are, at the rebuild worker.
+pub fn check_class(check: &str) -> Class {
+    match check {
+        crate::workspace::CheckResult::BUILD => Class::Generated("build-check"),
+        "app-screenshot" | "game-self-test" => Class::Generated("self-test"),
+        "app-runs" => Class::Generated("runs-check"),
+        "own-tests" => Class::Generated("own-check"),
+        "mechanics" | "credits" | "web-visual" => Class::Generated("website"),
+        _ => Class::Unclassified,
+    }
 }
 
 /// What the person asked for, as it applies to a route.
@@ -140,6 +230,23 @@ pub fn outside_note(policy: Policy, route: Route) -> Option<String> {
     policy.outside(route).map(|why| format!(" It ran on this computer, outside the Docker sandbox: {why}."))
 }
 
+/// The policy installed at every tool, check and agent boundary.
+pub struct BuildPolicy {
+    pub build: BuildSettings,
+}
+
+impl craft_anything_platform::execution::Policy for BuildPolicy {
+    fn check(&self, class: Class) -> Result<(), ToolError> {
+        let route = match class {
+            Class::Generated(id) => route_by_id(id).unwrap_or(Route::Unclassified),
+            Class::Agent => Route::Agent,
+            Class::Unclassified => Route::Unclassified,
+            Class::TargetTool | Class::Installer | Class::Housekeeping => return Ok(()),
+        };
+        Policy::of(&self.build).check(route)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -148,8 +255,35 @@ mod tests {
         BuildSettings { sandbox, sandbox_unconfined: unconfined, ..Default::default() }
     }
 
-    const ALL: [Route; 7] = [Route::BuildCommand, Route::BuildCheck, Route::RunsCheck, Route::OwnCheck, Route::GameProbe, Route::SelfTest, Route::Agent];
-    const HOST_ONLY: [Route; 6] = [Route::BuildCheck, Route::RunsCheck, Route::OwnCheck, Route::GameProbe, Route::SelfTest, Route::Agent];
+    const ALL: [Route; 13] = [
+        Route::BuildCommand,
+        Route::BuildCheck,
+        Route::RunsCheck,
+        Route::OwnCheck,
+        Route::GameProbe,
+        Route::SelfTest,
+        Route::ProjectPlay,
+        Route::RuntimeWalkthrough,
+        Route::NativeWindowCapture,
+        Route::Website,
+        Route::Electron,
+        Route::Agent,
+        Route::Unclassified,
+    ];
+    const HOST_ONLY: [Route; 12] = [
+        Route::BuildCheck,
+        Route::RunsCheck,
+        Route::OwnCheck,
+        Route::GameProbe,
+        Route::SelfTest,
+        Route::ProjectPlay,
+        Route::RuntimeWalkthrough,
+        Route::NativeWindowCapture,
+        Route::Website,
+        Route::Electron,
+        Route::Agent,
+        Route::Unclassified,
+    ];
 
     #[test]
     fn with_the_sandbox_off_every_route_runs_here() {
@@ -193,10 +327,52 @@ mod tests {
     }
 
     #[test]
-    fn the_build_tools_are_the_routes_the_engine_can_check() {
-        assert_eq!(route_of("build_command_run"), Some(Route::BuildCommand));
-        assert_eq!(route_of("build_probe_run"), Some(Route::GameProbe));
-        assert_eq!(route_of("build_file_write"), None);
-        assert_eq!(TOOL_ROUTES.len(), 2);
+    fn every_tool_class_names_a_known_route_or_a_non_generated_one() {
+        for tool in [
+            "build_command_run",
+            "build_probe_run",
+            "project_play",
+            "project_pin_open",
+            "runtime_walkthrough_record",
+            "native_window_capture",
+            "web_site_open",
+            "web_page_screenshot_take",
+            "electron_app_launch",
+        ] {
+            let Class::Generated(id) = tool_class(tool) else { panic!("{tool} is not generated") };
+            assert!(route_by_id(id).is_some(), "{tool}: {id}");
+        }
+        for tool in ["adb_devices_find", "frida_attach", "gdb_start", "packet_capture_start", "install_tool"] {
+            assert!(matches!(tool_class(tool), Class::TargetTool | Class::Installer), "{tool}");
+        }
+        assert_eq!(tool_class("build_file_write"), Class::Unclassified);
+        assert_eq!(check_class("app-screenshot"), Class::Generated("self-test"));
+        assert_eq!(check_class("app-runs"), Class::Generated("runs-check"));
+        assert_eq!(check_class("game-self-test"), Class::Generated("self-test"));
+        assert_eq!(check_class("build"), Class::Generated("build-check"));
+        assert_eq!(check_class("unknown"), Class::Unclassified);
+    }
+
+    #[test]
+    fn the_installed_policy_refuses_host_only_and_unclassified_launches() {
+        let policy = BuildPolicy { build: build(SandboxMode::Docker, Unconfined::Refuse) };
+        use craft_anything_platform::execution::Policy as _;
+        for class in [
+            Class::Generated("game-probe"),
+            Class::Generated("project-play"),
+            Class::Generated("runtime-walkthrough"),
+            Class::Generated("native-window-capture"),
+            Class::Generated("website"),
+            Class::Generated("electron"),
+            Class::Agent,
+            Class::Unclassified,
+        ] {
+            let err = policy.check(class).unwrap_err();
+            assert_eq!(err.code, ErrorCode::FeatureMissing, "{class:?}");
+        }
+        assert!(policy.check(Class::Generated("build-command")).is_ok());
+        assert!(policy.check(Class::TargetTool).is_ok());
+        assert!(policy.check(Class::Installer).is_ok());
+        assert!(policy.check(Class::Housekeeping).is_ok());
     }
 }

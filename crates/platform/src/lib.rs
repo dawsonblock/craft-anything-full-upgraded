@@ -8,6 +8,7 @@
 pub mod cancel;
 pub mod capture;
 pub mod display;
+pub mod execution;
 pub mod fs;
 pub mod process;
 pub mod sandbox;

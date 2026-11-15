@@ -256,9 +256,9 @@ impl RebuildRun {
         // A coding agent runs its own tools and signs in as the person, so it can't be put in the
         // container. When the person asked for confinement and refused unconfined runs, the build
         // says so now instead of starting an agent outside the boundary.
+        let build = session_build.or_else(|| opts.build.clone()).unwrap_or_else(|| craft_anything_engine::Settings::load_from(&hub.settings_path()).build);
         let mut agent_outside = None;
         if entry.config.kind == BackendKind::AgentCli {
-            let build = session_build.or_else(|| opts.build.clone()).unwrap_or_else(|| craft_anything_engine::Settings::load_from(&hub.settings_path()).build);
             let policy = craft_anything_engine::execution::Policy::of(&build);
             policy.check(craft_anything_engine::execution::Route::Agent)?;
             agent_outside = policy.outside(craft_anything_engine::execution::Route::Agent);
@@ -328,6 +328,7 @@ impl RebuildRun {
         };
         let r2 = running.clone();
         let key_store = hub.keys.clone();
+        let policy = std::sync::Arc::new(craft_anything_engine::execution::BuildPolicy { build });
         std::thread::Builder::new()
             .name("rebuild".into())
             .spawn(move || {
@@ -337,8 +338,10 @@ impl RebuildRun {
                 let awake = craft_anything_platform::keep_awake();
                 let _here = self_check::BuildingHere::new(&ws.root);
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    ctx.load_asset_keys(&key_store);
-                    ctx.run(&mut ws, entry, api, extractor, &opts)
+                    craft_anything_platform::execution::with_policy(policy, craft_anything_platform::execution::Class::Agent, || {
+                        ctx.load_asset_keys(&key_store);
+                        ctx.run(&mut ws, entry, api, extractor, &opts)
+                    })
                 }));
                 let (ok, message, paused) = run_outcome(result, &mut ws);
                 ctx.record_usage(None);

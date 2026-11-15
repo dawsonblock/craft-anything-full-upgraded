@@ -954,12 +954,10 @@ mod tests {
         assert!(folder_to_open(&ws, false, Some(8)).is_err(), "no such pin");
     }
 
-    /// R3.0 PR 2: `project_play` starts the built program but is not in `execution::TOOL_ROUTES`,
-    /// so `sandbox_unconfined = "refuse"` does not stop it. Ignored until the central execution
-    /// controller lands; run it to see the gap.
+    /// `project_play` starts the built program; the central execution controller classes it as a
+    /// generated-code route, so `sandbox_unconfined = "refuse"` stops it before it starts.
     #[cfg(unix)]
     #[test]
-    #[ignore = "R3.0 PR 2: the central execution controller must cover project_play"]
     fn playing_a_build_is_refused_when_the_sandbox_refuses_unconfined_runs() {
         use std::os::unix::fs::PermissionsExt;
         let d = tempfile::tempdir().unwrap();

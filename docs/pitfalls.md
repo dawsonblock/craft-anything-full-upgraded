@@ -1039,5 +1039,6 @@ when the writer is usually our own script.
 **A policy checked at the tool, not at the process.** The strict sandbox policy covered
 `build_command_run` and the checks, but `runtime_walkthrough_record` and `project_play` started the
 build's program through `Process`/`Launch` without asking it. List the launches at the process
-boundary, not only the tools; `docs/execution-routes.md` is the inventory and the two ignored tests
-show the gap until R3.0's execution controller lands.
+boundary, not only the tools; `docs/execution-routes.md` is the inventory, and
+`platform::execution` now checks `Process::spawn`/`start_watched` before starting. The two former
+gap tests are ordinary regressions.

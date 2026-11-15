@@ -718,12 +718,10 @@ mod tests {
         assert_eq!(err.code, craft_anything_evidence::ErrorCode::BadInput);
     }
 
-    /// R3.0 PR 2: `runtime_walkthrough_record` starts a program but is not in
-    /// `execution::TOOL_ROUTES`, so `sandbox_unconfined = "refuse"` does not stop it. Ignored
-    /// until the central execution controller lands; run it to see the gap.
+    /// `runtime_walkthrough_record` starts a program; the central execution controller classes it
+    /// as a generated-code route, so `sandbox_unconfined = "refuse"` stops it before it starts.
     #[cfg(unix)]
     #[test]
-    #[ignore = "R3.0 PR 2: the central execution controller must cover runtime_walkthrough_record"]
     fn a_walkthrough_is_refused_when_the_sandbox_refuses_unconfined_runs() {
         let mut s = crate::testing::session();
         s.settings.build.sandbox = crate::settings::SandboxMode::Docker;

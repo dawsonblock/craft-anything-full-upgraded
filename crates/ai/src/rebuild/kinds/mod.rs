@@ -302,7 +302,17 @@ impl Worker {
             // the CLI and the progress panel show.
             let (step, doing) = if round == self_check::SELF_CHECK_ROUND { (Step::Build, "Checking its work") } else { (Step::Check, "Checking the build") };
             self.emit(RunEvent::Step { step, text: format!("{doing} ({} of {}): {}…", i + 1, checks.len(), c.id()) });
-            let mut r = c.run(&mut cx)?;
+            // The check's own process launches are held to the policy at the process boundary, with
+            // the check's route as their class. An unknown check is unclassified: under `refuse` a
+            // program it starts does not start.
+            let build = self.engine.session().settings.build.clone();
+            let policy = std::sync::Arc::new(craft_anything_engine::execution::BuildPolicy { build });
+            let class = if c.id() == CheckResult::BUILD && ws.manifest.own_project() {
+                craft_anything_platform::execution::Class::Generated("own-check")
+            } else {
+                craft_anything_engine::execution::check_class(c.id())
+            };
+            let mut r = craft_anything_platform::execution::with_policy(policy, class, || c.run(&mut cx))?;
             r.required = c.required();
             let failed = r.failed();
             out.push(r);
