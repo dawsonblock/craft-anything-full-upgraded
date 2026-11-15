@@ -101,7 +101,9 @@ PR 2 landed the controller:
   engine's build. `run_checks_within` puts that in `BuildPolicy::build_check_confined`, so the
   check's own `docker` launch under `Class::Generated("build-check")` is allowed; `Policy` then
   treats `Route::BuildCheck` as confined instead of host-only.
-- `AiHub::start` installs it around an agent chat, so a chat or question is held to `Route::Agent`.
+- `AiHub::start` refuses an agent chat or question under `refuse` before it creates the shared
+  worker, and hands the worker the policy; `SharedConversation` installs it on its own thread,
+  because the thread-local context set by the caller is gone by the time the agent process starts.
 - `TOOL_ROUTES` is gone. `tool_class` is the one table at the tool boundary; a tool not in it is
   `Unclassified`, and a program it starts fails under `refuse`.
 

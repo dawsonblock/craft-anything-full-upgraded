@@ -1047,3 +1047,10 @@ build's program through `Process`/`Launch` without asking it. List the launches 
 boundary, not only the tools; `docs/execution-routes.md` is the inventory, and
 `platform::execution` now checks `Process::spawn`/`start_watched` before starting. The two former
 gap tests are ordinary regressions.
+
+**A thread-local policy does not follow the work to another thread.** `AiHub::start` installed the
+execution policy around creating a conversation, but that conversation's worker starts the agent on
+its own thread later, where the context is gone, so `refuse` did not stop the agent process.
+Refuse at the call the person made, before the worker exists, and install the policy inside every
+worker that can start a process; pass it as an argument so it cannot be forgotten. A policy
+installed around a constructor only covers the constructor.

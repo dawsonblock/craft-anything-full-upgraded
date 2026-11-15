@@ -935,6 +935,10 @@ Owner: open · Status: in progress
       agent's sign-in, its own tools and the project, which this change does not attempt
 - [ ] Hold a chat or a question with a coding agent to the same policy: this change covers a
       build's agent, not the agent's own tools in a chat (their own approvals are R2.2's decision)
+- [x] Refuse a chat or question with an agent under `refuse` before its worker exists, and install
+      the policy on the worker's own thread, where the agent process starts: the thread-local
+      policy `AiHub::start` installed was gone by then, so the process boundary allowed the launch
+      — claimed: Devin, branch bugfix/agent-chat-policy
 - [ ] Sweep containers carrying the sandbox label at startup, for one left behind by a crash
       rather than a timeout or cancel (both of which now stop it)
 - [ ] Run the game probe inside a container on Linux, where the built game can be a Linux binary
