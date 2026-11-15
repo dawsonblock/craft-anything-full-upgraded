@@ -17,7 +17,7 @@ from reaching the network when they don't need it.
 |---|---|
 | Mounts | The project folder (`app/`) at `/work`, read-write. The folder is resolved and must stay inside the project; a symlinked `app/` that leads outside is refused. Nothing else is mounted. |
 | Working directory | `/work` |
-| User | The host's numeric user and group on macOS and Linux; a fixed non-root id (`1000:1000`) on Windows, which has no host id to mirror. A root host (`0:0`) also falls back to `1000:1000`, so the container is never root. |
+| User | The host's numeric user and group on macOS and Linux; a fixed non-root id (`1000:1000`) on Windows, which has no host id to mirror. Any zero id, uid or gid, also falls back to `1000:1000`, so the container is never root (`0:20` is root: the kernel checks the uid). |
 | Image | The tag in `sandbox_image`, or a pinned `sha256` digest when `sandbox_image_digest` is set |
 | Storage | The writable layer is unlimited by default; `sandbox_disk_mb` adds Docker's `--storage-opt size`, which needs a storage driver with quota support (not Docker Desktop) |
 | Capabilities | `--cap-drop ALL`, `--security-opt no-new-privileges` |

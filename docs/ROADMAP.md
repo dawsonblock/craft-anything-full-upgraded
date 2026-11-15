@@ -923,6 +923,10 @@ Owner: open · Status: in progress
       optional writable-layer size limit is passed; no host environment or home folder reaches
       the container (R3.0 PR 3)
       — claimed: Devin, branch feature/r3.0-docker-hardening
+- [x] A zero uid or gid never reaches `--user`: only `0:0` fell back to `1000:1000`, so a root
+      host whose primary group was not root (`0:20`) still ran as root in the container (found in
+      review of R3.0 PR 3)
+      — claimed: Devin, branch bugfix/sandbox-root-uid
 - [ ] **decision** Whether `sandbox_unconfined` should default to `"refuse"`: today turning the
       sandbox on still runs the check's own build, the runs comparison, a person's own project's
       build or tests, the probe, a self-test and a coding agent outside it (each says so), because

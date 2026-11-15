@@ -283,7 +283,13 @@ fn host_path(project: &Path) -> Result<String, ToolError> {
 /// The `--user` value: the host id, except root. Root on the host must not become root in the
 /// container; a fixed non-root id is used instead (Windows has no host id to mirror).
 fn user_arg(host: Option<String>) -> String {
-    host.filter(|u| u != "0:0").unwrap_or_else(|| "1000:1000".to_string())
+    host.filter(|u| !names_root(u)).unwrap_or_else(|| "1000:1000".to_string())
+}
+
+/// Whether a `uid:gid` pair has a zero in it. A zero uid is root whatever its group is (`0:20` is
+/// still root), and a zero gid would give a non-root user root's group.
+fn names_root(user: &str) -> bool {
+    user.split(':').any(|id| id.trim() == "0")
 }
 
 /// The current user, so files the build writes stay theirs instead of root's.
@@ -484,8 +490,27 @@ mod tests {
     #[test]
     fn root_on_the_host_never_becomes_root_in_the_container() {
         assert_eq!(user_arg(Some("0:0".into())), "1000:1000");
+        assert_eq!(user_arg(Some("0:20".into())), "1000:1000", "a zero uid is root whatever its group");
+        assert_eq!(user_arg(Some("0:1000".into())), "1000:1000");
+        assert_eq!(user_arg(Some("501:0".into())), "1000:1000", "a zero gid is remapped too");
         assert_eq!(user_arg(Some("501:20".into())), "501:20");
         assert_eq!(user_arg(None), "1000:1000");
+    }
+
+    /// Opt-in: needs Docker. The container really runs as the host user, and never as root.
+    /// `cargo test -p craft-anything-platform the_container_runs_as_the_host_user_not_root -- --ignored`
+    #[test]
+    #[ignore]
+    fn the_container_runs_as_the_host_user_not_root() {
+        let dir = tempfile::tempdir().unwrap();
+        let spec = Spec { project: dir.path().to_path_buf(), ..Default::default() };
+        let out = run(&spec, "id -u", Duration::from_secs(60), None).expect("docker run");
+        assert!(out.success, "{}", out.stderr_text());
+        let uid = out.stdout_text().trim().to_string();
+        assert_ne!(uid, "0", "the container ran as root");
+        if let Some(host) = host_user() {
+            assert_eq!(Some(uid.as_str()), host.split(':').next(), "the container runs as the host user");
+        }
     }
 
     #[test]
