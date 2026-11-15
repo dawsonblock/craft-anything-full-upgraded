@@ -1,5 +1,6 @@
 # 日本語 (Japanese). One `key<TAB>translation` per line; `#` starts a comment.
 # The key is the English string used in the code (i18n::tr); `\n` is a line break.
+Probe the built game	ビルドしたゲームを検査
 
  and {n} more	 ほか {n} 件
 (1 picture attached)	(画像 1 枚を添付)
