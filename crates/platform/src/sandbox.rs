@@ -270,14 +270,27 @@ fn host_path(project: &Path) -> Result<String, ToolError> {
     }
     let text = real.to_string_lossy();
     if cfg!(windows) {
-        // `C:\Users\me\app` becomes `C:/Users/me/app`; Docker accepts the drive letter.
-        return Ok(text.replace('\\', "/"));
+        return Ok(docker_windows_path(&text));
     }
     if text.contains(':') {
         return Err(ToolError::invalid("The project folder's path contains `:`, which Docker reads as a volume separator.")
             .with_remediation("Move the project to a folder whose path has no colon, or turn the sandbox off in Settings → Build."));
     }
     Ok(text.into_owned())
+}
+
+/// A Windows path as Docker's `-v` expects it: no `\\?\` verbatim prefix, forward slashes.
+///
+/// `std::fs::canonicalize` returns a verbatim path (`\\?\C:\Users\me\app`), which Docker Desktop
+/// does not accept; the ordinary spelling is `C:/Users/me/app`. A network path keeps its `\\`
+/// prefix (`\\?\UNC\server\share` is `//server/share`).
+fn docker_windows_path(text: &str) -> String {
+    let plain = text
+        .strip_prefix(r"\\?\UNC\")
+        .map(|rest| format!(r"\\{rest}"))
+        .or_else(|| text.strip_prefix(r"\\?\").map(str::to_string))
+        .unwrap_or_else(|| text.to_string());
+    plain.replace('\\', "/")
 }
 
 /// The `--user` value: the host id, except root. Root on the host must not become root in the
@@ -542,6 +555,15 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let bad = Spec { project: dir.path().join("missing"), ..Default::default() };
         assert!(bad.argv("x").is_err());
+    }
+
+    /// Windows canonical paths are verbatim (`\\?\C:\…`); Docker wants the ordinary spelling.
+    #[test]
+    fn a_windows_path_reaches_docker_without_its_verbatim_prefix() {
+        assert_eq!(docker_windows_path(r"\\?\C:\Users\me\app"), "C:/Users/me/app");
+        assert_eq!(docker_windows_path(r"\\?\UNC\server\share\app"), "//server/share/app");
+        assert_eq!(docker_windows_path(r"C:\Users\me\app"), "C:/Users/me/app");
+        assert_eq!(docker_windows_path(r"\\server\share\app"), "//server/share/app");
     }
 
     /// A project link is resolved to the folder it names; the mount is never the link itself.
