@@ -13,9 +13,11 @@ from reaching the network when they don't need it.
 
 | | |
 |---|---|
-| Mounts | The project folder (`app/`) at `/work`, read-write. Nothing else is mounted. |
+| Mounts | The project folder (`app/`) at `/work`, read-write. The folder is resolved and must stay inside the project; a symlinked `app/` that leads outside is refused. Nothing else is mounted. |
 | Working directory | `/work` |
-| User | The host's numeric user and group on macOS and Linux; a fixed non-root id (`1000:1000`) on Windows, which has no host id to mirror |
+| User | The host's numeric user and group on macOS and Linux; a fixed non-root id (`1000:1000`) on Windows, which has no host id to mirror. A root host (`0:0`) also falls back to `1000:1000`, so the container is never root. |
+| Image | The tag in `sandbox_image`, or a pinned `sha256` digest when `sandbox_image_digest` is set |
+| Storage | The writable layer is unlimited by default; `sandbox_disk_mb` adds Docker's `--storage-opt size`, which needs a storage driver with quota support (not Docker Desktop) |
 | Capabilities | `--cap-drop ALL`, `--security-opt no-new-privileges` |
 | Network | `--network none` unless `sandbox_network` allows it (`bridge`) |
 | Memory | `--memory` and `--memory-swap` at the same value, 4 GiB by default (256 MiB–64 GiB) |
@@ -33,6 +35,8 @@ unbounded container.
 [build]
 sandbox = "docker"                  # "off" (default) or "docker"
 sandbox_image = "node:22"           # default: debian:bookworm-slim
+sandbox_image_digest = "sha256:…"   # optional pin; empty uses the tag
+sandbox_disk_mb = 0                 # 0 = Docker's default; needs a quota-capable driver
 sandbox_network = true              # default: true; package installs need it
 sandbox_unconfined = "allow"        # default: "allow"; "refuse" stops routes that can't be confined
 ```

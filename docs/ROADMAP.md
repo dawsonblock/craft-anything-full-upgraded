@@ -917,6 +917,12 @@ Owner: open · Status: in progress
       `runtime_walkthrough_record` and `project_play` are refused, and `TOOL_ROUTES` is gone
       (R3.0 PR 2)
       — claimed: Devin, branch feature/r3.0-execution-inventory
+- [x] Harden Docker and project files: the project folder is resolved and must stay inside the
+      project (a symlinked app/ that leads outside is refused); the container never runs as root
+      (a root host falls back to 1000:1000); the image can be pinned by `sha256` digest; an
+      optional writable-layer size limit is passed; no host environment or home folder reaches
+      the container (R3.0 PR 3)
+      — claimed: Devin, branch feature/r3.0-docker-hardening
 - [ ] **decision** Whether `sandbox_unconfined` should default to `"refuse"`: today turning the
       sandbox on still runs the check's own build, the runs comparison, a person's own project's
       build or tests, the probe, a self-test and a coding agent outside it (each says so), because

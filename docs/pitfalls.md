@@ -1036,6 +1036,11 @@ with `std::fs::read`; a generated game (same user, project write access) could r
 huge file and exhaust memory. Cap every file an untrusted run can write before reading it, even
 when the writer is usually our own script.
 
+**A bind mount follows a link.** `-v app:/work` mounts whatever `app` points at, so a project
+whose `app/` is a symlink to the home folder would hand the container the rest of the computer.
+Resolve the folder and require it to stay inside the project before mounting; also require the
+path exists, or Docker creates a root-owned directory in its place.
+
 **A policy checked at the tool, not at the process.** The strict sandbox policy covered
 `build_command_run` and the checks, but `runtime_walkthrough_record` and `project_play` started the
 build's program through `Process`/`Launch` without asking it. List the launches at the process

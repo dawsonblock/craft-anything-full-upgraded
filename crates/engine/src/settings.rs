@@ -161,6 +161,11 @@ pub struct BuildSettings {
     /// Image a sandboxed build runs in. A build that needs Node, Rust or Python needs an image
     /// that has it.
     pub sandbox_image: String,
+    /// Digest the image must match (`sha256:...`); empty uses the tag in [`BuildSettings::sandbox_image`].
+    pub sandbox_image_digest: Option<String>,
+    /// Writable-layer ceiling for a sandboxed build in MiB; 0 leaves Docker's default. Needs a
+    /// storage driver with quota support (overlay2 with pquota; not Docker Desktop).
+    pub sandbox_disk_mb: u64,
     /// Whether a sandboxed build may reach the network. Package installs need it; a build that
     /// only compiles what it already has doesn't.
     pub sandbox_network: bool,
@@ -203,6 +208,8 @@ impl Default for BuildSettings {
             parallel: 2,
             sandbox: SandboxMode::Off,
             sandbox_image: craft_anything_platform::sandbox::DEFAULT_IMAGE.to_string(),
+            sandbox_image_digest: None,
+            sandbox_disk_mb: 0,
             sandbox_network: true,
             sandbox_unconfined: Unconfined::Allow,
         }
@@ -542,17 +549,24 @@ auto_mode = true
         let old: Settings = toml::from_str("version = 1\n").unwrap();
         assert_eq!(old.build.sandbox, SandboxMode::Off, "configs written before the sandbox load as off");
         assert_eq!(old.build.sandbox_unconfined, Unconfined::Allow, "configs written before the policy load as allow");
-        let asked: Settings = toml::from_str(
+        assert_eq!(Settings::default().build.sandbox_image_digest, None);
+        assert_eq!(Settings::default().build.sandbox_disk_mb, 0);
+        let digest = format!("sha256:{}", "a".repeat(64));
+        let asked: Settings = toml::from_str(&format!(
             "[build]
 sandbox = \"docker\"
 sandbox_image = \"node:22\"
+sandbox_image_digest = \"{digest}\"
+sandbox_disk_mb = 2048
 sandbox_network = false
 sandbox_unconfined = \"refuse\"
-",
-        )
+"
+        ))
         .unwrap();
         assert_eq!(asked.build.sandbox, SandboxMode::Docker);
         assert_eq!(asked.build.sandbox_image, "node:22");
+        assert_eq!(asked.build.sandbox_image_digest.as_deref(), Some(digest.as_str()));
+        assert_eq!(asked.build.sandbox_disk_mb, 2048);
         assert!(!asked.build.sandbox_network);
         assert_eq!(asked.build.sandbox_unconfined, Unconfined::Refuse);
     }

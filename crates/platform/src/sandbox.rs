@@ -32,6 +32,8 @@ pub const DEFAULT_IMAGE: &str = "debian:bookworm-slim";
 pub struct Spec {
     /// Image the command runs in.
     pub image: String,
+    /// Digest the image must match (`sha256:...`); `None` uses the tag in [`Spec::image`].
+    pub digest: Option<String>,
     /// The project folder: the only host path the container can see, mounted at [`WORKDIR`].
     pub project: PathBuf,
     /// Whether the container may reach the network. Package installs need it.
@@ -42,11 +44,14 @@ pub struct Spec {
     pub cpus: f32,
     /// Process ceiling inside the container (16-32768).
     pub pids: u32,
+    /// Writable-layer ceiling in MiB; 0 leaves Docker's default. Needs a storage driver with
+    /// quota support (overlay2 with pquota; not Docker Desktop).
+    pub storage_mb: u64,
 }
 
 impl Default for Spec {
     fn default() -> Self {
-        Spec { image: DEFAULT_IMAGE.to_string(), project: PathBuf::new(), network: false, memory_mb: 4096, cpus: 2.0, pids: 512 }
+        Spec { image: DEFAULT_IMAGE.to_string(), digest: None, project: PathBuf::new(), network: false, memory_mb: 4096, cpus: 2.0, pids: 512, storage_mb: 0 }
     }
 }
 
@@ -65,6 +70,20 @@ impl Spec {
         if !self.project.is_absolute() {
             return Err(ToolError::invalid("The sandbox needs an absolute project folder."));
         }
+        let image_ref = match self.digest.as_deref() {
+            Some(digest) => {
+                let hex = digest.strip_prefix("sha256:").unwrap_or_default();
+                if hex.len() != 64 || !hex.chars().all(|c| c.is_ascii_hexdigit()) {
+                    return Err(ToolError::invalid(format!("`{digest}` isn't a sha256 image digest."))
+                        .with_remediation("Use `sha256:` followed by 64 hex digits, or leave the digest empty to use the tag."));
+                }
+                if image.contains('@') {
+                    return Err(ToolError::invalid("The image already names a digest; set the image to its name without `@`."));
+                }
+                format!("{image}@{digest}")
+            }
+            None => image.to_string(),
+        };
         let host = host_path(&self.project)?;
         let memory = self.memory_mb.clamp(256, 65_536);
         let cpus = if self.cpus.is_finite() { self.cpus.clamp(0.1, 64.0) } else { 2.0 };
@@ -83,6 +102,12 @@ impl Spec {
             format!("{cpus}"),
             "--pids-limit".into(),
             pids.to_string(),
+        ];
+        if self.storage_mb > 0 {
+            argv.push("--storage-opt".into());
+            argv.push(format!("size={}m", self.storage_mb));
+        }
+        argv.extend([
             "--cap-drop".into(),
             "ALL".into(),
             "--security-opt".into(),
@@ -91,17 +116,10 @@ impl Spec {
             format!("{host}:{WORKDIR}"),
             "-w".into(),
             WORKDIR.into(),
-        ];
-        if let Some(user) = host_user() {
-            argv.push("--user".into());
-            argv.push(user);
-        } else {
-            // Windows has no host id to mirror. A fixed non-root id is better than leaving the
-            // image's default, which is often root.
-            argv.push("--user".into());
-            argv.push("1000:1000".into());
-        }
-        argv.extend([image.to_string(), "sh".into(), "-c".into(), command.to_string()]);
+            "--user".into(),
+            user_arg(host_user()),
+        ]);
+        argv.extend([image_ref, "sh".into(), "-c".into(), command.to_string()]);
         Ok(argv)
     }
 }
@@ -195,9 +213,19 @@ fn daemon_down(out: &Output) -> Option<ToolError> {
     down.then(docker_missing)
 }
 
-/// The project folder as Docker's `-v host:container` expects it.
+/// The project folder as Docker's `-v host:container` expects it: resolved, existing and a real
+/// folder. A missing path would make `-v` create a root-owned directory; a link is resolved so the
+/// mount is the folder the person chose, not whatever it pointed at.
 fn host_path(project: &Path) -> Result<String, ToolError> {
-    let text = project.to_string_lossy();
+    let real = std::fs::canonicalize(project).map_err(|e| {
+        ToolError::invalid(format!("The sandbox's project folder {} can't be read: {e}.", project.display()))
+            .with_remediation("Create the project folder first, or turn the sandbox off in Settings → Build.")
+    })?;
+    if !real.is_dir() {
+        return Err(ToolError::invalid(format!("The sandbox's project folder {} isn't a folder.", real.display()))
+            .with_remediation("Use the folder that holds the app, or turn the sandbox off in Settings → Build."));
+    }
+    let text = real.to_string_lossy();
     if cfg!(windows) {
         // `C:\Users\me\app` becomes `C:/Users/me/app`; Docker accepts the drive letter.
         return Ok(text.replace('\\', "/"));
@@ -207,6 +235,12 @@ fn host_path(project: &Path) -> Result<String, ToolError> {
             .with_remediation("Move the project to a folder whose path has no colon, or turn the sandbox off in Settings → Build."));
     }
     Ok(text.into_owned())
+}
+
+/// The `--user` value: the host id, except root. Root on the host must not become root in the
+/// container; a fixed non-root id is used instead (Windows has no host id to mirror).
+fn user_arg(host: Option<String>) -> String {
+    host.filter(|u| u != "0:0").unwrap_or_else(|| "1000:1000".to_string())
 }
 
 /// The current user, so files the build writes stay theirs instead of root's.
@@ -236,7 +270,7 @@ mod tests {
     use super::*;
 
     fn spec() -> Spec {
-        Spec { project: PathBuf::from("/tmp/craft-build"), ..Default::default() }
+        Spec { project: std::env::temp_dir(), ..Default::default() }
     }
 
     fn joined(argv: &[String]) -> String {
@@ -247,9 +281,11 @@ mod tests {
     fn a_container_sees_only_the_project() {
         let argv = spec().argv("npm install").unwrap_or_default();
         let text = joined(&argv);
-        assert!(text.contains("-v /tmp/craft-build:/work"), "{text}");
+        let host = std::fs::canonicalize(spec().project).unwrap_or_default();
+        assert!(text.contains(&format!("-v {}:{WORKDIR}", host.display())), "{text}");
         assert!(text.contains("-w /work"), "{text}");
         assert_eq!(text.matches("-v ").count(), 1, "exactly one mount: {text}");
+        assert!(!text.contains("--env") && !text.contains("-e "), "no host environment: {text}");
     }
 
     #[test]
@@ -371,5 +407,55 @@ mod tests {
         let image = argv.iter().position(|a| a == DEFAULT_IMAGE).unwrap_or_default();
         let shell = argv.iter().position(|a| a == "sh").unwrap_or_default();
         assert!(image < shell, "{argv:?}");
+    }
+
+    #[test]
+    fn root_on_the_host_never_becomes_root_in_the_container() {
+        assert_eq!(user_arg(Some("0:0".into())), "1000:1000");
+        assert_eq!(user_arg(Some("501:20".into())), "501:20");
+        assert_eq!(user_arg(None), "1000:1000");
+    }
+
+    #[test]
+    fn a_digest_pins_the_image() {
+        let digest = format!("sha256:{}", "a".repeat(64));
+        let pinned = Spec { digest: Some(digest.clone()), ..spec() };
+        let text = joined(&pinned.argv("x").unwrap_or_default());
+        assert!(text.contains(&format!("{DEFAULT_IMAGE}@{digest}")), "{text}");
+    }
+
+    #[test]
+    fn a_bad_digest_is_refused() {
+        for digest in ["sha256:xyz", "md5:abc", ""] {
+            let bad = Spec { digest: Some(digest.into()), ..spec() };
+            assert!(bad.argv("x").is_err(), "{digest} should be refused");
+        }
+    }
+
+    #[test]
+    fn a_storage_limit_is_passed_when_set() {
+        let limited = Spec { storage_mb: 2048, ..spec() };
+        let text = joined(&limited.argv("x").unwrap_or_default());
+        assert!(text.contains("--storage-opt size=2048m"), "{text}");
+        assert!(!joined(&spec().argv("x").unwrap_or_default()).contains("--storage-opt"));
+    }
+
+    #[test]
+    fn a_missing_project_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let bad = Spec { project: dir.path().join("missing"), ..Default::default() };
+        assert!(bad.argv("x").is_err());
+    }
+
+    /// A project link is resolved to the folder it names; the mount is never the link itself.
+    #[cfg(unix)]
+    #[test]
+    fn a_project_link_is_resolved_to_its_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let link = dir.path().join("app-link");
+        std::os::unix::fs::symlink(dir.path(), &link).unwrap();
+        let text = joined(&Spec { project: link, ..Default::default() }.argv("x").unwrap_or_default());
+        let real = std::fs::canonicalize(dir.path()).unwrap();
+        assert!(text.contains(&format!("-v {}:{WORKDIR}", real.display())), "{text}");
     }
 }

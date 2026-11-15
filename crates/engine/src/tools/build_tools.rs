@@ -195,6 +195,10 @@ fn build_probe_run(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolE
     craft_anything_platform::write_atomic(&script, PROBE.as_bytes())?;
     let output = checks.join("probe");
     std::fs::create_dir_all(&output).map_err(|e| ToolError::io(output.display(), e))?;
+    if !really_inside(&checks, &output) {
+        return Err(ToolError::invalid("The probe's output folder leads outside the project.")
+            .with_remediation("Replace checks/probe with a normal folder inside the project."));
+    }
     let report = checks.join("probe-report.json");
     // A report that survives from an earlier run would let stale evidence count.
     match std::fs::remove_file(&report) {
@@ -390,6 +394,18 @@ fn in_project(ws: &Workspace, rel: &str) -> Result<PathBuf, ToolError> {
     )
 }
 
+/// The folder a sandboxed command sees: resolved, and kept inside the project. A project can
+/// replace app/ with a link to the rest of the computer; the container must not mount that.
+fn sandbox_project(ws: &Workspace, app: &Path) -> Result<PathBuf, ToolError> {
+    let root = std::fs::canonicalize(&ws.root).map_err(|e| ToolError::io(ws.root.display(), e))?;
+    let real = std::fs::canonicalize(app).map_err(|e| ToolError::io(app.display(), e))?;
+    if !real.starts_with(&root) {
+        return Err(ToolError::invalid("The app folder leads outside the project, so the sandbox won't mount it.")
+            .with_remediation("Replace app/ with a normal folder inside the project."));
+    }
+    Ok(real)
+}
+
 fn shown(ws: &Workspace, p: &Path) -> String {
     let root = resolve(&ws.root, ".").unwrap_or_else(|| ws.root.clone());
     let rel = p.strip_prefix(&root).unwrap_or(p);
@@ -536,18 +552,21 @@ fn build_command_run(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, Too
     approve(ctx, "Bash", &json!({"command": p.command}))?.map_err(refused)?;
     let app = ws.app_dir();
     std::fs::create_dir_all(&app).map_err(|e| ToolError::io(app.display(), e))?;
+    let sandboxed = ctx.session.settings.build.sandbox == SandboxMode::Docker;
+    let sandbox_app = if sandboxed { Some(sandbox_project(&ws, &app)?) } else { None };
     let inner = app.join("app");
     let had_inner = inner.is_dir();
     let (shell, flag) = if cfg!(windows) { ("cmd", "/C") } else { ("sh", "-c") };
     let cancel = ctx.cancel.clone();
     let timeout = Duration::from_secs(p.timeout_secs.unwrap_or(600).clamp(1, 7200));
-    let sandboxed = ctx.session.settings.build.sandbox == SandboxMode::Docker;
     ctx.report(None, format!("Running {}", p.command.chars().take(120).collect::<String>()));
     let out = if sandboxed {
         let spec = craft_anything_platform::sandbox::Spec {
             image: ctx.session.settings.build.sandbox_image.clone(),
-            project: app.clone(),
+            digest: ctx.session.settings.build.sandbox_image_digest.clone(),
+            project: sandbox_app.unwrap_or_else(|| app.clone()),
             network: ctx.session.settings.build.sandbox_network,
+            storage_mb: ctx.session.settings.build.sandbox_disk_mb,
             ..Default::default()
         };
         craft_anything_platform::sandbox::run(&spec, &p.command, timeout, Some(std::sync::Arc::new(move || cancel.is_cancelled())))?
@@ -821,6 +840,26 @@ mod tests {
         let err = call(&e, "build_command_run", json!({"command": "echo built"})).unwrap_err();
         assert_eq!(err.code, ErrorCode::BadInput, "{}", err.message);
         assert!(err.message.contains("isn't a Docker image name"), "{}", err.message);
+    }
+
+    /// A project can replace app/ with a link to the rest of the computer; the container must not
+    /// mount that.
+    #[cfg(unix)]
+    #[test]
+    fn a_sandboxed_command_refuses_an_app_that_leads_outside() {
+        let mut s = crate::testing::session();
+        s.settings.build.sandbox = SandboxMode::Docker;
+        let dir = s.config_dir();
+        let ws = Workspace::create(&dir, "Snake", "A snake game", TargetRef::None).unwrap();
+        s.ext.insert(Arc::new(InboxDir(ws.inbox_dir())));
+        let e = Engine::new(s);
+        let app = ws.app_dir();
+        std::fs::create_dir_all(&app).unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::remove_dir_all(&app).unwrap();
+        std::os::unix::fs::symlink(outside.path(), &app).unwrap();
+        let err = call(&e, "build_command_run", json!({"command": "echo hi"})).unwrap_err();
+        assert!(err.message.contains("leads outside"), "{}", err.message);
     }
 
     #[test]
