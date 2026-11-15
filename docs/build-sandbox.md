@@ -164,6 +164,7 @@ cargo test -p craft-anything-ai a_strict_check_builds_a_rust_project_in_the_cont
 The first runs `sleep 300` with a one-second deadline and then checks that no container carrying
 the sandbox label is still running. The second asserts the container's uid and gid equal the
 `--user` value (a root host's `1000:1000` fallback, not the host's id), that it isn't root, and
-that it can write `/work`. The third builds a Rust console app under
+that it can write `/work`; it passed on macOS (Docker 29.9.3) as `uid=501 gid=20`, and a root-host
+run is still owed. The third builds a Rust console app under
 `sandbox_unconfined = "refuse"` and asserts the check passed with a `container` receipt, the image
 and exit code 0, and that `target/` is in the project afterwards.

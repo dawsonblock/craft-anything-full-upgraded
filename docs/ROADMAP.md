@@ -947,8 +947,10 @@ Owner: open · Status: in progress
       the container's uid with the host's 0 could never pass (found in an external audit). The
       live check now compares the uid and gid with the `--user` value and writes to `/work`
       — claimed: Devin, branch bugfix/sandbox-root-uid
-- [ ] Run the corrected live id/gid and writable-mount check on a host whose Docker store is
-      writable, and on a root host (where the fallback is `1000:1000`)
+- [x] Run the corrected live id/gid and writable-mount check on a host whose Docker store is
+      writable: passed on macOS (Docker 29.9.3), `uid=501 gid=20`, not root, `/work` writable
+      — claimed: Devin, branch bugfix/sandbox-root-uid
+- [ ] Run it on a root host, where the fallback is `1000:1000`
 - [ ] Bound the project folder's own disk use: `sandbox_disk_mb` limits the container's writable
       layer, not the `/work` bind mount, so a build can still fill the host's disk inside its
       project
