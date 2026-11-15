@@ -12,6 +12,9 @@ import json
 from pathlib import Path
 import sys
 
+# The probe lives in the engine crate so a packaged engine carries it; the verifier stays here.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "crates/engine/src/tools"))
+
 from independent_game_probe import (
     MAX_CASE_BYTES, MAX_RESPONSE_BYTES, ProbeError, case_digest, validate,
 )

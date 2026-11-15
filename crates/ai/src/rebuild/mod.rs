@@ -23,7 +23,7 @@ use craft_anything_engine::inbox::{Answer, Inbox, InboxDir, Request};
 use craft_anything_engine::project::{Project, Purpose};
 use craft_anything_engine::questions::AskedQuestion;
 use craft_anything_engine::workspace::progress::{AppFingerprintCache, BuildProgress};
-use craft_anything_engine::workspace::{CheckResult, Outcome, ProjectUsage, Status, TargetRef, Workspace};
+use craft_anything_engine::workspace::{CheckReceipt, CheckResult, CheckRunner, Outcome, ProjectUsage, Status, TargetRef, Workspace};
 use craft_anything_engine::{CallOptions, Caller, CancelToken, Engine, ToolOutput};
 use craft_anything_engines::game;
 use craft_anything_evidence::{ErrorCode, ToolError};
@@ -151,6 +151,10 @@ pub struct RunOptions {
     /// A free session is read first; this is the fallback while it is held; the saved settings
     /// are the last fallback.
     pub clean_room: Option<bool>,
+    /// How builds run when the caller knows it and the session may be busy (a tool starts a run).
+    /// A free session is read first; this is the fallback while it is held; the saved settings
+    /// are the last fallback. A tool must pass it, or a change not yet saved to disk is missed.
+    pub build: Option<craft_anything_engine::settings::BuildSettings>,
 }
 
 impl Default for RunOptions {
@@ -168,6 +172,7 @@ impl Default for RunOptions {
             adapters: Default::default(),
             wake: Wake::default(),
             clean_room: None,
+            build: None,
         }
     }
 }
@@ -227,6 +232,8 @@ pub struct RebuildRun {
     pub root: PathBuf,
     started: Instant,
     activity: Arc<activity::Activity>,
+    /// Why this run's agent works outside the Docker sandbox, when the person asked for one.
+    pub outside: Option<&'static str>,
 }
 
 impl RebuildRun {
@@ -237,12 +244,25 @@ impl RebuildRun {
         // The person's choice of mode is a session setting. A run that waited its turn uses the mode
         // now, not the one when it was queued; a tool holds the session while it starts a run, so it
         // passes the mode instead, and the saved settings are the last fallback.
-        let clean_room = hub
-            .engine
-            .try_session()
-            .map(|s| s.clean_room())
-            .or(opts.clean_room)
-            .unwrap_or_else(|| !craft_anything_engine::Settings::load_from(&hub.settings_path()).deep_mode);
+        let (session_clean_room, session_build) = match hub.engine.try_session() {
+            Some(s) => (Some(s.clean_room()), Some(s.settings.build.clone())),
+            None => (None, None),
+        };
+        let clean_room = match (session_clean_room, opts.clean_room) {
+            (Some(mode), _) => mode,
+            (None, Some(mode)) => mode,
+            (None, None) => !craft_anything_engine::Settings::load_from(&hub.settings_path()).deep_mode,
+        };
+        // A coding agent runs its own tools and signs in as the person, so it can't be put in the
+        // container. When the person asked for confinement and refused unconfined runs, the build
+        // says so now instead of starting an agent outside the boundary.
+        let build = session_build.or_else(|| opts.build.clone()).unwrap_or_else(|| craft_anything_engine::Settings::load_from(&hub.settings_path()).build);
+        let mut agent_outside = None;
+        if entry.config.kind == BackendKind::AgentCli {
+            let policy = craft_anything_engine::execution::Policy::of(&build);
+            policy.check(craft_anything_engine::execution::Route::Agent)?;
+            agent_outside = policy.outside(craft_anything_engine::execution::Route::Agent);
+        }
         // An API backend builds with our own agent loop and the Build tools; its conversation is
         // kept in the project and continued by follow-ups (a fresh build starts a new one).
         let api = match entry.config.kind {
@@ -283,6 +303,11 @@ impl RebuildRun {
         if let Some(shown) = opts.shown.clone() {
             feed.lock().unwrap_or_else(PoisonError::into_inner).push(feed::FeedItem::User(feed::UserItem::new(shown, opts.shown_pictures.clone())));
         }
+        if let Some(why) = agent_outside {
+            feed.lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .push(feed::FeedItem::Note(format!("This build runs on this computer, outside the Docker sandbox: {why}.")));
+        }
         let ctx = Worker {
             wake: opts.wake.clone(),
             engine: hub.engine.clone(),
@@ -303,6 +328,7 @@ impl RebuildRun {
         };
         let r2 = running.clone();
         let key_store = hub.keys.clone();
+        let policy = std::sync::Arc::new(craft_anything_engine::execution::BuildPolicy { build, build_check_confined: false });
         std::thread::Builder::new()
             .name("rebuild".into())
             .spawn(move || {
@@ -312,8 +338,10 @@ impl RebuildRun {
                 let awake = craft_anything_platform::keep_awake();
                 let _here = self_check::BuildingHere::new(&ws.root);
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    ctx.load_asset_keys(&key_store);
-                    ctx.run(&mut ws, entry, api, extractor, &opts)
+                    craft_anything_platform::execution::with_policy(policy, craft_anything_platform::execution::Class::Agent, || {
+                        ctx.load_asset_keys(&key_store);
+                        ctx.run(&mut ws, entry, api, extractor, &opts)
+                    })
                 }));
                 let (ok, message, paused) = run_outcome(result, &mut ws);
                 ctx.record_usage(None);
@@ -325,7 +353,7 @@ impl RebuildRun {
             })
             .map_err(|e| ToolError::internal(e.to_string()))?;
         let activity = feed.lock().unwrap_or_else(PoisonError::into_inner).activity();
-        Ok(RebuildRun { rx, stop, inbox, running, preview, notes, clean_room, feed, root, started: Instant::now(), activity })
+        Ok(RebuildRun { rx, stop, inbox, running, preview, notes, clean_room, feed, root, started: Instant::now(), activity, outside: agent_outside })
     }
 
     /// Add something while it works; the agent reads it at its next step, and only then does it

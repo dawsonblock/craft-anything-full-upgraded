@@ -13,10 +13,11 @@ use std::path::{Path, PathBuf};
 /// Where the conversation is kept in the project folder.
 pub const FEED_FILE: &str = "feed.json";
 
-/// The format written today (5 marks open plan steps stopped at a run's end; 4 saves a dismissed
-/// plan card with it; 3 saved a prompt's pictures); files without a version are the earlier bare
-/// list. An older Craft Anything won't rewrite a file it can't read (`save` refuses a newer version).
-pub const FEED_VERSION: u32 = 5;
+/// The format written today (6 adds a system note, such as a build that runs outside the Docker
+/// sandbox; 5 marks open plan steps stopped at a run's end; 4 saves a dismissed plan card with it;
+/// 3 saved a prompt's pictures); files without a version are the earlier bare list. An older Craft
+/// Anything won't rewrite a file it can't read (`save` refuses a newer version).
+pub const FEED_VERSION: u32 = 6;
 
 /// What the person sent: as the feed shows it, and the pictures attached to it (their copies in
 /// the project's `attachments/`).
@@ -90,6 +91,8 @@ pub enum FeedItem {
         text: String,
         streaming: bool,
     },
+    /// A system note about this run (for example, that it runs outside the Docker sandbox).
+    Note(String),
     /// A run of tool calls, collapsed in Simple mode: (tool, finished ok?).
     Work {
         tools: Vec<(String, Option<bool>)>,
@@ -311,6 +314,15 @@ mod tests {
         save(&ws.root, &[FeedItem::User(UserItem::Text("A game".into())), FeedItem::Plan(steps)]).unwrap();
         let loaded = load(&ws);
         assert!(matches!(visible_plan(&loaded), Some(p) if p.iter().any(|s| s.status == PlanStatus::Stopped)));
+    }
+
+    /// A system note (a build outside the sandbox) is part of the conversation and survives a save.
+    #[test]
+    fn a_system_note_survives_a_save() {
+        let d = tempfile::tempdir().unwrap();
+        let ws = Workspace::create(d.path(), "x", "A game", TargetRef::None).unwrap();
+        save(&ws.root, &[FeedItem::Note("This build runs outside the sandbox.".into())]).unwrap();
+        assert!(matches!(load(&ws).as_slice(), [FeedItem::Note(text)] if text.contains("outside the sandbox")));
     }
 
     #[test]

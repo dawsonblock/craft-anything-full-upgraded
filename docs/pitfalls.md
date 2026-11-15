@@ -1002,3 +1002,48 @@ they failed with "Craft Anything's helper program (craft-anything-cli) is missin
 `-p craft-anything-cli` before the workspace tests in the gate, and have `find_cli` check the
 `target/<profile>` root: the CI ran the AI test binary from
 `target/debug/build/<crate>/<hash>/out`, not `target/debug/deps`.
+
+**A killed Docker client left the build running.** `docker run --rm` removes a container when it
+exits, but a timeout or cancel kills the Docker client first; the daemon keeps the container
+running, so a cancelled two-hour build carried on. Give every run a unique `--name` and a label,
+and after a failed or stopped run remove it by name (`docker rm --force`). Test it live: start
+`sleep 300` with a one-second deadline, then check no labelled container is still running.
+
+**One boundary, two different limits.** `build_probe_run` accepted 5-600 seconds and handed the
+value to the Python probe, which refuses anything over 120. A 121-second request started the tool
+and then failed inside the probe, where no Rust test could see it. When a value crosses a language
+or process boundary, define the range once on the stricter side, enforce it on both, and test the
+boundary values (0, 120, 121, 600), not only a middle value.
+
+**Transient tool caches in the source manifest.** The source inventory ignored `target` and `log`
+but not `.ruff_cache` or `.pytest_cache`, so running the linters changed what the manifest listed
+and a packaged ZIP without those caches failed verification. Ignore root-level tool caches in the
+inventory itself, then regenerate the manifest after the last source change.
+
+**A policy that named every route by hand missed the checks.** The first sandbox policy covered
+`build_command_run`, the probe, a self-test and a coding agent, but the check's own build
+(`BuildCheck`) and the runs comparison (`RunsCheck`) also run generated code, on the host, and were
+never asked. List every route by the function that starts the program or build, not only by the
+tools, and test the check paths too.
+
+**A refusal is not a consent request.** `sandbox_unconfined = "refuse"` returned
+`ErrorCode::ConsentRequired`; the MCP server and the API agent loop ask the person on that code and
+retry with consent granted, so the person approved a route that could never run. Use a non-consent
+code for a policy refusal, and keep `ConsentRequired` for what an approval can grant.
+
+**A probe's report is written by the thing it drives.** `build_probe_run` read the whole report
+with `std::fs::read`; a generated game (same user, project write access) could replace it with a
+huge file and exhaust memory. Cap every file an untrusted run can write before reading it, even
+when the writer is usually our own script.
+
+**A bind mount follows a link.** `-v app:/work` mounts whatever `app` points at, so a project
+whose `app/` is a symlink to the home folder would hand the container the rest of the computer.
+Resolve the folder and require it to stay inside the project before mounting; also require the
+path exists, or Docker creates a root-owned directory in its place.
+
+**A policy checked at the tool, not at the process.** The strict sandbox policy covered
+`build_command_run` and the checks, but `runtime_walkthrough_record` and `project_play` started the
+build's program through `Process`/`Launch` without asking it. List the launches at the process
+boundary, not only the tools; `docs/execution-routes.md` is the inventory, and
+`platform::execution` now checks `Process::spawn`/`start_watched` before starting. The two former
+gap tests are ordinary regressions.

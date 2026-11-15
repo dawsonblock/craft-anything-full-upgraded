@@ -895,7 +895,17 @@ impl AiHub {
                 .with_remediation("Turn it on in Settings → AI, or choose another backend for this conversation."));
         }
         if first.config.kind == BackendKind::AgentCli {
-            return Ok(Box::new(cli_agents::SharedConversation::new(self.engine.clone(), self.keys.clone(), first, beginner)?));
+            // A chat with an agent is a generated-code route too: the agent runs its own tools. The
+            // policy is installed here so a `refuse` setting stops the agent before it spawns.
+            let build = self
+                .engine
+                .try_session()
+                .map(|s| s.settings.build.clone())
+                .unwrap_or_else(|| craft_anything_engine::Settings::load_from(&self.settings_path()).build);
+            let policy = std::sync::Arc::new(craft_anything_engine::execution::BuildPolicy { build, build_check_confined: false });
+            return Ok(Box::new(craft_anything_platform::execution::with_policy(policy, craft_anything_platform::execution::Class::Agent, || {
+                cli_agents::SharedConversation::new(self.engine.clone(), self.keys.clone(), first, beginner)
+            })?));
         }
         let mut chain = vec![self.build_model(&first)?];
         for name in cfg.chain_from(&first.config.name).into_iter().skip(1) {

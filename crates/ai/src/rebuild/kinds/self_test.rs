@@ -83,14 +83,16 @@ impl Check for SelfTestCheck {
 
     fn run(&self, cx: &mut CheckCx) -> Result<CheckResult, ToolError> {
         let round = cx.round;
+        let outside = cx.outside_sandbox(craft_anything_engine::execution::Route::SelfTest).unwrap_or_default();
         let file = cx.ws.checks_dir().join(format!("round-{round}")).join("self-test.json");
         let (passed, note, claims) = match run_with(cx, "--self-test", &file)? {
             OwnRun::NoProgram => (false, NO_PROGRAM.to_string(), Vec::new()),
-            OwnRun::NoFile(why) => (false, format!("The game didn't save a report with --self-test.{why} {SELF_TEST_CONTRACT}"), Vec::new()),
+            OwnRun::Refused(why) => return Ok(CheckResult::unknown(self.id(), round, why)),
+            OwnRun::NoFile(why) => (false, format!("The game didn't save a report with --self-test.{why} {SELF_TEST_CONTRACT}{outside}"), Vec::new()),
             OwnRun::Saved { bytes, .. } => {
                 let (passed, note) = verdict(&bytes);
                 let (passed, note) = if passed { picture_verdict(cx, &bytes, note) } else { (passed, note) };
-                (passed, note, claims(&bytes))
+                (passed, note + &outside, claims(&bytes))
             }
         };
         let artifacts = file.strip_prefix(&cx.ws.root).ok().map(Path::to_path_buf).filter(|_| file.is_file()).into_iter().collect();

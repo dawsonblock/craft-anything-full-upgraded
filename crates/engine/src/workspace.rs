@@ -275,6 +275,33 @@ fn required_by_default() -> bool {
     true
 }
 
+/// Where a check ran the program it judged.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum CheckRunner {
+    /// On this computer, outside the sandbox.
+    Host,
+    /// In a Docker container that saw only the project folder.
+    Container,
+}
+
+/// What a check ran, where, and what it printed: enough to tell a confined build from one on
+/// this computer, and to compare two runs of the same source.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct CheckReceipt {
+    pub runner: CheckRunner,
+    /// The image it ran in, when it ran in a container.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image: Option<String>,
+    /// The program and its arguments, as they were run.
+    pub command: String,
+    /// Its exit code, when it exited.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<i32>,
+    /// SHA-256 of its combined stdout and stderr.
+    pub output_sha256: String,
+}
+
 /// One check of the build: what it found and, when it could be compared with the original,
 /// how alike it is. Decisions read `outcome`, `required` and `similarity`, never `note` (which is
 /// for people).
@@ -311,6 +338,10 @@ pub struct CheckResult {
     /// being good enough, however alike the rest looks.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub claims: Vec<Claim>,
+    /// How the check ran the program it judged, when it ran one: where, what, and a hash of what
+    /// it printed. A check that ran nothing has none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub receipt: Option<CheckReceipt>,
 }
 
 /// One thing a build must do, checked on its own ("The start page doesn't scroll sideways at
@@ -366,6 +397,7 @@ impl CheckResult {
             pages: Vec::new(),
             unknowns: Vec::new(),
             claims: Vec::new(),
+            receipt: None,
         }
     }
 
@@ -441,6 +473,8 @@ struct CheckRecord {
     unknowns: Vec<String>,
     #[serde(default)]
     claims: Vec<Claim>,
+    #[serde(default)]
+    receipt: Option<CheckReceipt>,
 }
 
 impl From<CheckRecord> for CheckResult {
@@ -461,6 +495,7 @@ impl From<CheckRecord> for CheckResult {
             pages: r.pages,
             unknowns: r.unknowns,
             claims: r.claims,
+            receipt: r.receipt,
         }
     }
 }
