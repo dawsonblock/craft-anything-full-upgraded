@@ -14,8 +14,8 @@ workspace = true
 serde_json = { workspace = true }
 miniz_oxide = { workspace = true }
 # In-test signing: generate keys and produce real signatures for signature-verification fixtures.
-rsa = { version = "0.9", features = ["sha2"] }
-p256 = { version = "0.13", features = ["ecdsa", "sha256", "pem"] }
+rsa = { version = "0.10", features = ["encoding", "pkcs1v15"] }
+p256 = { version = "0.14", features = ["ecdsa", "sha256", "pem"] }
 sha2 = "0.10"
 sha1 = "0.10"
-rand = "0.8"
+rand = "0.10"

@@ -20,10 +20,13 @@ sha2 = { workspace = true }
 wasmparser = { workspace = true }
 wasmprinter = { workspace = true }
 # Signature verification (pure Rust, verified wasm32-unknown-unknown-safe).
-rsa = { version = "0.9", default-features = false, features = ["sha2"] }
-p256 = { version = "0.13", default-features = false, features = ["ecdsa", "sha256"] }
-p384 = { version = "0.13", default-features = false, features = ["ecdsa"] }
+rsa = { version = "0.10", default-features = false, features = ["encoding", "pkcs1v15"] }
+p256 = { version = "0.14", default-features = false, features = ["ecdsa", "sha256", "pkcs8"] }
+p384 = { version = "0.14", default-features = false, features = ["ecdsa", "pkcs8"] }
 sha1 = { version = "0.10", default-features = false, features = ["oid"] }
+# `rsa` 0.10 verifies through `signature` 3, whose digest is 0.11: its SHA-1 key type needs sha1 0.11,
+# while the hashing elsewhere in this crate stays on 0.10.
+rsa-sha1 = { package = "sha1", version = "0.11", default-features = false, features = ["oid"] }
 # Firmware decompressors (pure Rust, verified wasm32-unknown-unknown-safe).
 lzma-rs = "0.3"
 bzip2-rs = "0.1"

@@ -17,6 +17,17 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  advisories:
+    # RustSec advisories are checked on their own, so a new one shows up as this job rather than
+    # inside the suite gate. A vulnerable or yanked crate fails unless deny.toml carries a reasoned
+    # exception (docs/licences.md).
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check advisories
   gate:
     # Tracks @main so suite-wide CI fixes reach every app without a PR in each repository.
     uses: storytold/craft-common-actions/.github/workflows/gate.yml@main

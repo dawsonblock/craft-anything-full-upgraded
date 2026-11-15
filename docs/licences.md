@@ -37,6 +37,7 @@ Model weights and hosted APIs have their own terms; read them before adding one 
 cargo install cargo-deny --locked   # once
 cargo xtask licenses                # = cargo deny check licenses
 cargo deny check                    # also advisories, bans (no wildcard versions) and sources
+cargo deny check advisories         # what CI's `advisories` job runs
 ```
 
 A new licence or crate exception needs a line in `deny.toml` with a reason, and a line here if

@@ -300,10 +300,14 @@ only when it's green and a maintainer has fully reviewed it, code as well as wor
       keys) when rsa 0.10 lands, and unmaintained `zbus_names`/`zvariant` (Linux-only via keyring
       and accesskit) when those move on. `deny.toml`'s comments pointed at R0.3, which never held
       them; they name this line now — claimed: kuseidos, branch docs/r5.2-deny-points-at-its-own-roadmap-line
-- [ ] Upgrade `p256`, `p384` and `rsa` so `crypto-bigint` is >=0.7.6 (RUSTSEC-2026-0387) and
+- [x] Upgrade `p256`, `p384` and `rsa` so `crypto-bigint` is >=0.7.6 (RUSTSEC-2026-0387) and
       `rsa` is >=0.10.0 (RUSTSEC-2023-0071), then run `cargo deny check advisories` in CI:
       `p256`/`p384` 0.14 move to `elliptic-curve` 0.14 and `rsa` 0.10 to `signature` 3, which
-      changes the signing API
+      changes the signing API. Landed as `p256`/`p384` 0.14.0, `rsa` 0.10.0 and `crypto-bigint`
+      0.7.11, with the `rsa` exception removed from `deny.toml`; the same sweep took `wasmtime`
+      49.0.5, `rustls-webpki` 0.103.17, `webpki-roots` 1.0.12 and the yanked `clipboard-win`, and
+      CI's `advisories` job runs the check. The SHA-1 RSA key type uses `sha1` 0.11 under the
+      `rsa-sha1` name, because `signature` 3's digest is 0.11 while the crate hashes with 0.10
       — claimed: Devin, branch chore/r5.2-crypto-advisories
 - [ ] Check whether the release workflows still run actions that target Node.js 20. None is named
       here any more: every job calls `storytold/craft-common-actions@main`, so a fix belongs there
