@@ -204,6 +204,13 @@ impl Check for RunsCheck {
 
     fn run(&self, cx: &mut CheckCx) -> Result<CheckResult, ToolError> {
         let (ws, round) = (cx.ws, cx.round);
+        // The runs comparison starts the built program on this computer; it can't be put in the
+        // container. Refuse it with the rest when the person refused unconfined runs.
+        let policy = craft_anything_engine::execution::Policy::of(&cx.build_settings());
+        if let Err(e) = policy.check(craft_anything_engine::execution::Route::RunsCheck) {
+            return Ok(CheckResult::unknown(self.id(), round, e.message));
+        }
+        let outside = craft_anything_engine::execution::outside_note(policy, craft_anything_engine::execution::Route::RunsCheck).unwrap_or_default();
         let godot = cx.godot();
         let Some((program, base)) = craft_anything_engine::outputs::launch(&ws.app_dir(), godot.as_deref()) else {
             return Ok(CheckResult::new(self.id(), round, false, screenshot::NO_PROGRAM));
@@ -249,7 +256,7 @@ impl Check for RunsCheck {
                 )
             },
         );
-        Ok(CheckResult { claims, artifacts, ..CheckResult::new(self.id(), round, true, notes.join(" ")) })
+        Ok(CheckResult { claims, artifacts, ..CheckResult::new(self.id(), round, true, notes.join(" ") + &outside) })
     }
 }
 

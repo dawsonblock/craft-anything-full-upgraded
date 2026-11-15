@@ -529,6 +529,7 @@ fn a_note_written_for_the_hook_carries_its_answers() {
         root: ws.root.clone(),
         started: Instant::now(),
         activity,
+        outside: None,
     };
     let id = run.add_note("make it blue".into(), "make it blue".into(), Vec::new());
     let note = run.waiting().pop().unwrap();
@@ -1669,6 +1670,27 @@ mod picking_up_a_build {
         let _ = try_it(&b, &ws);
         let keys = b.hub.engine.session().ext.get::<craft_anything_engine::tools::asset_tools::AssetKeys>().unwrap_or_default();
         assert_eq!(keys.get("fal"), Some("k-1"));
+    }
+
+    /// A coding agent runs its own tools and signs in as the person, so it can't be put in the
+    /// container. When the person asked for confinement and refused unconfined runs, the build
+    /// says so before it starts instead of running the agent outside the boundary.
+    #[test]
+    fn an_agent_build_is_refused_when_the_sandbox_refuses_unconfined_runs() {
+        let b = bench();
+        {
+            let mut s = b.hub.engine.session();
+            s.settings.build.sandbox = craft_anything_engine::settings::SandboxMode::Docker;
+            s.settings.build.sandbox_unconfined = craft_anything_engine::settings::Unconfined::Refuse;
+        }
+        let ws = Workspace::create(&b.projects, "x", "Build a notes app", TargetRef::None).unwrap();
+        let opts = RunOptions { backend: Some("Stand-in".into()), ..Default::default() };
+        let err = match RebuildRun::start(&b.hub, Workspace::open(&ws.root).unwrap(), opts) {
+            Ok(_) => panic!("the run started outside the boundary"),
+            Err(e) => e,
+        };
+        assert_eq!(err.code, craft_anything_evidence::ErrorCode::FeatureMissing, "{}", err.message);
+        assert!(err.message.contains("coding agent") && err.message.contains("outside the Docker sandbox"), "{}", err.message);
     }
 
     fn try_it(b: &Bench, ws: &Workspace) -> (bool, Vec<feed::FeedItem>) {
