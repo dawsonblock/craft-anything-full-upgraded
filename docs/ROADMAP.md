@@ -1018,7 +1018,16 @@ Owner: open · Status: in progress
       `ci.yml`
 - [ ] Bound the project folder's own disk use: `sandbox_disk_mb` limits the container's writable
       layer, not the `/work` bind mount, so a build can still fill the host's disk inside its
-      project
+      project. `[build] sandbox_project_mb` measures the folder (a folder already past it is
+      refused before Docker starts) and every 250 ms while the build runs, cancelling the run and
+      removing the container when it grows past the ceiling; links are not followed and a tree
+      over 100,000 entries is reported unknown rather than stopped on a guess
+      — claimed: Devin, branch feature/r3.0-project-disk-ceiling
+- [ ] Put `sandbox_project_mb` in Settings → Builds → Sandbox, with its string in all sixteen
+      catalogues: it is `config.toml`-only today, like the digest and the writable-layer limit
+- [ ] Live-check the project-folder ceiling against a running Docker daemon: a build that writes
+      past `sandbox_project_mb` is stopped mid-run and leaves no container behind (only the
+      measurement, the watcher and the pre-run refusal are unit-tested)
 - [ ] **decision** Whether `sandbox_unconfined` should default to `"refuse"`: today turning the
       sandbox on still runs the check's own build, the runs comparison, a person's own project's
       build or tests, the probe, a self-test and a coding agent outside it (each says so), because
