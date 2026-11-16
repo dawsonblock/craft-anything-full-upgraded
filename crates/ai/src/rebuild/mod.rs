@@ -1645,7 +1645,7 @@ pub fn replaced_builder_notice(saved: &str, used: &str) -> String {
     format!("The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.")
 }
 
-/// Refuse a build when `[ai] require_confined_build` is on and this AI can't be held in.
+/// Refuse a build when `[ai] require_confined_build` is on (the default) and this AI can't be held in.
 pub fn refuse_unconfined(cfg: &crate::AiConfig, entry: &crate::BackendEntry) -> Result<(), ToolError> {
     if !cfg.require_confined_build {
         return Ok(());
@@ -1659,7 +1659,7 @@ pub fn refuse_unconfined(cfg: &crate::AiConfig, entry: &crate::BackendEntry) -> 
         format!("{} can't be held in during a build: it runs with your own access, and `[ai] require_confined_build` is on.", entry.config.name),
     )
     .with_remediation(
-        "Turn `require_confined_build` off, or build with Claude Code (it asks us before edits and commands) or Codex (it confines its own work).",
+        "Build with Claude Code (it asks us before edits and commands) or Codex (it confines its own work), or set `require_confined_build = false` under `[ai]` in config.toml to accept a build with your own access.",
     ))
 }
 

@@ -977,11 +977,13 @@ Owner: open · Status: in progress
       are parsed (`00:00`); the mechanics check skips `app/Original`, caps reads and entries and
       honors a stop; a failed process reader kills the child
       — claimed: Devin, branch bugfix/sandbox-root-uid
-- [ ] Upgrade `p256`/`ecdsa` so `crypto-bigint` is >=0.7.6 (RUSTSEC-2026-0387): `p256` 0.14
+- [x] Upgrade `p256`/`ecdsa` so `crypto-bigint` is >=0.7.6 (RUSTSEC-2026-0387): `p256` 0.14
       changes the signing API; the other advisories are patched (`wasmtime` 49.0.5,
-      `rustls-webpki` 0.103.17, `webpki-roots` 1.0.12)
-- [ ] Run `cargo deny check advisories` in CI once the `crypto-bigint` upgrade lands; the yanked
-      crates (`clipboard-win` 5.4.3, `async-executor` 1.14.1) are fixed
+      `rustls-webpki` 0.103.17, `webpki-roots` 1.0.12). Landed with `p256`/`p384` 0.14.0, `rsa`
+      0.10.0 and `crypto-bigint` 0.7.11 (R5.2)
+- [x] Run `cargo deny check advisories` in CI once the `crypto-bigint` upgrade lands; the yanked
+      crates (`clipboard-win` 5.4.3, `async-executor` 1.14.1) are fixed — the `advisories` job in
+      `ci.yml`
 - [ ] Bound the project folder's own disk use: `sandbox_disk_mb` limits the container's writable
       layer, not the `/work` bind mount, so a build can still fill the host's disk inside its
       project
@@ -992,9 +994,12 @@ Owner: open · Status: in progress
 - [ ] **decision** Whether `sandbox_network` should default to `false`: today turning the sandbox
       on gives the container bridge networking, because package installs (`npm install`) need it;
       a build that only compiles what it already has would be safer with the network off
-- [ ] Confine the coding agent itself, or say on each adapter what it can be held to (its own
-      sandbox, our approvals, nothing) and have runs act on that: a Docker container needs the
-      agent's sign-in, its own tools and the project, which this change does not attempt
+- [x] Confine the coding agent itself, or say on each adapter what it can be held to (its own
+      sandbox, our approvals, nothing) and have runs act on that: `Bound`/`Confinement` on every
+      adapter (Claude Code asks our approval tool in a build, Codex confines its own work, every
+      other adapter says nothing), `rebuild_start`'s result carries all three, and
+      `[ai] require_confined_build` (on by default) refuses a build whose agent declares nothing
+      — claimed: Devin, branch chore/security-and-release-gates
 - [ ] Hold a chat or a question with a coding agent to the same policy: this change covers a
       build's agent, not the agent's own tools in a chat (their own approvals are R2.2's decision)
 - [ ] Sweep containers carrying the sandbox label at startup, for one left behind by a crash
@@ -1023,15 +1028,14 @@ Owner: open · Status: in progress
 - [x] Clean room outside builds (#564): a chat or question with Claude Code refuses the agent's own
       file, shell and web tools outright (`--disallowedTools`), not through its defaults; an ACP chat
       refuses them through an approver instead of a consent card (`docs/claude-code.md`)
-- [x] Say on each adapter, as typed data, what it can be held to (asks us, its own sandbox,
-      nothing), in a build, a chat and a question, and have runs act on that: `Bound`/`Confinement`
-      on `AgentAdapter` (Claude Code asks us in a build, Codex confines its own, every other adapter
-      says nothing), `rebuild_start`'s result carries all three, and `[ai] require_confined_build`
-      refuses a build whose agent says nothing before a project is made
-      — claimed: Devin, branch chore/security-and-release-gates
+- [ ] Offer `require_confined_build` in Settings → AI: it is on by default and the refusal names
+      config.toml, but nothing in the interface lets a person allow an unconfined build or see
+      which of their agents is held in
 - [ ] Enforce the chat and question declarations: they are recorded now but no run acts on them,
       and Codex's, Gemini CLI's, OpenCode's, Antigravity's, Hermes's and Maki's own sandboxes in a
-      chat are still not established (they wait on the decision above)
+      chat are still not established. The decision above covers builds only, so a chat still runs
+      with whatever the agent allows itself; decide whether a chat needs a declared boundary too,
+      or whether reading with the person's access is what a chat is for
 - [ ] Check live that a Clean room chat with Claude Code can't read a file outside its folder, and
       that an ACP chat in Clean room still reaches our tools (its permission requests for them are
       allowed, only its own read/write/command/fetch are refused)

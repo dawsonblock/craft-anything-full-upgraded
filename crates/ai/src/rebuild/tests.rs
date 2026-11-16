@@ -1647,6 +1647,9 @@ mod picking_up_a_build {
         let engine = Arc::new(Engine::new(craft_anything_engine::testing::session()));
         let hub = AiHub::with_stores(engine, dir.path().join("settings.toml"), crate::KeyStore::file_only(dir.path().join("keys.toml")));
         let mut cfg = hub.config();
+        // The stand-in declares no boundary, so this bench accepts unconfined builds; the gate has
+        // its own tests.
+        cfg.require_confined_build = false;
         cfg.upsert(crate::BackendEntry {
             config: crate::BackendConfig {
                 name: "Stand-in".into(),
@@ -1737,6 +1740,36 @@ mod picking_up_a_build {
         assert_eq!(error.code, ErrorCode::BadSettings);
         assert!(error.message.contains("can't be held in"), "{}", error.message);
         assert_eq!(prompts_given(&b), 0, "nothing ran");
+    }
+
+    /// The gate is on in a configuration that doesn't mention it: what declares a boundary builds,
+    /// what declares nothing is refused, and the person's switch turns it off.
+    #[test]
+    fn the_confinement_gate_is_on_by_default() {
+        let cfg = crate::AiConfig::default();
+        assert!(cfg.require_confined_build);
+        let entry = |model: &str| crate::BackendEntry {
+            config: crate::BackendConfig {
+                name: model.into(),
+                kind: BackendKind::AgentCli,
+                model: model.into(),
+                base_url: None,
+                ssh_host: None,
+                enabled: true,
+            },
+            options: Default::default(),
+        };
+        for model in ["codex", "claude-code"] {
+            assert!(refuse_unconfined(&cfg, &entry(model)).is_ok(), "{model} declares a boundary");
+        }
+        for model in ["gemini-cli", "opencode", "antigravity", "hermes", "maki"] {
+            let error = refuse_unconfined(&cfg, &entry(model)).unwrap_err();
+            assert_eq!(error.code, ErrorCode::BadSettings, "{model}");
+            assert!(error.message.contains("can't be held in"), "{model}: {}", error.message);
+        }
+        let mut allowed = cfg.clone();
+        allowed.require_confined_build = false;
+        assert!(refuse_unconfined(&allowed, &entry("gemini-cli")).is_ok(), "the person allowed a build with their own access");
     }
 
     /// A ceiling already reached by today's builds stops a run before its first turn.

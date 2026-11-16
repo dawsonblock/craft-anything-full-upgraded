@@ -3,7 +3,8 @@
 //! A build's agent writes and runs code with the person's own access unless something holds it in.
 //! Three things can: our approval tool (every edit, command and fetch asks us), the agent's own
 //! sandbox, or nothing. The default is nothing, so a new adapter never claims more than it has
-//! been checked for; `[ai] require_confined_build` refuses a build whose agent says nothing.
+//! been checked for; `[ai] require_confined_build`, on unless the person turns it off, refuses a
+//! build whose agent says nothing.
 
 use serde::Serialize;
 

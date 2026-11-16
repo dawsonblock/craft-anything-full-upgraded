@@ -1081,3 +1081,9 @@ before its worker exists.
 the project, but `BuildCheck`'s container, the mechanics scan and the host checks followed it. A
 path that is the project boundary belongs in `Workspace` (`app_dir_checked`/`ensure_app_dir`), not
 in one tool, and every route that runs or reads the app must use it.
+**A default flipped in one place only.** `AiConfig` derived `Default`, and serde's container
+`#[serde(default)]` builds a config from it, so a field-level `#[serde(default)]` on
+`require_confined_build` would have answered "off" for a missing key while the parsed config said
+"on". When a field's default isn't its type's default, implement `Default` by hand, drop the
+field-level attribute, and test both paths (an empty table and `AiConfig::default()`) — otherwise
+the gate silently reopens through whichever path forgot.

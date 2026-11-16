@@ -248,7 +248,7 @@ pub struct Price {
 }
 
 /// The whole AI configuration.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AiConfig {
     pub backends: Vec<BackendEntry>,
@@ -269,8 +269,26 @@ pub struct AiConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_daily_cost_usd: Option<f64>,
     /// Refuse a build whose agent can't be held in: it would run with the person's own access.
-    #[serde(default)]
+    /// On unless the person turns it off.
     pub require_confined_build: bool,
+}
+
+/// A build needs a declared boundary unless the person allows otherwise, so the switch is on in a
+/// configuration that doesn't mention it. Written out rather than derived: a derived `bool` would
+/// disagree with `serde`'s container default.
+impl Default for AiConfig {
+    fn default() -> Self {
+        AiConfig {
+            backends: Vec::new(),
+            roles: BTreeMap::new(),
+            fallback_chain: Vec::new(),
+            prices: BTreeMap::new(),
+            install_id: None,
+            max_run_cost_usd: None,
+            max_daily_cost_usd: None,
+            require_confined_build: true,
+        }
+    }
 }
 
 pub fn role_key(r: Role) -> &'static str {
@@ -515,12 +533,16 @@ mod tests {
     /// The spending ceilings and the confinement switch are typed settings, refused when wrong.
     #[test]
     fn spending_and_confinement_settings_parse() {
-        let t: toml::Table = toml::from_str("max_run_cost_usd = 1.5\nmax_daily_cost_usd = 10\nrequire_confined_build = true").unwrap();
+        let t: toml::Table = toml::from_str("max_run_cost_usd = 1.5\nmax_daily_cost_usd = 10\nrequire_confined_build = false").unwrap();
         let cfg = AiConfig::from_table(&t).unwrap();
         assert_eq!(cfg.spend_limits(), crate::budget::SpendLimits { run_usd: Some(1.5), daily_usd: Some(10.0) });
-        assert!(cfg.require_confined_build);
+        assert!(!cfg.require_confined_build, "the person allowed a build with no declared boundary");
         let bad: toml::Table = toml::from_str("max_daily_cost_usd = -2.0").unwrap();
         assert_eq!(AiConfig::from_table(&bad).unwrap_err().code, ErrorCode::BadSettings);
-        assert!(!AiConfig::default().require_confined_build, "a build is allowed unless the person asks otherwise");
+        assert!(
+            AiConfig::from_table(&toml::Table::new()).unwrap().require_confined_build,
+            "a build needs a declared boundary unless the person allows otherwise"
+        );
+        assert!(AiConfig::default().require_confined_build, "and `AiConfig::default()` agrees with the parsed one");
     }
 }
