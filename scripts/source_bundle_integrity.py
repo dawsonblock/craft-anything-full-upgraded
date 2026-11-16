@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
-"""Create and independently check a complete, bounded Craft Anything source manifest.
+"""Create and independently check a bounded Craft Anything source manifest.
 
+Every tracked path is inventoried except the living records the contribution rules edit in almost
+every pull request (`LIVING_RECORDS`) and what `ignored()` leaves out; those are process records
+rather than source, and hashing them would invalidate the manifest on nearly every commit.
 This is a checksum/inventory check, not a digital signature or a Rust build.
 It uses only the Python standard library and never executes bundled source.
 """
