@@ -101,7 +101,7 @@ class NativeValidationTests(unittest.TestCase):
 
     def test_missing_rust_does_not_mark_gate_green(self) -> None:
         fake_py = {"name": "python_tests", "status": "pass", "returncode": 0}
-        with patch.object(gate, "verify_tree", return_value={"file_count": 42}), \
+        with patch.object(gate, "source_integrity", return_value={"basis": "manifest", "file_count": 42}), \
                 patch.object(gate, "execute", return_value=fake_py), \
                 patch.object(gate, "check_toolchain", return_value=(None, "missing")), \
                 patch.object(gate.shutil, "which", return_value=None):
@@ -113,7 +113,7 @@ class NativeValidationTests(unittest.TestCase):
 
     def test_deep_profile_missing_rust_is_blocked_not_passed(self) -> None:
         fake_py = {"name": "python_tests", "status": "pass", "returncode": 0}
-        with patch.object(gate, "verify_tree", return_value={"file_count": 42}), \
+        with patch.object(gate, "source_integrity", return_value={"basis": "manifest", "file_count": 42}), \
                 patch.object(gate, "execute", return_value=fake_py), \
                 patch.object(gate, "check_toolchain", return_value=(None, "missing")):
             report = gate.run_gate(ROOT, 3, profile="deep")
@@ -130,7 +130,7 @@ class NativeValidationTests(unittest.TestCase):
                 result["full_output"] = "test result: ok. 1 passed; 0 failed"
             return result
 
-        with patch.object(gate, "verify_tree", return_value={"file_count": 42}), \
+        with patch.object(gate, "source_integrity", return_value={"basis": "manifest", "file_count": 42}), \
                 patch.object(gate, "execute", side_effect=fake_execute), \
                 patch.object(gate, "check_toolchain", return_value=("rustc 1.97.0", "")), \
                 patch.object(gate, "smoke_cli") as smoke_mock:
@@ -149,7 +149,7 @@ class NativeValidationTests(unittest.TestCase):
                 result["full_output"] = "test result: ok. 1 passed; 0 failed"
             return result
 
-        with patch.object(gate, "verify_tree", return_value={"file_count": 42}), \
+        with patch.object(gate, "source_integrity", return_value={"basis": "manifest", "file_count": 42}), \
                 patch.object(gate, "execute", side_effect=fake_execute), \
                 patch.object(gate, "check_toolchain", return_value=("rustc 1.97.0", "")):
             report = gate.run_gate(ROOT, 3, cargo="cargo", rustc="rustc", profile="deep")
@@ -163,7 +163,7 @@ class NativeValidationTests(unittest.TestCase):
                 result["full_output"] = "running 0 tests\n\ntest result: ok. 0 passed; 0 failed"
             return result
 
-        with patch.object(gate, "verify_tree", return_value={"file_count": 42}), \
+        with patch.object(gate, "source_integrity", return_value={"basis": "manifest", "file_count": 42}), \
                 patch.object(gate, "execute", side_effect=fake_execute), \
                 patch.object(gate, "check_toolchain", return_value=("rustc 1.97.0", "")):
             report = gate.run_gate(ROOT, 3, cargo="cargo", rustc="rustc", profile="deep")
@@ -183,7 +183,7 @@ class NativeValidationTests(unittest.TestCase):
                 )
             return result
 
-        with patch.object(gate, "verify_tree", return_value={"file_count": 42}), \
+        with patch.object(gate, "source_integrity", return_value={"basis": "manifest", "file_count": 42}), \
                 patch.object(gate, "execute", side_effect=fake_execute), \
                 patch.object(gate, "check_toolchain", return_value=("rustc 1.97.0", "")):
             report = gate.run_gate(ROOT, 3, cargo="cargo", rustc="rustc", profile="deep")
@@ -227,7 +227,7 @@ class NativeValidationTests(unittest.TestCase):
                 self.assertRegex(sources, rf"\b(?:fn|mod) {re.escape(name)}")
 
     def test_deep_profile_rejects_source_integrity_failure_before_running_code(self) -> None:
-        with patch.object(gate, "verify_tree", side_effect=gate.IntegrityError("tampered")), \
+        with patch.object(gate, "source_integrity", side_effect=gate.IntegrityError("tampered")), \
                 patch.object(gate, "execute") as execute_mock:
             report = gate.run_gate(ROOT, 3, profile="deep")
         self.assertEqual(report["status"], "fail")
@@ -235,7 +235,7 @@ class NativeValidationTests(unittest.TestCase):
         execute_mock.assert_not_called()
 
     def test_prior_failure_is_not_masked_by_blocked(self) -> None:
-        with patch.object(gate, "verify_tree", side_effect=gate.IntegrityError("tampered")), \
+        with patch.object(gate, "source_integrity", side_effect=gate.IntegrityError("tampered")), \
                 patch.object(gate, "execute") as execute_mock, \
                 patch.object(gate, "check_toolchain") as toolchain_mock:
             report = gate.run_gate(ROOT, 3)
@@ -314,7 +314,7 @@ class NativeValidationTests(unittest.TestCase):
                 result["full_output"] = "test result: ok. 1 passed; 0 failed"
             return result
 
-        with patch.object(gate, "verify_tree", return_value={"file_count": 42}), \
+        with patch.object(gate, "source_integrity", return_value={"basis": "manifest", "file_count": 42}), \
                 patch.object(gate, "execute", side_effect=fake_execute), \
                 patch.object(gate, "check_toolchain", return_value=("rustc 1.97.0", "")), \
                 patch.object(gate, "smoke_cli") as smoke_mock:
@@ -331,7 +331,7 @@ class NativeValidationTests(unittest.TestCase):
                 result["full_output"] = "test result: ok. 1 passed; 0 failed"
             return result
 
-        with patch.object(gate, "verify_tree", return_value={"file_count": 42}), \
+        with patch.object(gate, "source_integrity", return_value={"basis": "manifest", "file_count": 42}), \
                 patch.object(gate, "execute", side_effect=fake_execute), \
                 patch.object(gate, "check_toolchain", return_value=("rustc 1.97.0", "")), \
                 patch.object(gate, "smoke_cli", return_value={"name": "cli_smoke", "status": "fail"}):

@@ -19,9 +19,10 @@ release: `gh workflow run ci.yml --ref main`. The other workflows (`freebsd.yml`
    `Cargo.toml` is the single source; `cargo xtask version` prints it).
 2. Fast-forward `release` to `main`. The push runs `.github/workflows/release.yml`, which builds every
    platform and creates or updates the draft GitHub Release **Craft Anything vX.Y.Z**.
-   The workflow first runs the **Release Source Preflight** job: it verifies the source tree,
-   packages the canonical source ZIP, verifies and extracts it, writes a receipt bound to the
-   release commit, and attests the ZIP. A failure stops the platform jobs. After they finish, the
+   The workflow first runs the **Release Source Preflight** job: it packages the canonical source
+   ZIP (generating its manifest from the checkout, which must match its commit), verifies and
+   extracts it, writes a receipt bound to the release commit, and attests the ZIP. A failure stops
+   the platform jobs. After they finish, the
    **source-verify** job checks the source ZIP attached to the draft against that receipt; a
    failure means the draft must not be published. It names the tag the release should carry
    (`v` plus the workspace version, or the dispatch's version) and checks that exactly one draft

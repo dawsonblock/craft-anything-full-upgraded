@@ -93,11 +93,12 @@ GitHub's branch and tag archives name it `<repository>-<branch>`, so the project
 failed its own verifier. Verify content relative to the single top-level folder and report both
 names; the folder name is packaging, not hashed data.
 
-**A source manifest regenerated in an earlier commit.** `SOURCE_INTEGRITY.json` was regenerated in
+**A generated manifest committed to the repository.** `SOURCE_INTEGRITY.json` was regenerated at
 `5e27e8f`, then five commits changed 32 files without regenerating it, so the tree at HEAD failed
-`verify-tree` even though every file matched Git. Regenerate the manifest in the commit that
-changes source, and package with `package-zip` (it refuses a stale manifest); a ZIP made outside
-that tool can still carry the old one.
+`verify-tree` even though every file matched Git. It happened twice more, once because the
+contribution rules require a roadmap edit in almost every pull request. A checksum that must move
+in lockstep with every commit is one nobody keeps in step: `package-zip` now generates it and it is
+never committed, and a checkout is checked against its commit instead.
 
 **A check-then-rename overwrite race.** `package_zip` checked that the destination did not exist
 and later called `os.rename`, which replaces an existing file on POSIX; another process could
@@ -1088,17 +1089,15 @@ in one tool, and every route that runs or reads the app must use it.
 field-level attribute, and test both paths (an empty table and `AiConfig::default()`) — otherwise
 the gate silently reopens through whichever path forgot.
 
-**A manifest regenerated "at the end of the branch".** `SOURCE_INTEGRITY.json` was re-baselined,
-then four commits landed on top of it, so a pristine export of `main` failed
-`verify-tree --require-declared-root` and the release preflight with it — while every Python test
-still passed. Regenerate it in the same commit as the last tracked-file change, and check it
-against a `git archive` export, not the working tree (untracked scratch files hide the difference
-in one direction and cause it in the other).
+**An inventory that includes files the rules make you edit every time.** The manifest went stale
+twice because it hashed `docs/ROADMAP.md` and `docs/STATUS.md`, and the contribution rules require
+touching the roadmap in almost every pull request: following the rules invalidated the checksum,
+and two concurrent PRs would both rewrite a 158 KB generated file. A file that changes on a
+schedule the checksum can't follow doesn't belong in a checksum. Both are excluded
+(`LIVING_RECORDS`) and are absent from the source ZIP; the archive's bytes are still bound to the
+commit by the release attestation.
 
-**An inventory that includes files the rules make you edit every time.** The same manifest went
-stale twice because it hashed `docs/ROADMAP.md` and `docs/STATUS.md`, and the contribution rules
-require touching the roadmap in almost every pull request: following the rules invalidated the
-manifest, and two concurrent PRs would both rewrite a 158 KB generated file. A file that changes
-on a schedule the checksum can't follow doesn't belong in a checksum. Those two are excluded
-(`LIVING_RECORDS`), so they are also absent from the source ZIP; the archive's bytes are still
-bound to the commit by the release attestation.
+**A manifest generated from a dirty checkout.** Generating the manifest at packaging time removes
+the stale-manifest failure, but it also means a modified tracked file is described faithfully and
+ships — and the attestation then claims those bytes came from a commit they never came from. Ask
+Git whether the tree matches its commit before packaging; a green test suite says nothing about it.

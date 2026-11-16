@@ -22,7 +22,7 @@ from mcp_protocol_smoke import READ_ONLY_TOOL, smoke_mcp
 from native_mcp_target_smoke import OPERATIONS, smoke_mcp_target
 from native_triage_smoke import EXPECTED_TOOL, WASM_SHA256, smoke_triage
 from registry_smoke import smoke_registry
-from source_bundle_integrity import IntegrityError, verify_tree
+from source_bundle_integrity import IntegrityError, make_manifest, tree_integrity
 
 
 BUILD_ARGS = ("build", "--locked", "-p", "craft-anything-cli")
@@ -49,10 +49,15 @@ def receipt(checks: list[dict], version: str | None) -> dict:
     }
 
 
-def export_binary(root: Path, output_dir: Path, evidence: dict, registry: dict, mcp: dict, triage: dict, target: dict) -> dict:
-    """Copy only a binary that passed native metadata, protocol, parsing and lifecycle."""
+def export_binary(root: Path, output_dir: Path, evidence: dict, registry: dict, mcp: dict, triage: dict, target: dict, manifest_sha256: str) -> dict:
+    """Copy only a binary that passed native metadata, protocol, parsing and lifecycle.
+
+    `manifest_sha256` is the inventory digest the run started with, recorded in the provenance.
+    """
     binary = cli_binary_path(root)
     before = hash_binary(binary)
+    if not isinstance(manifest_sha256, str) or len(manifest_sha256) != 64:
+        raise ValueError("The source inventory digest must be a SHA-256 hex digest")
     if any(item.get("status") != "pass" for item in (evidence, registry, mcp, triage, target)):
         raise ValueError("All native smoke checks must pass before exporting a CLI")
     if before != {key: evidence.get(key) for key in ("binary_sha256", "binary_bytes")}:
@@ -126,7 +131,7 @@ def export_binary(root: Path, output_dir: Path, evidence: dict, registry: dict, 
             "filename": binary.name,
             "platform": platform.system(),
             "architecture": platform.machine(),
-            "source_manifest_sha256": hashlib.sha256((root / "SOURCE_INTEGRITY.json").read_bytes()).hexdigest(),
+            "source_manifest_sha256": manifest_sha256,
             "registry_sha256": registry["registry_sha256"],
             "capabilities_sha256": registry["capabilities_sha256"],
             "registry_mcp_contract_sha256": registry["registry_mcp_contract_sha256"],
@@ -178,11 +183,15 @@ def run_matrix(
 
     checks: list[dict] = []
     version = None
+    manifest_sha256 = None
     try:
-        manifest = verify_tree(root, require_declared_root=True)
+        baseline = tree_integrity(root, require_declared_root=True)["manifest"]
+        manifest_sha256 = hashlib.sha256(
+            (json.dumps(baseline, indent=2, sort_keys=True) + "\n").encode("utf-8")
+        ).hexdigest()
         checks.append({
-            "name": "source_integrity", "status": "pass", "file_count": manifest["file_count"],
-            "manifest_sha256": hashlib.sha256((root / "SOURCE_INTEGRITY.json").read_bytes()).hexdigest(),
+            "name": "source_integrity", "status": "pass", "file_count": baseline["file_count"],
+            "manifest_sha256": manifest_sha256,
         })
     except (IntegrityError, OSError, ValueError) as exc:
         checks.append({"name": "source_integrity", "status": "fail", "reason": str(exc)})
@@ -212,7 +221,8 @@ def run_matrix(
         return receipt(checks, version)
 
     try:
-        verify_tree(root, require_declared_root=True)
+        if make_manifest(root)["files"] != baseline["files"]:
+            raise IntegrityError("Source files changed during the build")
         checks.append({"name": "source_integrity_after_build", "status": "pass"})
     except (IntegrityError, OSError, ValueError) as exc:
         checks.append({"name": "source_integrity_after_build", "status": "fail", "reason": str(exc)})
@@ -265,14 +275,15 @@ def run_matrix(
         return receipt(checks, version)
 
     try:
-        verify_tree(root, require_declared_root=True)
+        if make_manifest(root)["files"] != baseline["files"]:
+            raise IntegrityError("Source files changed during the smoke run")
         checks.append({"name": "source_integrity_after_smoke", "status": "pass"})
     except (IntegrityError, OSError, ValueError) as exc:
         checks.append({"name": "source_integrity_after_smoke", "status": "fail", "reason": str(exc)})
         checks.append({"name": "artifact_export", "status": "blocked", "reason": "source_changed_during_smoke"})
         return receipt(checks, version)
     try:
-        checks.append(export_binary(root, output_dir, smoke, registry, mcp, triage, target))
+        checks.append(export_binary(root, output_dir, smoke, registry, mcp, triage, target, manifest_sha256))
     except (OSError, ValueError) as exc:
         checks.append({"name": "artifact_export", "status": "fail", "reason": str(exc)})
     return receipt(checks, version)

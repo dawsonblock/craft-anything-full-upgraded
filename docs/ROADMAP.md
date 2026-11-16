@@ -203,6 +203,16 @@ cheapest help we can give anyone, so nothing below should hold it up for long.
       source ZIP as well; the archive's bytes stay bound to the commit by the release attestation,
       and every other `docs/` page is still inventoried. One regression covers the exclusion
       — claimed: Devin, branch feature/r3.0-project-disk-ceiling
+- [x] Generate the source manifest when packaging instead of committing it: `package-zip` now
+      inventories the checkout, writes the manifest at the canonical root (`--root-name` to
+      override) and refuses a checkout whose tracked files differ from their commit, so the archive
+      is the commit the attestation names. `SOURCE_INTEGRITY.json` is deleted from Git and ignored;
+      `verify-tree` still checks an extracted ZIP against the manifest it was packaged with, and
+      `native_validation`/`native_cli_matrix` compare a checkout with its commit instead. The
+      earlier items above that re-baseline or verify a committed manifest describe the previous
+      model. Two regressions cover the dirty-checkout refusal and an untracked file not blocking
+      packaging
+      — claimed: Devin, branch feature/r3.0-project-disk-ceiling
 - [ ] Run the release source check against the first published release that attaches a
       manifest-bearing source ZIP
 - [x] Re-baseline `SOURCE_INTEGRITY.json` against a pristine `git archive` export of `HEAD`: the

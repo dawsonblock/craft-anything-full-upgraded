@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
 import stat
 import subprocess
 import sys
@@ -162,12 +163,35 @@ class SourceBundleIntegrityTests(unittest.TestCase):
             self.assertFalse(any(parent.glob(".source-zip-*")))
             with self.assertRaisesRegex(IntegrityError, "Refusing to overwrite"):
                 package_zip(root, archive)
+            # Without a `.git` there is no commit to compare against: the manifest is generated
+            # from whatever the tree holds, so a new file simply joins the archive.
             (root / "extra.txt").write_text("unexpected", encoding="utf-8")
-            with self.assertRaisesRegex(IntegrityError, "missing, changed or extra"):
-                package_zip(root, parent / "stale.zip")
+            self.assertEqual(package_zip(root, parent / "grown.zip")["file_count"], 3)
             self.assertFalse(any(parent.glob(".source-zip-*")))
             with self.assertRaisesRegex(IntegrityError, "outside the source root"):
                 package_zip(root, root / "artifact.zip")
+
+    @unittest.skipUnless(shutil.which("git"), "git is needed to detect a dirty checkout")
+    def test_package_zip_refuses_a_checkout_that_differs_from_its_commit(self):
+        with tempfile.TemporaryDirectory() as temp:
+            parent = Path(temp)
+            root = parent / "craft-anything-full-upgraded"
+            root.mkdir()
+            (root / "README.md").write_text("one\n", encoding="utf-8")
+
+            def git(*args):
+                subprocess.run(["git", "-C", str(root), *args], capture_output=True, check=True)
+
+            git("init")
+            git("add", "README.md")
+            git("-c", "user.name=Test", "-c", "user.email=test@example.invalid",
+                "commit", "-m", "one")
+            self.assertEqual(package_zip(root, parent / "clean.zip")["file_count"], 1)
+            (root / "scratch.txt").write_text("not source\n", encoding="utf-8")
+            self.assertEqual(package_zip(root, parent / "untracked.zip")["file_count"], 1)
+            (root / "README.md").write_text("two\n", encoding="utf-8")
+            with self.assertRaisesRegex(IntegrityError, "uncommitted changes"):
+                package_zip(root, parent / "dirty.zip")
 
     def test_package_zip_normalizes_metadata(self):
         with tempfile.TemporaryDirectory() as temp:
