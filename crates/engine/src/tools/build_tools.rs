@@ -571,6 +571,7 @@ fn build_command_run(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, Too
             project: sandbox_app.unwrap_or_else(|| app.clone()),
             network: ctx.session.settings.build.sandbox_network,
             storage_mb: ctx.session.settings.build.sandbox_disk_mb,
+            project_mb: ctx.session.settings.build.sandbox_project_mb,
             ..Default::default()
         };
         craft_anything_platform::sandbox::run(&spec, &p.command, timeout, Some(std::sync::Arc::new(move || cancel.is_cancelled())))?

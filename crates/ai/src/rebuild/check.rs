@@ -42,6 +42,7 @@ pub(super) fn container_for(app: &Path, stack: &str, build: &craft_anything_engi
         project: app.to_path_buf(),
         network: build.sandbox_network,
         storage_mb: build.sandbox_disk_mb,
+        project_mb: build.sandbox_project_mb,
         // The container runs as the host's numeric id, which has no home there: give tools a
         // writable home, and cargo its cache, both inside the container.
         env: vec![("HOME".into(), "/tmp".into()), ("CARGO_HOME".into(), "/tmp/cargo".into())],

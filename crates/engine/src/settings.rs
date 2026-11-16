@@ -166,6 +166,10 @@ pub struct BuildSettings {
     /// Writable-layer ceiling for a sandboxed build in MiB; 0 leaves Docker's default. Needs a
     /// storage driver with quota support (overlay2 with pquota; not Docker Desktop).
     pub sandbox_disk_mb: u64,
+    /// Ceiling in MiB for the project folder itself while a sandboxed build runs; 0 is none. The
+    /// folder is a bind mount, so it is measured during the build and the build is stopped when it
+    /// grows past this.
+    pub sandbox_project_mb: u64,
     /// Whether a sandboxed build may reach the network. Package installs need it; a build that
     /// only compiles what it already has doesn't.
     pub sandbox_network: bool,
@@ -210,6 +214,7 @@ impl Default for BuildSettings {
             sandbox_image: craft_anything_platform::sandbox::DEFAULT_IMAGE.to_string(),
             sandbox_image_digest: None,
             sandbox_disk_mb: 0,
+            sandbox_project_mb: 0,
             sandbox_network: true,
             sandbox_unconfined: Unconfined::Allow,
         }

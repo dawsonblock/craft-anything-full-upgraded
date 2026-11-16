@@ -20,6 +20,7 @@ from reaching the network when they don't need it.
 | User | The host's numeric user and group on macOS and Linux; a fixed non-root id (`1000:1000`) on Windows, which has no host id to mirror. Any zero id, uid or gid, also falls back to `1000:1000`, so the container is never root (`0:20` is root: the kernel checks the uid). The project folder must be writable by that user: a folder whose permission bits don't allow it is refused before Docker starts. |
 | Image | The tag in `sandbox_image`, or a pinned `sha256` digest when `sandbox_image_digest` is set |
 | Storage | The writable layer is unlimited by default; `sandbox_disk_mb` adds Docker's `--storage-opt size`, which needs a storage driver with quota support (not Docker Desktop) |
+| Project folder size | `/work` is a bind mount, so Docker can't quota it. `sandbox_project_mb` measures the folder before the build (a folder already past it is refused before Docker starts) and every 250 ms while it runs; a build that grows past it is stopped and the container removed. 0 is no ceiling. A folder with more than 100,000 entries is reported as unknown rather than measured forever, and is not stopped on a guess |
 | Capabilities | `--cap-drop ALL`, `--security-opt no-new-privileges` |
 | Network | `--network none` unless `sandbox_network` allows it (`bridge`) |
 | Environment | Nothing from the host. A check's own build gets `HOME=/tmp` and `CARGO_HOME=/tmp/cargo`, inside the container, because the host id it runs as has no home there |
@@ -45,6 +46,7 @@ sandbox = "docker"                  # "off" (default) or "docker"
 sandbox_image = "node:22"           # default: debian:bookworm-slim
 sandbox_image_digest = "sha256:…"   # optional pin; empty uses the tag
 sandbox_disk_mb = 0                 # 0 = Docker's default; needs a quota-capable driver
+sandbox_project_mb = 0              # 0 = no ceiling on the mounted project folder
 sandbox_network = true              # default: true; package installs need it
 sandbox_unconfined = "allow"        # default: "allow"; "refuse" stops routes that can't be confined
 ```

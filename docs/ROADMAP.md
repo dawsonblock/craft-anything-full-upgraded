@@ -1016,7 +1016,7 @@ Owner: open · Status: in progress
 - [x] Run `cargo deny check advisories` in CI once the `crypto-bigint` upgrade lands; the yanked
       crates (`clipboard-win` 5.4.3, `async-executor` 1.14.1) are fixed — the `advisories` job in
       `ci.yml`
-- [ ] Bound the project folder's own disk use: `sandbox_disk_mb` limits the container's writable
+- [x] Bound the project folder's own disk use: `sandbox_disk_mb` limits the container's writable
       layer, not the `/work` bind mount, so a build can still fill the host's disk inside its
       project. `[build] sandbox_project_mb` measures the folder (a folder already past it is
       refused before Docker starts) and every 250 ms while the build runs, cancelling the run and

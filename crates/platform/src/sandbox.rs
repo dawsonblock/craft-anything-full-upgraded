@@ -13,9 +13,15 @@
 use crate::process::{Cancel, Output, Process};
 use craft_anything_evidence::{ErrorCode, ToolError};
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
+
+/// How often the project folder is measured while a build runs.
+const WATCH_EVERY: Duration = Duration::from_millis(250);
+/// Entries one measurement walks before it gives up: a folder this large is reported as unknown
+/// rather than measured forever.
+const WATCH_ENTRIES: usize = 100_000;
 
 /// Where the project folder is mounted inside the container.
 pub const WORKDIR: &str = "/work";
@@ -47,6 +53,10 @@ pub struct Spec {
     /// Writable-layer ceiling in MiB; 0 leaves Docker's default. Needs a storage driver with
     /// quota support (overlay2 with pquota; not Docker Desktop).
     pub storage_mb: u64,
+    /// Ceiling in MiB for the project folder itself; 0 is no ceiling. The folder is a bind mount,
+    /// so Docker can't quota it: it is measured while the build runs and the build is stopped when
+    /// it grows past this.
+    pub project_mb: u64,
     /// Environment variables the container gets, set by the caller. The host's environment is
     /// never passed: a build that needs one has it named here.
     pub env: Vec<(String, String)>,
@@ -63,6 +73,7 @@ impl Default for Spec {
             cpus: 2.0,
             pids: 512,
             storage_mb: 0,
+            project_mb: 0,
             env: Vec::new(),
         }
     }
@@ -162,6 +173,96 @@ fn is_env_name(key: &str) -> bool {
     chars.next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_') && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
+/// Measures the project folder while a container runs, so a build that writes past the ceiling is
+/// stopped instead of filling the disk. The folder is a bind mount, which Docker can't quota.
+struct ProjectWatch {
+    over: Arc<AtomicBool>,
+    done: Arc<AtomicBool>,
+}
+
+impl ProjectWatch {
+    fn start(root: PathBuf, limit: u64) -> ProjectWatch {
+        let over = Arc::new(AtomicBool::new(false));
+        let done = Arc::new(AtomicBool::new(false));
+        let thread = {
+            let over = over.clone();
+            let done = done.clone();
+            std::thread::Builder::new().name("sandbox-disk".into()).spawn(move || {
+                while !done.load(Ordering::Relaxed) {
+                    std::thread::sleep(WATCH_EVERY);
+                    if done.load(Ordering::Relaxed) {
+                        return;
+                    }
+                    if folder_bytes(&root, limit).is_some_and(|bytes| bytes > limit) {
+                        over.store(true, Ordering::SeqCst);
+                        return;
+                    }
+                }
+            })
+        };
+        if thread.is_err() {
+            log::warn!("Couldn't start the sandbox's disk watcher; the project folder's ceiling isn't enforced this run");
+        }
+        ProjectWatch { over, done }
+    }
+
+    fn tripped(&self) -> bool {
+        self.over.load(Ordering::SeqCst)
+    }
+}
+
+impl Drop for ProjectWatch {
+    fn drop(&mut self) {
+        self.done.store(true, Ordering::SeqCst);
+    }
+}
+
+/// The bytes under `root`, stopping as soon as they pass `limit`. `None` means the folder has more
+/// entries than one measurement walks, so its size isn't known; a build is not stopped on a guess.
+/// Links are not followed, so a link back up the tree can't loop.
+fn folder_bytes(root: &Path, limit: u64) -> Option<u64> {
+    let mut total = 0u64;
+    let mut seen = 0usize;
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+        for entry in entries.flatten() {
+            seen += 1;
+            if seen > WATCH_ENTRIES {
+                return None;
+            }
+            let Ok(meta) = entry.metadata() else { continue };
+            if meta.is_dir() {
+                stack.push(entry.path());
+            } else if meta.is_file() {
+                total = total.saturating_add(meta.len());
+                if total > limit {
+                    return Some(total);
+                }
+            }
+        }
+    }
+    Some(total)
+}
+
+/// The error a build didn't start for, because its project folder is already past the ceiling.
+fn project_already_too_big(project: &Path, limit: u64) -> ToolError {
+    ToolError::new(
+        ErrorCode::OverLimit,
+        format!("The project folder {} is already more than {limit} MiB, so the sandboxed build didn't start.", project.display()),
+    )
+    .with_remediation("Delete what the build no longer needs, raise `[build] sandbox_project_mb`, or turn the sandbox off in Settings → Build.")
+}
+
+/// The error a build stopped for writing too much into its project folder.
+fn project_too_big(project: &Path, limit: u64) -> ToolError {
+    ToolError::new(
+        ErrorCode::OverLimit,
+        format!("The build wrote more than {limit} MiB into {}, so it was stopped before it filled the disk.", project.display()),
+    )
+    .with_remediation("Delete what the build no longer needs, raise `[build] sandbox_project_mb`, or turn the sandbox off in Settings → Build.")
+}
+
 /// Run `command`, a shell line, inside a container built from `spec`.
 pub fn run(spec: &Spec, command: &str, timeout: Duration, cancel: Option<Cancel>) -> Result<Output, ToolError> {
     run_argv(spec, &["sh".to_string(), "-c".to_string(), command.to_string()], timeout, cancel)
@@ -177,6 +278,12 @@ pub fn run_argv(spec: &Spec, command: &[String], timeout: Duration, cancel: Opti
         return Err(ToolError::invalid(format!("The sandbox runs as {user}, which can't write the project folder {}.", spec.project.display()))
             .with_remediation("Make the folder writable by that user, or turn the sandbox off in Settings → Build."));
     }
+    // A folder that is already past the ceiling has nothing left to protect: refuse before Docker
+    // starts, rather than let the build add to it.
+    let limit = spec.project_mb.saturating_mul(1024 * 1024);
+    if limit > 0 && folder_bytes(&spec.project, limit).is_some_and(|bytes| bytes > limit) {
+        return Err(project_already_too_big(&spec.project, spec.project_mb));
+    }
     let name = container_name();
     // A name and a label let a container be found and stopped even when the Docker client that
     // started it is gone.
@@ -184,6 +291,7 @@ pub fn run_argv(spec: &Spec, command: &[String], timeout: Duration, cancel: Opti
     argv.insert(2, name.clone());
     argv.insert(3, "--label".into());
     argv.insert(4, LABEL.into());
+    let watch = (limit > 0).then(|| ProjectWatch::start(spec.project.clone(), limit));
     let mut process = Process::new("docker")
         .args(argv)
         .cwd(&spec.project)
@@ -191,8 +299,9 @@ pub fn run_argv(spec: &Spec, command: &[String], timeout: Duration, cancel: Opti
         .stdout_cap(4 * 1024 * 1024)
         .stderr_cap(4 * 1024 * 1024)
         .label("the sandboxed build command");
-    if let Some(cancel) = cancel {
-        process = process.cancel_when(move || cancel());
+    {
+        let watched = watch.as_ref().map(|w| w.over.clone());
+        process = process.cancel_when(move || cancel.as_ref().is_some_and(|c| c()) || watched.as_ref().is_some_and(|w| w.load(Ordering::SeqCst)));
     }
     let result = process.run();
     // `--rm` removes a container that exits. A timeout or cancel kills the Docker client first,
@@ -200,6 +309,10 @@ pub fn run_argv(spec: &Spec, command: &[String], timeout: Duration, cancel: Opti
     // also comes here, where removing a container that was never made does nothing.
     if result.is_err() {
         stop(&name);
+    }
+    // The watcher cancels the run, so its error is "cancelled": say what actually happened.
+    if watch.as_ref().is_some_and(ProjectWatch::tripped) {
+        return Err(project_too_big(&spec.project, spec.project_mb));
     }
     let out = result.map_err(docker_error)?;
     // Docker's client reports a stopped daemon on stderr with a non-zero exit, not a spawn
@@ -658,6 +771,52 @@ mod tests {
         std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o300)).unwrap();
         assert!(writable_by(dir.path(), &owner), "write and search");
         std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+
+    /// The project folder is a bind mount Docker can't quota, so its size is measured: a folder
+    /// already past the ceiling stops the build before Docker starts.
+    #[test]
+    fn a_project_folder_already_over_its_ceiling_is_refused_before_docker_starts() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("blob.bin"), vec![0u8; 2 * 1024 * 1024]).unwrap();
+        let spec = Spec { project: dir.path().to_path_buf(), project_mb: 1, ..Default::default() };
+        let err = run_argv(&spec, &["true".into()], Duration::from_secs(1), None).expect_err("over the ceiling");
+        assert_eq!(err.code, ErrorCode::OverLimit);
+        assert!(err.message.contains("more than 1 MiB"), "{}", err.message);
+        assert!(err.message.contains("didn't start"), "{}", err.message);
+    }
+
+    /// The measurement counts a tree, stops as soon as it passes the ceiling, and says so when a
+    /// folder is too large to walk.
+    #[test]
+    fn the_folder_measurement_counts_and_stops_at_the_ceiling() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("sub")).unwrap();
+        std::fs::write(dir.path().join("a.bin"), vec![0u8; 1000]).unwrap();
+        std::fs::write(dir.path().join("sub/b.bin"), vec![0u8; 2000]).unwrap();
+        assert_eq!(folder_bytes(dir.path(), 1_000_000), Some(3000), "under the ceiling, the whole tree is counted");
+        // Entries come back in whatever order the filesystem gives them, so the stopping point is
+        // the first total past the ceiling, not a fixed number.
+        for limit in [0, 1500, 2500] {
+            let stopped = folder_bytes(dir.path(), limit).expect("a small tree is measured");
+            assert!(stopped > limit && stopped <= 3000, "limit {limit} stopped at {stopped}");
+        }
+    }
+
+    /// The watcher trips when the folder grows past its ceiling while a build runs, which is what
+    /// cancels the container.
+    #[test]
+    fn the_watcher_trips_when_the_folder_grows_past_the_ceiling() {
+        let dir = tempfile::tempdir().unwrap();
+        let watch = ProjectWatch::start(dir.path().to_path_buf(), 4096);
+        std::thread::sleep(WATCH_EVERY);
+        assert!(!watch.tripped(), "an empty folder is under the ceiling");
+        std::fs::write(dir.path().join("big.bin"), vec![0u8; 8192]).unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while !watch.tripped() && std::time::Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert!(watch.tripped(), "the watcher sees the growth");
     }
 
     #[cfg(unix)]
