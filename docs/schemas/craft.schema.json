@@ -184,6 +184,43 @@
         }
       ]
     },
+    "CheckReceipt": {
+      "description": "What a check ran, where, and what it printed: enough to tell a confined build from one on\nthis computer, and to compare two runs of the same source.",
+      "type": "object",
+      "properties": {
+        "command": {
+          "description": "The program and its arguments, as they were run.",
+          "type": "string"
+        },
+        "exit_code": {
+          "description": "Its exit code, when it exited.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int32"
+        },
+        "image": {
+          "description": "The image it ran in, when it ran in a container.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "output_sha256": {
+          "description": "SHA-256 of its combined stdout and stderr.",
+          "type": "string"
+        },
+        "runner": {
+          "$ref": "#/$defs/CheckRunner"
+        }
+      },
+      "required": [
+        "runner",
+        "command",
+        "output_sha256"
+      ]
+    },
     "CheckResult": {
       "description": "One check of the build: what it found and, when it could be compared with the original,\nhow alike it is. Decisions read `outcome`, `required` and `similarity`, never `note` (which is\nfor people).",
       "type": "object",
@@ -250,6 +287,17 @@
           ],
           "default": null
         },
+        "receipt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CheckReceipt"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "required": {
           "type": [
             "boolean",
@@ -281,6 +329,21 @@
         "round",
         "note",
         "at_ms"
+      ]
+    },
+    "CheckRunner": {
+      "description": "Where a check ran the program it judged.",
+      "oneOf": [
+        {
+          "description": "On this computer, outside the sandbox.",
+          "type": "string",
+          "const": "host"
+        },
+        {
+          "description": "In a Docker container that saw only the project folder.",
+          "type": "string",
+          "const": "container"
+        }
       ]
     },
     "Claim": {

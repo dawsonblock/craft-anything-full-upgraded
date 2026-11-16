@@ -345,6 +345,13 @@ fn rebuild_start(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolErr
     // A headless start can't show the app's toast: say which AI builds when the saved one is gone.
     let builder_notice =
         p.project.as_ref().and_then(|_| super::builder_replacement(&cfg, &ws, p.backend.as_deref()).map(|r| super::replaced_builder_notice(&r.saved, &r.used)));
+    // A coding agent runs its own tools and signs in as the person, so it can't be put in the
+    // container. Say so even when the person allowed it, so the build is never mistaken for one
+    // that is confined.
+    let effective = builder_backend(&cfg, p.backend.as_deref().or_else(|| super::project_builder(&cfg, &ws)))?;
+    let agent_outside = (effective.config.kind == crate::BackendKind::AgentCli)
+        .then(|| craft_anything_engine::execution::Policy::of(&ctx.session.settings.build).outside(craft_anything_engine::execution::Route::Agent))
+        .flatten();
     let mut set = runs.0.lock().unwrap_or_else(PoisonError::into_inner);
     refresh(ctx, &mut set);
     if set.is_busy(&ws.root) {
@@ -360,6 +367,7 @@ fn rebuild_start(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolErr
         max_rounds: p.rounds.unwrap_or(2),
         beginner: false,
         clean_room: Some(ctx.session.clean_room()),
+        build: Some(ctx.session.settings.build.clone()),
         ..RunOptions::default()
     };
     // A tool runs with the session locked, so the hub reads the saved file: use this session's
@@ -376,6 +384,9 @@ fn rebuild_start(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolErr
     };
     if let Some(notice) = builder_notice {
         out["builder_notice"] = json!(notice);
+    }
+    if let Some(why) = agent_outside {
+        out["sandbox"] = json!({"runs": "on this computer, outside the Docker sandbox", "why": why});
     }
     Ok(ToolOutput::Value(out))
 }
@@ -637,6 +648,39 @@ mod tests {
         let notice = out["result"]["builder_notice"].as_str().unwrap_or_default();
         assert!(notice.contains("Off") && notice.contains("Claude"), "{out}");
         let _ = e.call("rebuild_stop", json!({"project": ws.root}), ok());
+    }
+
+    /// A tool holds the session while it starts a run, so `try_session` fails and the run must
+    /// take the build policy the tool passes, not the copy saved to disk. A `refuse` set in the
+    /// session but not yet written must still stop an agent build.
+    #[test]
+    fn rebuild_start_carries_the_sandbox_policy_when_the_session_is_held() {
+        let d = tempfile::tempdir().unwrap();
+        let mut s = craft_anything_engine::testing::session();
+        let mut ai = crate::AiConfig::default();
+        ai.upsert(crate::BackendEntry {
+            config: crate::BackendConfig {
+                name: "Stand-in".into(),
+                kind: crate::BackendKind::AgentCli,
+                model: "stand-in".into(),
+                base_url: None,
+                ssh_host: None,
+                enabled: true,
+            },
+            options: Default::default(),
+        });
+        s.settings.ai = ai.to_table().unwrap();
+        // Save the default (allow) policy, then change it only in memory: the tool must pass the
+        // session's copy, not read this file.
+        s.settings.save_to(&s.config_dir().join("config.toml")).unwrap();
+        s.settings.build.sandbox = craft_anything_engine::settings::SandboxMode::Docker;
+        s.settings.build.sandbox_unconfined = craft_anything_engine::settings::Unconfined::Refuse;
+        let e = Engine::shared(s, specs());
+        let ws = Workspace::create(d.path(), "Notes", "A notes app", TargetRef::None).unwrap();
+        let ok = || CallOptions::new(Caller::Cli).with_consent(Consent::Granted);
+        let err = e.call("rebuild_start", json!({"project": ws.root, "request": "make it blue", "backend": "Stand-in", "rounds": 0}), ok()).unwrap_err();
+        assert_eq!(err.code, ErrorCode::FeatureMissing, "{}", err.message);
+        assert!(err.message.contains("outside the Docker sandbox"), "{}", err.message);
     }
 
     #[test]

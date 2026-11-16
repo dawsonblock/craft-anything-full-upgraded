@@ -81,11 +81,12 @@ def check_component_spelling(name: str, seen: dict[str, str]) -> None:
 
 def ignored(rel: Path) -> bool:
     # A freshly checked-out source tree carries Git internals not distributed
-    # by the ZIP. Cargo build outputs and the local devlog are similarly not
-    # part of the source. Ignore only the root-level folders, not nested files.
+    # by the ZIP. Cargo build outputs, the local devlog and tool caches are
+    # similarly not part of the source. Ignore only the root-level folders, not
+    # nested files.
     return (".git" in rel.parts or "__pycache__" in rel.parts
             or rel.suffix == ".pyc"
-            or (bool(rel.parts) and rel.parts[0] in ("target", "log")))
+            or (bool(rel.parts) and rel.parts[0] in ("target", "log", ".ruff_cache", ".pytest_cache")))
 
 
 def sha256_stream(stream, limit: int) -> tuple[int, str]:
@@ -440,9 +441,18 @@ def extract_verified_zip(archive: Path | BinaryIO, output_parent: Path, *,
                     if (unpacked["file_count"] != verified["file_count"]
                             or unpacked["manifest_sha256"] != verified["manifest_sha256"]):
                         raise IntegrityError("Extracted source does not match verified ZIP")
-                    if final_root.exists() or final_root.is_symlink():
-                        raise IntegrityError("Output source root appeared during staging")
-                    os.rename(staged_root, final_root)
+                    # Create the final root exclusively, then move the staged entries into it: a
+                    # rename would replace an empty directory another writer made in between.
+                    try:
+                        os.mkdir(final_root, 0o700)
+                    except FileExistsError as exc:
+                        raise IntegrityError("Output source root appeared during staging") from exc
+                    try:
+                        for entry in staged_root.iterdir():
+                            os.rename(entry, final_root / entry.name)
+                    except BaseException:
+                        shutil.rmtree(final_root, ignore_errors=True)
+                        raise
                     return {
                         "status": "extracted", "source_root": str(final_root),
                         "file_count": unpacked["file_count"],

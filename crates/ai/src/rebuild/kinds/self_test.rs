@@ -36,8 +36,11 @@ fn picture_verdict(cx: &CheckCx, bytes: &[u8], note: String) -> (bool, String) {
             format!("The self-test didn't save a picture after its scripted input, so only the game's own word says anything happened. {SELF_TEST_CONTRACT}"),
         );
     };
-    let candidate = if Path::new(path).is_absolute() { PathBuf::from(path) } else { cx.ws.app_dir().join(path) };
-    let (Ok(real), Ok(root)) = (std::fs::canonicalize(&candidate), std::fs::canonicalize(cx.ws.app_dir())) else {
+    let Ok(app) = cx.ws.app_dir_checked() else {
+        return (false, format!("The app folder leads outside the project, so the self-test wasn't checked. {SELF_TEST_CONTRACT}"));
+    };
+    let candidate = if Path::new(path).is_absolute() { PathBuf::from(path) } else { app.join(path) };
+    let (Ok(real), Ok(root)) = (std::fs::canonicalize(&candidate), std::fs::canonicalize(&app)) else {
         return (false, format!("The picture the self-test names ({}) isn't a readable file. {SELF_TEST_CONTRACT}", candidate.display()));
     };
     if !real.starts_with(&root) {
@@ -83,14 +86,16 @@ impl Check for SelfTestCheck {
 
     fn run(&self, cx: &mut CheckCx) -> Result<CheckResult, ToolError> {
         let round = cx.round;
+        let outside = cx.outside_sandbox(craft_anything_engine::execution::Route::SelfTest).unwrap_or_default();
         let file = cx.ws.checks_dir().join(format!("round-{round}")).join("self-test.json");
         let (passed, note, claims) = match run_with(cx, "--self-test", &file)? {
             OwnRun::NoProgram => (false, NO_PROGRAM.to_string(), Vec::new()),
-            OwnRun::NoFile(why) => (false, format!("The game didn't save a report with --self-test.{why} {SELF_TEST_CONTRACT}"), Vec::new()),
+            OwnRun::Refused(why) => return Ok(CheckResult::unknown(self.id(), round, why)),
+            OwnRun::NoFile(why) => (false, format!("The game didn't save a report with --self-test.{why} {SELF_TEST_CONTRACT}{outside}"), Vec::new()),
             OwnRun::Saved { bytes, .. } => {
                 let (passed, note) = verdict(&bytes);
                 let (passed, note) = if passed { picture_verdict(cx, &bytes, note) } else { (passed, note) };
-                (passed, note, claims(&bytes))
+                (passed, note + &outside, claims(&bytes))
             }
         };
         let artifacts = file.strip_prefix(&cx.ws.root).ok().map(Path::to_path_buf).filter(|_| file.is_file()).into_iter().collect();

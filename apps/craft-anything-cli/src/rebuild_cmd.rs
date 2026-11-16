@@ -152,6 +152,9 @@ fn run(cli: &Cli, a: &RebuildArgs) -> Result<bool, ToolError> {
         ..RunOptions::default()
     };
     let mut run = RebuildRun::start(&hub, ws, opts)?;
+    if let Some(why) = run.outside {
+        eprintln!("This build runs on this computer, outside the Docker sandbox: {why}.");
+    }
     if let Some(replacement) = replacement {
         eprintln!("{}", rebuild::replaced_builder_notice(&replacement.saved, &replacement.used));
     }

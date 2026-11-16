@@ -696,7 +696,7 @@ fn project_inbox_answer(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, 
 fn project_play(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolError> {
     let p: PlayParams = parse_params(params)?;
     let ws = open(&p.project)?;
-    let app = ws.app_dir();
+    let app = ws.app_dir_checked()?;
     if crate::outputs::site_dir(&app).is_some() {
         return Err(ToolError::new(ErrorCode::NotSupported, "This project made a website.").with_remediation("Use project_preview to see it."));
     }
@@ -707,7 +707,8 @@ fn project_play(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolErro
 fn project_preview(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolError> {
     let p: PreviewParams = parse_params(params)?;
     let ws = open(&p.project)?;
-    let Some(site) = crate::outputs::site_dir(&ws.app_dir()) else {
+    let app = ws.app_dir_checked()?;
+    let Some(site) = crate::outputs::site_dir(&app) else {
         return Err(ToolError::new(ErrorCode::NotFound, "There's no built website in this project yet.")
             .with_remediation("Finish a build first (rebuild); a game or app is started with project_play."));
     };
@@ -952,5 +953,29 @@ mod tests {
         assert_eq!(folder_to_open(&ws, false, None).unwrap(), ws.root);
         assert_eq!(folder_to_open(&ws, true, None).unwrap(), ws.app_dir());
         assert!(folder_to_open(&ws, false, Some(8)).is_err(), "no such pin");
+    }
+
+    /// `project_play` starts the built program; the central execution controller classes it as a
+    /// generated-code route, so `sandbox_unconfined = "refuse"` stops it before it starts.
+    #[cfg(unix)]
+    #[test]
+    fn playing_a_build_is_refused_when_the_sandbox_refuses_unconfined_runs() {
+        use std::os::unix::fs::PermissionsExt;
+        let d = tempfile::tempdir().unwrap();
+        let mut s = crate::testing::session();
+        s.settings.build.sandbox = crate::settings::SandboxMode::Docker;
+        s.settings.build.sandbox_unconfined = crate::settings::Unconfined::Refuse;
+        let e = Engine::new(s);
+        let ws = Workspace::create(d.path(), "Snake", "A snake game", TargetRef::None).unwrap();
+        // A built program `outputs::launch` finds: a Cargo project with an executable under
+        // target/debug.
+        std::fs::create_dir_all(ws.app_dir()).unwrap();
+        std::fs::write(ws.app_dir().join("Cargo.toml"), "").unwrap();
+        let exe = ws.app_dir().join("target/debug/snake");
+        std::fs::create_dir_all(exe.parent().unwrap()).unwrap();
+        std::fs::write(&exe, "#!/bin/sh\nexit 0\n").unwrap();
+        std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let err = e.call("project_play", json!({"project": ws.root}), CallOptions::new(Caller::Cli).with_consent(crate::Consent::Granted)).unwrap_err();
+        assert_eq!(err.code, ErrorCode::FeatureMissing, "{}", err.message);
     }
 }

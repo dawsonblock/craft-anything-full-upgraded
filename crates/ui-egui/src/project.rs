@@ -1385,6 +1385,7 @@ fn draw_items(
         ui.push_id(i, |ui| match item {
             FeedItem::User(text) => chat::user_bubble(ui, text.text(), false),
             FeedItem::Step { text, .. } => chat::activity_row(ui, RichText::new(text).color(t.text_dim).size(theme::SMALL)),
+            FeedItem::Note(text) => chat::activity_row(ui, RichText::new(text).color(t.text_dim).size(theme::SMALL)),
             FeedItem::Paused => chat::activity_row(ui, RichText::new(tr("Paused.")).color(t.text_dim).size(theme::SMALL)),
             FeedItem::Agent { text, streaming } => {
                 chat::answer_bubble(ui, false, text.trim(), |ui| {

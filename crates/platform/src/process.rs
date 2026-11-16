@@ -271,6 +271,7 @@ impl Process {
 
     /// Start the child and supervise it on a background thread.
     pub fn spawn(self) -> Result<RunningProcess, ToolError> {
+        crate::execution::check()?;
         let name = self.display();
         let (program, lead) = crate::which::launch_target(&self.program);
         let mut wrap = CommandWrap::with_new(&program, |cmd| {
@@ -328,10 +329,24 @@ impl Process {
         let err_buf = Arc::new(Mutex::new(Capped::new(self.stderr_cap)));
         let mut readers = Vec::new();
         if let Some(r) = child.stdout().take() {
-            readers.push(spawn_reader(r, out_buf.clone(), self.on_stdout.clone(), activity.clone(), start));
+            match spawn_reader(r, out_buf.clone(), self.on_stdout.clone(), activity.clone(), start) {
+                Ok(h) => readers.push(Some(h)),
+                Err(e) => {
+                    let _ = child.start_kill();
+                    let _ = child.kill();
+                    return Err(ToolError::new(ErrorCode::ProgramFailed, format!("Could not start a thread to read {name}'s output: {e}")));
+                }
+            }
         }
         if let Some(r) = child.stderr().take() {
-            readers.push(spawn_reader(r, err_buf.clone(), self.on_stderr.clone(), activity.clone(), start));
+            match spawn_reader(r, err_buf.clone(), self.on_stderr.clone(), activity.clone(), start) {
+                Ok(h) => readers.push(Some(h)),
+                Err(e) => {
+                    let _ = child.start_kill();
+                    let _ = child.kill();
+                    return Err(ToolError::new(ErrorCode::ProgramFailed, format!("Could not start a thread to read {name}'s output: {e}")));
+                }
+            }
         }
 
         let kill = Arc::new(AtomicBool::new(false));
@@ -703,42 +718,39 @@ fn spawn_reader<R: Read + Send + 'static>(
     sink: Option<LineSink>,
     activity: Arc<AtomicU64>,
     start: Instant,
-) -> Option<JoinHandle<()>> {
-    std::thread::Builder::new()
-        .name("proc-reader".into())
-        .spawn(move || {
-            let mut chunk = vec![0u8; 64 * 1024];
-            let mut line: Vec<u8> = Vec::new();
-            loop {
-                let n = match r.read(&mut chunk) {
-                    Ok(0) => break,
-                    Ok(n) => n,
-                    Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
-                    Err(_) => break,
-                };
-                activity.store(millis_since(start), Ordering::Relaxed);
-                let data = chunk.get(..n).unwrap_or_default();
-                buf.lock().unwrap_or_else(PoisonError::into_inner).push(data);
-                if let Some(sink) = &sink {
-                    for &b in data {
-                        if b == b'\n' {
+) -> std::io::Result<JoinHandle<()>> {
+    std::thread::Builder::new().name("proc-reader".into()).spawn(move || {
+        let mut chunk = vec![0u8; 64 * 1024];
+        let mut line: Vec<u8> = Vec::new();
+        loop {
+            let n = match r.read(&mut chunk) {
+                Ok(0) => break,
+                Ok(n) => n,
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(_) => break,
+            };
+            activity.store(millis_since(start), Ordering::Relaxed);
+            let data = chunk.get(..n).unwrap_or_default();
+            buf.lock().unwrap_or_else(PoisonError::into_inner).push(data);
+            if let Some(sink) = &sink {
+                for &b in data {
+                    if b == b'\n' {
+                        emit_line(sink, &mut line);
+                    } else {
+                        line.push(b);
+                        if line.len() >= MAX_LINE {
                             emit_line(sink, &mut line);
-                        } else {
-                            line.push(b);
-                            if line.len() >= MAX_LINE {
-                                emit_line(sink, &mut line);
-                            }
                         }
                     }
                 }
             }
-            if let Some(sink) = &sink
-                && !line.is_empty()
-            {
-                emit_line(sink, &mut line);
-            }
-        })
-        .ok()
+        }
+        if let Some(sink) = &sink
+            && !line.is_empty()
+        {
+            emit_line(sink, &mut line);
+        }
+    })
 }
 
 fn emit_line(sink: &LineSink, line: &mut Vec<u8>) {
@@ -957,6 +969,7 @@ impl Launch {
     /// Start the program and return at once, with a handle that tells when it ends and can stop
     /// it. Dropping the handle leaves the program running.
     pub fn start_watched(self) -> Result<Launched, ToolError> {
+        crate::execution::check()?;
         let name = self.display();
         let mut cmd = std::process::Command::new(&self.program);
         cmd.args(&self.args).stdin(Stdio::null());

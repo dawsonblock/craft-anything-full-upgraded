@@ -39,6 +39,10 @@ pub struct Toolchain {
     /// Use a single installed PEP 621 console script after checking the fixed entrypoints.
     #[serde(default)]
     pub python_console_script: bool,
+    /// The container image a build check can run this toolchain in when the sandbox is on. A
+    /// toolchain without one builds on this computer, and says so under `refuse`.
+    #[serde(default)]
+    pub image: Option<String>,
 }
 
 /// A declared entrypoint and argv template. A wildcard file must identify exactly one file.
@@ -219,6 +223,20 @@ mod tests {
                 assert!(!recipe.file.is_empty() && !recipe.command.is_empty(), "{recipe:?}");
             }
         }
+    }
+
+    /// The images a build check may run in are named, usable references; a toolchain without one
+    /// builds on this computer.
+    #[test]
+    fn only_toolchains_with_an_image_build_in_a_container() {
+        let images: Vec<&str> = catalogue().iter().filter_map(|t| t.image.as_deref()).collect();
+        assert!(images.contains(&"rust:1.99-slim-bookworm"), "{images:?}");
+        assert!(images.contains(&"node:22-bookworm"), "{images:?}");
+        for image in images {
+            assert!(!image.trim().is_empty() && !image.starts_with('-') && !image.chars().any(char::is_whitespace), "{image}");
+        }
+        let make = catalogue().iter().find(|t| t.name == "Make").expect("the table has Make");
+        assert_eq!(make.image, None, "a toolchain without an image builds here and says so");
     }
 
     /// Shared launch detection preserves argument boundaries and refuses ambiguous projects.

@@ -51,16 +51,18 @@ impl Check for ScreenshotCheck {
 
     fn run(&self, cx: &mut CheckCx) -> Result<CheckResult, ToolError> {
         let (ws, round) = (cx.ws, cx.round);
+        let outside = cx.outside_sandbox(craft_anything_engine::execution::Route::SelfTest).unwrap_or_default();
         let dir = ws.checks_dir().join(format!("round-{round}"));
         let shot = dir.join("screenshot.png");
         let (bytes, program, base_args) = match run_with(cx, "--screenshot", &shot)? {
             OwnRun::NoProgram => return Ok(CheckResult::new(self.id(), round, false, NO_PROGRAM)),
+            OwnRun::Refused(why) => return Ok(CheckResult::unknown(self.id(), round, why)),
             OwnRun::NoFile(why) => {
                 return Ok(CheckResult::new(
                     self.id(),
                     round,
                     false,
-                    format!("The program didn't save a picture with --screenshot.{why} {SCREENSHOT_CONTRACT}"),
+                    format!("The program didn't save a picture with --screenshot.{why} {SCREENSHOT_CONTRACT}{outside}"),
                 ));
             }
             OwnRun::Saved { bytes, program, args } => (bytes, program, args),
@@ -71,7 +73,7 @@ impl Check for ScreenshotCheck {
             Err(e) => {
                 return Ok(CheckResult {
                     artifacts,
-                    ..CheckResult::new(self.id(), round, false, format!("The --screenshot file isn't a readable PNG: {}", e.message))
+                    ..CheckResult::new(self.id(), round, false, format!("The --screenshot file isn't a readable PNG: {}{outside}", e.message))
                 });
             }
         };
@@ -82,7 +84,7 @@ impl Check for ScreenshotCheck {
                     self.id(),
                     round,
                     false,
-                    "The program's screenshot is blank (one colour): nothing was drawn. Make sure it draws its first frames before saving.",
+                    format!("The program's screenshot is blank (one colour): nothing was drawn. Make sure it draws its first frames before saving.{outside}"),
                 )
             });
         }
@@ -108,7 +110,7 @@ impl Check for ScreenshotCheck {
             Likeness::NoPictures => format!("The program starts and draws ({}×{}).", img.width, img.height),
         };
         let (running, claims) = running_note(cx, &program, &base_args, &dir);
-        let note = note + &running;
+        let note = note + &running + &outside;
         artifacts.extend(dir.join("window.png").strip_prefix(&ws.root).ok().map(Path::to_path_buf).filter(|p| ws.root.join(p).is_file()));
         Ok(CheckResult { artifacts, similarity, good_enough: bar, unknowns, claims, ..CheckResult::new(self.id(), round, true, note) })
     }
@@ -155,8 +157,10 @@ fn running_note(cx: &CheckCx, program: &Path, args: &[String], dir: &Path) -> (S
     if !original.is_file() {
         return (String::new(), Vec::new());
     }
-    let Some(RuntimeCapture { params, shot, tree }) =
-        capture_request(&cx.ws.app_dir(), program, args, dir, original_tree.is_file(), craft_anything_platform::which::which)
+    let Ok(app) = cx.ws.app_dir_checked() else {
+        return (" The app folder leads outside the project, so its window wasn't pictured.".into(), Vec::new());
+    };
+    let Some(RuntimeCapture { params, shot, tree }) = capture_request(&app, program, args, dir, original_tree.is_file(), craft_anything_platform::which::which)
     else {
         return (" Started normally, its window couldn't be pictured because its project paths or interpreter couldn't be resolved.".into(), Vec::new());
     };
@@ -294,6 +298,8 @@ pub fn option_args(godot_project: bool, option: &str, file: &Path) -> Vec<String
 pub(super) enum OwnRun {
     /// Nothing is built to start yet.
     NoProgram,
+    /// The person refused unconfined runs, so this check didn't start; why.
+    Refused(String),
     /// It ran but saved no file: why, as a sentence starting with a space (or empty).
     NoFile(String),
     /// The file it saved, and how the program is started without the option.
@@ -305,9 +311,16 @@ pub(super) const NO_PROGRAM: &str = "There's no built program to start yet.";
 /// Start the built program with `option <file>` and read back the file it saved (an old one is
 /// removed first, so only this run's counts).
 pub(super) fn run_with(cx: &CheckCx, option: &str, file: &Path) -> Result<OwnRun, ToolError> {
-    let app = cx.ws.app_dir();
+    let app = cx.ws.app_dir_checked()?;
     let godot = cx.godot();
     let Some((program, args)) = launch(&app, godot.as_deref()) else { return Ok(OwnRun::NoProgram) };
+    // The built program is native to this computer, so it can't run in the container. When the
+    // person asked for confinement and refused unconfined runs, the check says why instead of
+    // quietly running it here.
+    let policy = craft_anything_engine::execution::Policy::of(&cx.build_settings());
+    if let Err(e) = policy.check(craft_anything_engine::execution::Route::SelfTest) {
+        return Ok(OwnRun::Refused(e.message));
+    }
     if let Some(dir) = file.parent() {
         std::fs::create_dir_all(dir).map_err(|e| ToolError::io(dir.display(), e))?;
     }
