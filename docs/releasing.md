@@ -50,6 +50,16 @@ release: `gh workflow run ci.yml --ref main`. The other workflows (`freebsd.yml`
 
 A dry run of the unsigned platforms from any branch: `gh workflow run release.yml --ref <branch>`.
 
+## The shared release workflow is pinned
+
+`release.yml` calls `storytold/craft-common-actions/.github/workflows/release.yml` at a commit SHA,
+not `@main`, because that workflow receives the Apple, Windows and Azure signing secrets: an
+unreviewed push to the shared repository must not be able to reach them. Bumping the pin is a
+deliberate, reviewed change — look over the commits between the pinned SHA and the one you want,
+change the `uses:` line, and record the new SHA and date in the comment beside it. The workflows
+that take no secrets (`ci.yml`, `packaging-lint.yml`, `sonarcloud.yml`, `freebsd.yml`,
+`windows-arm64.yml`) still track `@main`, so org-wide improvements there arrive without churn.
+
 ## Before publishing: a Deep build from the packages
 
 Run this check on a Mac and on Windows using the finished packages attached to the draft release.

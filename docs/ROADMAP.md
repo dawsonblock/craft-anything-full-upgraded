@@ -212,6 +212,13 @@ cheapest help we can give anyone, so nothing below should hold it up for long.
       (`scripts/release_draft.py`). The source ZIP is still checked against the preflight receipt
       and attestation. 17 Python regressions cover the tag, the selection and each refusal
       — claimed: Devin, branch chore/security-and-release-gates
+- [x] Pin the shared release workflow to the commit it releases with: `release.yml` calls
+      `craft-common-actions/.github/workflows/release.yml@59d1ecc` (2026-11-16) instead of `@main`,
+      because that workflow receives the Apple, Windows and Azure signing secrets and an
+      unreviewed push there must not reach them. The secretless workflows (gate, packaging-lint,
+      sonarcloud, freebsd, windows-arm64) keep tracking `@main`; bumping the pin is a reviewed,
+      one-line change (`docs/releasing.md`)
+      — claimed: Devin, branch chore/security-and-release-gates
 - [ ] Run the preflight gate and the draft source check on the first real release, and confirm the
       external release workflow attaches the preflight source ZIP (or replace it before publishing)
 

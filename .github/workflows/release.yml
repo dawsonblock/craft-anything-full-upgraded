@@ -30,8 +30,12 @@ jobs:
     uses: ./.github/workflows/fork-release-source-preflight.yml
   release:
     needs: source-preflight
-    # Intentionally tracked at @main (not SHA-pinned) so org-wide CI improvements, security fixes, and build optimizations propagate without PR churn across all craftapp repos.
-    uses: storytold/craft-common-actions/.github/workflows/release.yml@main
+    # Pinned to the commit this repository releases with, not @main: this workflow receives the
+    # Apple, Windows and Azure signing secrets, so an unreviewed push to craft-common-actions must
+    # not reach them. Bump it deliberately (docs/releasing.md), reviewing the commits you cross.
+    # The secretless workflows (gate, packaging-lint, sonarcloud, freebsd, windows-arm64) still
+    # track @main so org-wide improvements arrive without churn.
+    uses: storytold/craft-common-actions/.github/workflows/release.yml@59d1ecc4ea15ab59f8d60d38b147d5016c1f1385 # 2026-11-16 "Fix shared cache save policy and target paths (#253)"
     with:
       app-name: craft-anything
       app-title: "Craft Anything"
