@@ -524,6 +524,23 @@ class SourceBundleIntegrityTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertEqual(json.loads(result.stdout)["status"], "verified")
 
+    def test_create_refuses_a_checkout_renamed_from_the_declared_root(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = self.sample(Path(temp))
+            renamed = root.with_name("craft-anything-full-upgraded-bugfix-sandbox-root-uid 3")
+            root.rename(renamed)
+            result = subprocess.run(
+                [sys.executable, str(SCRIPTS / "source_bundle_integrity.py"), "create", "--root", str(renamed)],
+                capture_output=True, text=True, timeout=10, check=False,
+            )
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("declares the source root", result.stdout)
+            self.assertEqual(
+                json.loads((renamed / MANIFEST_NAME).read_text(encoding="utf-8"))["root"],
+                "craft-anything-full-upgraded",
+                "the declared root is kept",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

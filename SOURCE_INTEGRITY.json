@@ -4168,9 +4168,9 @@
       "sha256": "15351f30c17da2ede7e7279947c46529e7ef05fc081c38fb3260a3a4f330203d"
     },
     {
-      "bytes": 25788,
+      "bytes": 26624,
       "path": "scripts/source_bundle_integrity.py",
-      "sha256": "6eda14538c9f65d361e387220604fd5424c863b4031f75c364d915e6b4610610"
+      "sha256": "20e5b54e8ba940efb63d0b2f039a202336f012c7f017ceca84a69b55455c8f27"
     },
     {
       "bytes": 2482,
@@ -4218,9 +4218,9 @@
       "sha256": "6cde1497e0546c77e28e9891b7adf21b0198fbd5b8ffcc4c9923d3b8e973ecbd"
     },
     {
-      "bytes": 26014,
+      "bytes": 26931,
       "path": "scripts/tests/test_source_bundle_integrity.py",
-      "sha256": "471bb26af8138a65f4b2808e8a914e3c591e63024c20578f26eb1be56f85cdb5"
+      "sha256": "660d47e74b7eb95a7ec545e0a39454d35a0267fdf14bf32719c30d897a3fb801"
     },
     {
       "bytes": 29421,
@@ -4705,5 +4705,5 @@
   ],
   "root": "craft-anything-full-upgraded",
   "schema": 1,
-  "total_bytes": 20846673
+  "total_bytes": 20848426
 }

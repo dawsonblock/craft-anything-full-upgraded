@@ -499,6 +499,19 @@ def main(argv: list[str] | None = None) -> int:
             existing = root / MANIFEST_NAME
             if existing.is_symlink():
                 raise IntegrityError("Cannot replace a symbolic-link manifest")
+            # The committed manifest names the canonical source root. Re-baselining a renamed
+            # checkout would silently move it, and the next ZIP would carry the wrong name, so
+            # keep the name and tell the person to rename the folder instead.
+            if existing.is_file():
+                try:
+                    declared = parse_manifest(existing.read_bytes())["root"]
+                except IntegrityError:
+                    declared = None
+                if declared is not None and declared != root.name:
+                    raise IntegrityError(
+                        f"The manifest declares the source root {declared!r}, but this folder is "
+                        f"{root.name!r}: rename the folder to the declared root instead of "
+                        "re-baselining under another name")
             content = (json.dumps(make_manifest(root), indent=2, sort_keys=True) + "\n").encode("utf-8")
             if len(content) > MAX_MANIFEST_SIZE:
                 raise IntegrityError("Generated manifest is too large")
