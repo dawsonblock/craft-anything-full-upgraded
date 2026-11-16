@@ -205,6 +205,13 @@ cheapest help we can give anyone, so nothing below should hold it up for long.
       with the preflight receipt. The published-asset check stays the backstop. The external
       reusable workflow still decides which ZIP it attaches, so the draft check fails if it is not
       the preflight artifact
+- [x] Bind the draft check to this run's release instead of the newest draft: the job names the tag
+      the release should carry (`v` plus the workspace version, or the dispatch's version), lists
+      every release with `--paginate --slurp`, and requires exactly one draft with that tag,
+      refusing none, several, or one whose `target_commitish` names another commit
+      (`scripts/release_draft.py`). The source ZIP is still checked against the preflight receipt
+      and attestation. 17 Python regressions cover the tag, the selection and each refusal
+      — claimed: Devin, branch chore/security-and-release-gates
 - [ ] Run the preflight gate and the draft source check on the first real release, and confirm the
       external release workflow attaches the preflight source ZIP (or replace it before publishing)
 
@@ -308,7 +315,7 @@ only when it's green and a maintainer has fully reviewed it, code as well as wor
       49.0.5, `rustls-webpki` 0.103.17, `webpki-roots` 1.0.12 and the yanked `clipboard-win`, and
       CI's `advisories` job runs the check. The SHA-1 RSA key type uses `sha1` 0.11 under the
       `rsa-sha1` name, because `signature` 3's digest is 0.11 while the crate hashes with 0.10
-      — claimed: Devin, branch chore/r5.2-crypto-advisories
+      — claimed: Devin, branch chore/security-and-release-gates
 - [ ] Check whether the release workflows still run actions that target Node.js 20. None is named
       here any more: every job calls `storytold/craft-common-actions@main`, so a fix belongs there
 - [x] Correct STATUS.md's obsolete GUI-only limit: document the shared project feed, engine
