@@ -3,9 +3,13 @@
 //! A coding agent's figure is its own estimate at API prices, so this is a spending guard, not a
 //! bill: a run that reaches its ceiling stops between turns, and a day's builds share one ledger
 //! (`spend.json` beside `config.toml`) so several projects can't each spend the whole day's limit.
+//! The read-modify-write takes a lock inside this process, so two parallel builds can't overwrite
+//! each other's figure; two processes (the app and the CLI) adding at the same instant can still
+//! lose one turn's number, which the guard tolerates and a bill would not.
 
 use craft_anything_evidence::{ErrorCode, ToolError};
 use craft_anything_platform::fs::write_atomic_private;
+use craft_anything_platform::sync::Mutex;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -17,6 +21,9 @@ const KEEP_DAYS: usize = 31;
 const MAX_LEDGER_BYTES: u64 = 64 * 1024;
 const SPEND_VERSION: u32 = 1;
 const SECONDS_PER_DAY: u64 = 86_400;
+
+/// Held while the ledger is read, changed and written, so parallel builds in this process add up.
+static LEDGER: Mutex<()> = Mutex::new(());
 
 /// The ceilings from `[ai]`, in US dollars. `None` is no ceiling; `0` allows no spending.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -91,6 +98,8 @@ impl SpendBudget {
         if !usd.is_finite() || usd <= 0.0 {
             return Ok(());
         }
+        let guard = LEDGER.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        guard.label("ai spend ledger");
         let mut ledger = read_ledger(&self.ledger);
         let saved = ledger.days.get(&self.day).copied().unwrap_or(0.0);
         self.run_usd += usd;
@@ -291,5 +300,29 @@ mod tests {
     fn a_budget_is_only_made_for_a_set_ceiling() {
         let dir = tempfile::tempdir().expect("temp");
         assert!(SpendBudget::open(SpendLimits::default(), temp_ledger(dir.path())).is_none());
+    }
+
+    /// Parallel builds add their turns to one ledger instead of overwriting each other's figure.
+    #[test]
+    fn parallel_builds_add_up() {
+        let dir = tempfile::tempdir().expect("temp");
+        let path = temp_ledger(dir.path());
+        let limits = SpendLimits { run_usd: None, daily_usd: Some(10.0) };
+        let builds: Vec<_> = (0..8)
+            .map(|_| {
+                let path = path.clone();
+                std::thread::spawn(move || {
+                    let mut budget = SpendBudget::open(limits, path).expect("budget");
+                    for _ in 0..50 {
+                        budget.add(0.01).expect("add");
+                    }
+                })
+            })
+            .collect();
+        for build in builds {
+            build.join().expect("a build's thread");
+        }
+        let total: f64 = read_ledger(&path).days.values().copied().sum();
+        assert!((total - 4.0).abs() < 1e-6, "every turn's figure is in the ledger, got {total}");
     }
 }

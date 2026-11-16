@@ -156,7 +156,6 @@ fn run(cli: &Cli, a: &RebuildArgs) -> Result<bool, ToolError> {
         good_enough,
         beginner: !cli.json,
         clean_room: Some(engine.session().clean_room()),
-        spend: hub.config().spend_limits(),
         ..RunOptions::default()
     };
     let mut run = RebuildRun::start(&hub, ws, opts)?;

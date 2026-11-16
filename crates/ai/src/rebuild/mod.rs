@@ -155,8 +155,6 @@ pub struct RunOptions {
     /// A free session is read first; this is the fallback while it is held; the saved settings
     /// are the last fallback. A tool must pass it, or a change not yet saved to disk is missed.
     pub build: Option<craft_anything_engine::settings::BuildSettings>,
-    /// The `[ai]` spending ceilings this run is held to (`spend.json` holds the day's total).
-    pub spend: crate::budget::SpendLimits,
 }
 
 impl Default for RunOptions {
@@ -175,7 +173,6 @@ impl Default for RunOptions {
             wake: Wake::default(),
             clean_room: None,
             build: None,
-            spend: Default::default(),
         }
     }
 }
@@ -245,6 +242,9 @@ impl RebuildRun {
         let cfg = hub.config();
         let entry = builder_backend(&cfg, opts.backend.as_deref().or_else(|| project_builder(&cfg, &ws)))?;
         refuse_unconfined(&cfg, &entry)?;
+        // A day's builds share one ledger, so a spent day refuses the start here as well: every
+        // caller (the app, the CLI, a tool) is held to it, not only the ones that check early.
+        crate::budget::refuse_over_daily(cfg.spend_limits(), &crate::budget::ledger_path(&hub.settings_path()))?;
         // The person's choice of mode is a session setting. A run that waited its turn uses the mode
         // now, not the one when it was queued; a tool holds the session while it starts a run, so it
         // passes the mode instead, and the saved settings are the last fallback.
@@ -329,7 +329,7 @@ impl RebuildRun {
             self_check: None,
             reset_progress_after_notes: false,
             keys: hub.keys.clone(),
-            spend: crate::budget::SpendBudget::open(opts.spend, crate::budget::ledger_path(&hub.settings_path())),
+            spend: crate::budget::SpendBudget::open(cfg.spend_limits(), crate::budget::ledger_path(&hub.settings_path())),
         };
         let r2 = running.clone();
         let key_store = hub.keys.clone();

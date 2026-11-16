@@ -1772,15 +1772,16 @@ mod picking_up_a_build {
         assert!(refuse_unconfined(&allowed, &entry("gemini-cli")).is_ok(), "the person allowed a build with their own access");
     }
 
-    /// A ceiling already reached by today's builds stops a run before its first turn.
+    /// A run ceiling stops a build before its first turn; the limits come from the config, not from
+    /// the caller, so a path that forgets to pass them (the app's own start) is held to them too.
     #[test]
-    fn a_build_stops_at_the_daily_spending_ceiling() {
+    fn a_build_stops_at_its_own_spending_ceiling() {
         let b = bench();
         let mut cfg = b.hub.config();
-        cfg.max_daily_cost_usd = Some(0.0);
+        cfg.max_run_cost_usd = Some(0.0);
         b.hub.engine.session().settings.ai = cfg.to_table().unwrap();
         let ws = Workspace::create(&b.projects, "x", "A website for a bakery", TargetRef::None).unwrap();
-        let opts = RunOptions { backend: Some("Stand-in".into()), spend: b.hub.config().spend_limits(), ..RunOptions::default() };
+        let opts = RunOptions { backend: Some("Stand-in".into()), ..RunOptions::default() };
         let run = RebuildRun::start(&b.hub, Workspace::open(&ws.root).unwrap(), opts).unwrap();
         let message = loop {
             match run.rx.recv_timeout(Duration::from_secs(60)) {
@@ -1794,6 +1795,24 @@ mod picking_up_a_build {
         };
         assert!(message.contains("AI spending limit"), "{message}");
         assert_eq!(prompts_given(&b), 0, "it stopped before the first turn");
+    }
+
+    /// A day already spent refuses the start itself, whichever caller asked for the run.
+    #[test]
+    fn a_spent_day_refuses_the_start() {
+        let b = bench();
+        let mut cfg = b.hub.config();
+        cfg.max_daily_cost_usd = Some(0.0);
+        b.hub.engine.session().settings.ai = cfg.to_table().unwrap();
+        let ws = Workspace::create(&b.projects, "x", "A website for a bakery", TargetRef::None).unwrap();
+        let opts = RunOptions { backend: Some("Stand-in".into()), ..RunOptions::default() };
+        let error = match RebuildRun::start(&b.hub, Workspace::open(&ws.root).unwrap(), opts) {
+            Ok(_) => panic!("the run started on a day already past its ceiling"),
+            Err(e) => e,
+        };
+        assert_eq!(error.code, ErrorCode::OverLimit);
+        assert!(error.message.contains("AI spending limit"), "{}", error.message);
+        assert_eq!(prompts_given(&b), 0, "nothing ran");
     }
 
     fn studied(feed: &[feed::FeedItem]) -> bool {

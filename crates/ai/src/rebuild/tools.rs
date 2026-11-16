@@ -378,7 +378,6 @@ fn rebuild_start(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolErr
         beginner: false,
         clean_room: Some(ctx.session.clean_room()),
         build: Some(ctx.session.settings.build.clone()),
-        spend: cfg.spend_limits(),
         ..RunOptions::default()
     };
     // A tool runs with the session locked, so the hub reads the saved file: use this session's

@@ -396,6 +396,10 @@ Every round spends the person's money or quota. One that can't do anything shoul
       `config.toml`), and a start is refused once the day is spent. A coding agent's figure is its
       own estimate at API prices, and an agent that reports none isn't counted
       — claimed: Devin, branch chore/security-and-release-gates
+- [ ] Hold the spend ledger across processes: two builds adding at the same instant in different
+      processes (the app and the CLI) can each write the total they read, so one turn's figure is
+      lost and the day's ceiling under-counts. Builds in one process are covered by a lock; a
+      cross-process one needs a bounded wait (AGENTS.md: never lock up)
 - [ ] Check live that the stop fires on a real API-backend build and the message reads well. It
       fired on a local Ollama build (the same built-in loop) after two turns that changed nothing
       in `app/` ("The build stopped after two builder turns changed no files in app/…"); an
