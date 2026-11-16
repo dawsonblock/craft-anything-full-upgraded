@@ -1481,3 +1481,15 @@ Restored project: {path}	已還原專案：{path}
 Build confinement	建置隔離
 Refuse unconfined builds	拒絕未隔離的建置
 A build whose agent declares neither its own sandbox nor our approval tool is refused before it starts. Off, it runs with your own access and the result says so.	若代理程式既未宣告自己的沙箱，也未使用我們的核准工具，建置會在開始前被拒絕。關閉後，建置將以你的權限執行，結果中會說明。
+Sandbox	沙箱
+Build commands	建置命令
+Where a build's shell commands run. Docker sees only the project folder, as a non-root user, with the network off unless you allow it.	建置的 shell 命令在哪裡執行。Docker 只看得到專案資料夾，以非 root 使用者執行，除非你允許，否則沒有網路。
+Package installs need it. Off, a build can only use what the project already contains.	安裝套件需要它。關閉後，建置只能使用專案既有的內容。
+Unconfined routes	未隔離的路徑
+What happens to a route that can't run in the container (a native game, a self-test, the coding agent) while the sandbox is on.	沙箱開啟時，無法在容器中執行的路徑（原生遊戲、自我測試、編碼代理程式）如何處理。
+Image	映像
+The Docker image a sandboxed build runs in; it needs the project's toolchain. A sha256 digest in config.toml pins it.	隔離建置所執行的 Docker 映像；它需要專案的工具有鏈。config.toml 中的 sha256 摘要可以固定它。
+On this computer	在這台電腦上
+Sandbox image	沙箱映像
+debian:bookworm-slim	debian:bookworm-slim
+Docker	Docker

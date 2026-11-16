@@ -1035,9 +1035,12 @@ Owner: open · Status: in progress
 - [ ] Run the game probe inside a container on Linux, where the built game can be a Linux binary
       and a headless display is available; macOS and Windows build a native game that a Linux
       container can't run
-- [ ] Put the sandbox in Settings → Build, with a Docker image field: today it is only
-      `[build] sandbox = "docker"` in `config.toml`, because new UI strings need every
-      translation catalogue
+- [x] Put the sandbox in Settings → Build, with a Docker image field: Settings → Builds has a
+      Sandbox section — where build commands run (this computer or Docker), the network toggle,
+      what happens to routes that can't be confined (allow or refuse), and the image — saved with
+      the rest of the build settings. The eleven new strings are in all sixteen catalogues (a
+      native speaker should still check the security wording)
+      — claimed: Devin, branch chore/security-and-release-gates
 - [x] Run the check's own build in the container when the image has the toolchain, so
       `sandbox_unconfined = "refuse"` can verify a build instead of recording the build check as
       `unknown`: Rust and Node.js have images (`rust:1.99-slim-bookworm`, `node:22-bookworm`), the

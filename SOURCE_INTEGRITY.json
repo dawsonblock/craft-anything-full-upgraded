@@ -3458,9 +3458,9 @@
       "sha256": "40b0d5bee34614da72b5eaed83cc286c8c917ce6cd1588f9e8f6c06894e40042"
     },
     {
-      "bytes": 104034,
+      "bytes": 105324,
       "path": "crates/ui-egui/src/fr.tsv",
-      "sha256": "3559560bd0363ec44cd32622763048f9f0cb26f097dc17f5cd11939d28294e6b"
+      "sha256": "87c01489d5143ac1b4a52ba99f50f2d2e0662eeef54f7a69f430c4248d4a62dc"
     },
     {
       "bytes": 16398,
@@ -3483,74 +3483,74 @@
       "sha256": "f7ad2dee5151d788b466adabe223cd4c1f9f612632fd8e5f4890a885f40c6646"
     },
     {
-      "bytes": 99935,
+      "bytes": 101128,
       "path": "crates/ui-egui/src/i18n/cs.tsv",
-      "sha256": "d56abbd9a5b59964d0123b3cce8630fe9d8fc14e946e8aecdab30973b54ea962"
+      "sha256": "ec30b8a017e61754d1c5fb59e4682034fc989e2fb4d646feadef2ba09118581a"
     },
     {
-      "bytes": 101444,
+      "bytes": 102661,
       "path": "crates/ui-egui/src/i18n/de.tsv",
-      "sha256": "6878362c9472fb60497f7d32eb7edc0c1644a27a1df68e430599216e079d823b"
+      "sha256": "98039e9c62d96c36584ed345e3fc3e1e46a030ed97433fbac080c7d973b9a572"
     },
     {
-      "bytes": 100622,
+      "bytes": 101910,
       "path": "crates/ui-egui/src/i18n/es.tsv",
-      "sha256": "70a2794f4504973014e54a4589fc9998af3efebcf7e84c774c8efd1ce2ab1f94"
+      "sha256": "3fff8d469cccebdccbe88a8b54734a0640790f438f5da7664a72bbe8b9897b01"
     },
     {
-      "bytes": 94893,
+      "bytes": 96074,
       "path": "crates/ui-egui/src/i18n/et.tsv",
-      "sha256": "f1dddded22f5fd4d7612a7c2b59329ee08ca29941922f6912ae38cb0938dbc89"
+      "sha256": "a87a85e53b09dcd94692ad1a979bfa5e08ac145bb5ad72913e00a6931c4bda4c"
     },
     {
-      "bytes": 98972,
+      "bytes": 100202,
       "path": "crates/ui-egui/src/i18n/it.tsv",
-      "sha256": "24484acba9f25b0da6a9bbc72657eac90df3e672e4b6f6404497926a50e092d5"
+      "sha256": "505a55229dae62a05743d84cba38c105e4caa09a91e329d1cdf7ebfa19524496"
     },
     {
-      "bytes": 178306,
+      "bytes": 180324,
       "path": "crates/ui-egui/src/i18n/ka.tsv",
-      "sha256": "0748c4bb226e81d63bc425ab7929cad2ecf90c2a8c2c895a04a8e738da8ec646"
+      "sha256": "c6d1d1c7b90b4f8fbbb4007592ee6593c0e20a949fe74008167e754c8acd606d"
     },
     {
-      "bytes": 102604,
+      "bytes": 103957,
       "path": "crates/ui-egui/src/i18n/ko.tsv",
-      "sha256": "9df08b39d79b385498d59cdc421c96bc15d550ddeb8056705a8c57102afc433d"
+      "sha256": "804dc6b432e6558e9cf75c8487fa8a7a863318eaeb6793fd701a54b7bad5cbc5"
     },
     {
-      "bytes": 102704,
+      "bytes": 103919,
       "path": "crates/ui-egui/src/i18n/pt-br.tsv",
-      "sha256": "9a01c2a51decddb0aa06cac41284541ea3ff5763da901f94d90e6acb2ac62475"
+      "sha256": "3f1be3dcacd29ee15056d2d68e806f4a7861f0c9389653a9245ddeae4598b0d4"
     },
     {
-      "bytes": 137235,
+      "bytes": 138878,
       "path": "crates/ui-egui/src/i18n/ru.tsv",
-      "sha256": "4af77a680ae6bbec65664122f6b77b3baa68c288924a26d983aa8445fed5255c"
+      "sha256": "0b2ec0bdef3eb62a0130a5114e31d43ffaa9e12606eba95b7cce708fae45b532"
     },
     {
-      "bytes": 149322,
+      "bytes": 151404,
       "path": "crates/ui-egui/src/i18n/th.tsv",
-      "sha256": "c50ed7458e1f22474a498b9e51015494be9ce882ae05f829a1be4a8c785d04b1"
+      "sha256": "c521ea7fef06359637a512df402c7c71dd0b515afabc8b1136baf8190ddda722"
     },
     {
-      "bytes": 99346,
+      "bytes": 100618,
       "path": "crates/ui-egui/src/i18n/tr.tsv",
-      "sha256": "56582bad21cbfe5df3c8540fe3851094ceb82cdaba0f403238e2f976f6fb29c5"
+      "sha256": "dcd2fe9d69ce73306288cf356ba9c581d8aaf0d45bab5e5b64e764c326aee1c8"
     },
     {
-      "bytes": 111691,
+      "bytes": 113008,
       "path": "crates/ui-egui/src/i18n/vi.tsv",
-      "sha256": "ed0acc711bed227fe0264cdf2c46570e92c1c802f6db61e6db6a04951c27bc54"
+      "sha256": "5359bbb6e40107f9aab64ac5762e590309bc8ef15257032ee79ccbd59349aed2"
     },
     {
-      "bytes": 91831,
+      "bytes": 92971,
       "path": "crates/ui-egui/src/i18n/zh-hans.tsv",
-      "sha256": "ce3042c5fc38114ea02d177d190315e9352ecb09fa4cfc0e467fdb138b0cc476"
+      "sha256": "3f0b4962d6e0517e00fd5d84652ac2e7fb69d38767ce4cd6d1a0306287fe4d9e"
     },
     {
-      "bytes": 93080,
+      "bytes": 94232,
       "path": "crates/ui-egui/src/i18n/zh-hant.tsv",
-      "sha256": "81d7e3e6d9301baec8aca86ee8237a4d3599b1634aef361a533eb10b8fb404b1"
+      "sha256": "be4780340b671c130106b4acc0b8f929c037fc69b916c64e6712aa8c5c94f755"
     },
     {
       "bytes": 6105,
@@ -3563,9 +3563,9 @@
       "sha256": "4872b35b7f7f4cab5776db02fc45bac0acf108dc7108a5595399f5cef4700b81"
     },
     {
-      "bytes": 77827,
+      "bytes": 79325,
       "path": "crates/ui-egui/src/ja.tsv",
-      "sha256": "6ffd457da22f933de4071af269575c8ad051bb8550d3fd54e4c17f5c04f20f4a"
+      "sha256": "1522df75a21ec25f64d320e8d5a114d8150795afe62cc0242bd627dd5e5d4fd6"
     },
     {
       "bytes": 7258,
@@ -3633,9 +3633,9 @@
       "sha256": "db04a6c613f870f7dbc2ab3c734ba7bc89b4d3f617dc4e4402eee510885116a8"
     },
     {
-      "bytes": 73949,
+      "bytes": 75899,
       "path": "crates/ui-egui/src/settings_ui.rs",
-      "sha256": "86606b36c540f7fa5d63a26dcb3a74804e9ea43e87472defa2bc181925d7c8e6"
+      "sha256": "3fcb879a4977443fa780d376f72d2cc27361d4c3acf7e85defcf2e7347f27f64"
     },
     {
       "bytes": 9739,
@@ -3718,14 +3718,14 @@
       "sha256": "6acf6fd08b66a059d37695a3ec00f75ce5cd77d34785a6082266263eae2e3fb3"
     },
     {
-      "bytes": 151534,
+      "bytes": 151848,
       "path": "docs/ROADMAP.md",
-      "sha256": "1d11aaae398604b7e81bd8a9e85fbb177757404710b583bd13167315038d9469"
+      "sha256": "defd6bf9ff6838d17a4491b23f038c17aefd9578f1b088ba50e5533f6a8de3a6"
     },
     {
-      "bytes": 143952,
+      "bytes": 144117,
       "path": "docs/STATUS.md",
-      "sha256": "a54390b5b64870df7bdb6255b8c68e39871e53ee7002ee2f594bee0396409481"
+      "sha256": "6c683fc2b8aa32b1d01b8da21f8f81953c3b0ea6c8e9df677586066118a5c2ab"
     },
     {
       "bytes": 2298,
@@ -4705,5 +4705,5 @@
   ],
   "root": "craft-anything-full-upgraded",
   "schema": 1,
-  "total_bytes": 20870937
+  "total_bytes": 20895455
 }

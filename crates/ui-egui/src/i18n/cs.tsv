@@ -1481,3 +1481,15 @@ Restored project: {path}	Projekt obnoven: {path}
 Build confinement	Izolace buildů
 Refuse unconfined builds	Odmítat neizolované buildy
 A build whose agent declares neither its own sandbox nor our approval tool is refused before it starts. Off, it runs with your own access and the result says so.	Build, jehož agent nehlásí vlastní sandbox ani naše schvalování, se odmítne před spuštěním. Vypnuto: běží s tvým přístupem a výsledek to uvede.
+Sandbox	Sandbox
+Build commands	Příkazy buildu
+Where a build's shell commands run. Docker sees only the project folder, as a non-root user, with the network off unless you allow it.	Kde se spouštějí shellové příkazy buildu. Docker vidí jen složku projektu, běží jako uživatel bez rootu a bez sítě, pokud to nepovolíš.
+Package installs need it. Off, a build can only use what the project already contains.	Instalace balíčků ho potřebuje. Vypnuto: build může použít jen to, co projekt už obsahuje.
+Unconfined routes	Neizolované cesty
+What happens to a route that can't run in the container (a native game, a self-test, the coding agent) while the sandbox is on.	Co se stane s cestou, která nemůže běžet v kontejneru (nativní hra, autotest, kódovací agent), když je sandbox zapnutý.
+Image	Obraz
+The Docker image a sandboxed build runs in; it needs the project's toolchain. A sha256 digest in config.toml pins it.	Obraz Dockeru, ve kterém izolovaný build běží; potřebuje toolchain projektu. sha256 digest v config.toml ho připne.
+On this computer	Na tomto počítači
+Sandbox image	Obraz sandboxu
+debian:bookworm-slim	debian:bookworm-slim
+Docker	Docker

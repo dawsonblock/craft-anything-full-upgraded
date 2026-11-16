@@ -1481,3 +1481,15 @@ Restored project: {path}	프로젝트를 복원했습니다: {path}
 Build confinement	빌드 격리
 Refuse unconfined builds	격리되지 않은 빌드 거부
 A build whose agent declares neither its own sandbox nor our approval tool is refused before it starts. Off, it runs with your own access and the result says so.	에이전트가 자체 샌드박스나 우리의 승인을 선언하지 않은 빌드는 시작 전에 거부됩니다. 끄면 사용자의 권한으로 실행되며 결과에 그 사실이 표시됩니다.
+Sandbox	샌드박스
+Build commands	빌드 명령
+Where a build's shell commands run. Docker sees only the project folder, as a non-root user, with the network off unless you allow it.	빌드의 셸 명령이 실행되는 위치입니다. Docker는 프로젝트 폴더만 보고, root가 아닌 사용자로, 허용하지 않으면 네트워크 없이 실행됩니다.
+Package installs need it. Off, a build can only use what the project already contains.	패키지 설치에 필요합니다. 끄면 빌드는 프로젝트에 이미 있는 것만 사용할 수 있습니다.
+Unconfined routes	격리되지 않는 경로
+What happens to a route that can't run in the container (a native game, a self-test, the coding agent) while the sandbox is on.	샌드박스가 켜져 있을 때 컨테이너에서 실행할 수 없는 경로(네이티브 게임, 자체 테스트, 코딩 에이전트)를 어떻게 할지.
+Image	이미지
+The Docker image a sandboxed build runs in; it needs the project's toolchain. A sha256 digest in config.toml pins it.	격리된 빌드가 실행되는 Docker 이미지입니다. 프로젝트의 도구 체인이 필요합니다. config.toml의 sha256 다이제스트로 고정할 수 있습니다.
+On this computer	이 컴퓨터에서
+Sandbox image	샌드박스 이미지
+debian:bookworm-slim	debian:bookworm-slim
+Docker	Docker

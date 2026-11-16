@@ -1480,3 +1480,15 @@ Restored project: {path}	Projet restauré : {path}
 Build confinement	Confinement des builds
 Refuse unconfined builds	Refuser les builds non confinés
 A build whose agent declares neither its own sandbox nor our approval tool is refused before it starts. Off, it runs with your own access and the result says so.	Un build dont l'agent ne déclare ni son propre bac à sable ni notre outil d'approbation est refusé avant de démarrer. Désactivé, il s'exécute avec votre accès et le résultat le dit.
+Sandbox	Bac à sable
+Build commands	Commandes de build
+Where a build's shell commands run. Docker sees only the project folder, as a non-root user, with the network off unless you allow it.	Où s'exécutent les commandes shell d'un build. Docker ne voit que le dossier du projet, en tant qu'utilisateur non root, sans réseau sauf si vous l'autorisez.
+Package installs need it. Off, a build can only use what the project already contains.	Les installations de paquets en ont besoin. Désactivé, un build ne peut utiliser que ce que le projet contient déjà.
+Unconfined routes	Chemins non confinés
+What happens to a route that can't run in the container (a native game, a self-test, the coding agent) while the sandbox is on.	Ce qui arrive à un chemin qui ne peut pas s'exécuter dans le conteneur (un jeu natif, un autotest, l'agent de code) quand le bac à sable est actif.
+Image	Image
+The Docker image a sandboxed build runs in; it needs the project's toolchain. A sha256 digest in config.toml pins it.	L'image Docker dans laquelle un build confiné s'exécute ; elle doit avoir la chaîne d'outils du projet. Un digest sha256 dans config.toml l'épingle.
+On this computer	Sur cet ordinateur
+Sandbox image	Image du bac à sable
+debian:bookworm-slim	debian:bookworm-slim
+Docker	Docker
