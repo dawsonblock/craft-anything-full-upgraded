@@ -237,6 +237,29 @@ class SourceBundleIntegrityTests(unittest.TestCase):
             self.assertEqual(sentinel.read_text(encoding="utf-8"), "untouched")
             self.assertFalse(any(install.glob(".verified-source-*")))
 
+    def test_verified_extraction_never_replaces_a_root_that_appears_while_staging(self):
+        with tempfile.TemporaryDirectory() as temp:
+            parent = Path(temp)
+            root = self.sample(parent)
+            archive = parent / "source.zip"
+            self.package(root, archive)
+            install = parent / "install"
+            install.mkdir()
+            target = install.resolve() / root.name
+            real_mkdir = os.mkdir
+
+            def racing_mkdir(path, *args, **kwargs):
+                if Path(path) == target:
+                    real_mkdir(path, *args, **kwargs)
+                    raise FileExistsError(path)
+                return real_mkdir(path, *args, **kwargs)
+
+            with patch("os.mkdir", side_effect=racing_mkdir):
+                with self.assertRaisesRegex(IntegrityError, "appeared during staging"):
+                    extract_verified_zip(archive, install)
+            self.assertEqual(list(target.iterdir()), [], "the racing writer's empty root is left alone")
+            self.assertFalse(any(install.glob(".verified-source-*")))
+
     def test_verified_extraction_does_not_create_output_on_tampering(self):
         with tempfile.TemporaryDirectory() as temp:
             parent = Path(temp)

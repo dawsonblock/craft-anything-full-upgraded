@@ -21,11 +21,12 @@ pub use acp::AcpConversation;
 pub use adapters::{AgentAdapter, AgentAdapters, ArgsCx};
 pub use confinement::{Bound, Confinement};
 
-/// What the AI that builds can be held to: an agent CLI's own declaration, or our approvals for
-/// our own agent loop (an API backend's tools all go through the approval policy).
+/// What the AI that builds can be held to: an agent CLI's own declaration (read with the backend's
+/// extra arguments, so a flag that weakens it is counted), or our approvals for our own agent loop
+/// (an API backend's tools all go through the approval policy).
 pub fn confinement_for(entry: &crate::BackendEntry) -> Confinement {
     match entry.config.kind {
-        crate::BackendKind::AgentCli => adapter_for(&entry.config.model).confinement(),
+        crate::BackendKind::AgentCli => adapter_for(&entry.config.model).confinement_with(&entry.options),
         _ => Confinement::OUR_APPROVALS,
     }
 }

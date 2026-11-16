@@ -676,7 +676,8 @@ mod tests {
     fn rebuild_start_carries_the_sandbox_policy_when_the_session_is_held() {
         let d = tempfile::tempdir().unwrap();
         let mut s = craft_anything_engine::testing::session();
-        let mut ai = crate::AiConfig::default();
+        // This test is about the sandbox policy, not the agent gate: let the stand-in build.
+        let mut ai = crate::AiConfig { require_confined_build: false, ..Default::default() };
         ai.upsert(crate::BackendEntry {
             config: crate::BackendConfig {
                 name: "Stand-in".into(),

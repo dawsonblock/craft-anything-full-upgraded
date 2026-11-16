@@ -1767,6 +1767,9 @@ mod picking_up_a_build {
             assert_eq!(error.code, ErrorCode::BadSettings, "{model}");
             assert!(error.message.contains("can't be held in"), "{model}: {}", error.message);
         }
+        let mut weakened = entry("codex");
+        weakened.options.args = vec!["--sandbox".into(), "danger-full-access".into()];
+        assert!(refuse_unconfined(&cfg, &weakened).is_err(), "a configured sandbox override is not the boundary the adapter names");
         let mut allowed = cfg.clone();
         allowed.require_confined_build = false;
         assert!(refuse_unconfined(&allowed, &entry("gemini-cli")).is_ok(), "the person allowed a build with their own access");

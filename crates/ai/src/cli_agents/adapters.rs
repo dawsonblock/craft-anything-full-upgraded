@@ -53,6 +53,13 @@ pub trait AgentAdapter: Send + Sync {
     fn confinement(&self) -> Confinement {
         Confinement::NOTHING
     }
+    /// What it can be held to once the backend's own extra arguments are added. A flag that turns
+    /// the agent's sandbox or approvals off makes [`confinement`](Self::confinement) false, so an
+    /// adapter that lets arguments change its boundary reports nothing instead of claiming one.
+    fn confinement_with(&self, options: &BackendOptions) -> Confinement {
+        let _ = options;
+        self.confinement()
+    }
     /// Whether this agent supplies its own live model and thinking choices.
     fn has_model_catalog(&self) -> bool {
         false
@@ -423,6 +430,15 @@ impl AgentAdapter for ClaudeCode {
     /// edits, commands and fetches ask us first. Outside a build there is no approval tool.
     fn confinement(&self) -> Confinement {
         Confinement::OUR_APPROVALS_BUILD
+    }
+
+    /// `--dangerously-skip-permissions` turns the approval tool off, so a build with it is not
+    /// held by us at all.
+    fn confinement_with(&self, options: &BackendOptions) -> Confinement {
+        if options.args.iter().any(|a| a == "--dangerously-skip-permissions") {
+            return Confinement::NOTHING;
+        }
+        self.confinement()
     }
 
     fn answers_questions(&self) -> bool {
@@ -799,6 +815,26 @@ impl AgentAdapter for Codex {
         Confinement::OWN_SANDBOX_BUILD
     }
 
+    /// The backend's own arguments are added after ours, so an explicit `--sandbox` replaces the
+    /// boundary the declaration names, and the bypass flag removes it. Either makes the build
+    /// unconfined rather than silently claiming the workspace sandbox.
+    fn confinement_with(&self, options: &BackendOptions) -> Confinement {
+        let mut args = options.args.iter();
+        while let Some(arg) = args.next() {
+            if arg == "--dangerously-bypass-approvals-and-sandbox" {
+                return Confinement::NOTHING;
+            }
+            let sandbox = if arg == "--sandbox" { args.next().map(String::as_str) } else { arg.strip_prefix("--sandbox=") };
+            if let Some(mode) = sandbox
+                && mode != "workspace-write"
+                && mode != "read-only"
+            {
+                return Confinement::NOTHING;
+            }
+        }
+        self.confinement()
+    }
+
     /// `codex exec -` reads the message from stdin, so a long one can't pass Windows'
     /// command-line limit (os error 206, #528).
     fn prompt_on_stdin(&self) -> bool {
@@ -1067,5 +1103,23 @@ mod confinement_tests {
             assert_eq!(confinement.chat, Bound::Nothing, "{agent}");
             assert_eq!(confinement.question, Bound::Nothing, "{agent}");
         }
+    }
+
+    /// A configured argument that turns the boundary off makes the declaration honest.
+    #[test]
+    fn an_argument_that_weakens_the_boundary_is_counted() {
+        let build = |agent: &str, args: &[&str]| {
+            let options = BackendOptions { args: args.iter().map(|a| a.to_string()).collect(), ..Default::default() };
+            crate::cli_agents::adapter_for(agent).confinement_with(&options).build
+        };
+        assert_eq!(build("codex", &[]), Bound::OwnSandbox);
+        assert_eq!(build("codex", &["--sandbox", "workspace-write"]), Bound::OwnSandbox);
+        assert_eq!(build("codex", &["--sandbox=read-only"]), Bound::OwnSandbox);
+        assert_eq!(build("codex", &["--sandbox", "danger-full-access"]), Bound::Nothing);
+        assert_eq!(build("codex", &["--sandbox=danger-full-access"]), Bound::Nothing);
+        assert_eq!(build("codex", &["--dangerously-bypass-approvals-and-sandbox"]), Bound::Nothing);
+        assert_eq!(build("claude-code", &[]), Bound::OurApprovals);
+        assert_eq!(build("claude-code", &["--dangerously-skip-permissions"]), Bound::Nothing);
+        assert_eq!(build("gemini", &["--sandbox", "workspace-write"]), Bound::Nothing, "an adapter that says nothing stays nothing");
     }
 }
