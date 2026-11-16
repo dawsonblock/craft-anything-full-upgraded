@@ -350,6 +350,8 @@ pub fn console_text(program: &std::path::Path, args: &[OsString], timeout: Durat
 
     const ROWS: u16 = 50;
     const COLS: u16 = 200;
+    // A terminal is a launch mechanism: ask the policy here as `Process::spawn` does.
+    crate::execution::check()?;
     let failed = |e: &dyn std::fmt::Display| ToolError::new(ErrorCode::ProgramFailed, format!("{}: {e}", program.display()));
     let (master, mut child) = {
         // A program another thread started while the console opened would hold it open.
@@ -514,6 +516,8 @@ mod piped {
     pub const NO_TERMINAL: &str = "There's no terminal capture on Windows: the output was read through pipes, so a program that draws a full-screen terminal interface or colours its output looks different, and its error output follows its normal output instead of being interleaved.";
 
     pub fn capture(spec: Spec, cancel: Cancel) -> Result<Capture, ToolError> {
+        // A launch mechanism: ask the policy before anything starts, as `Process::spawn` does.
+        crate::execution::check()?;
         if !spec.events.is_empty() || !spec.observation_paths.is_empty() {
             return Err(ToolError::new(
                 ErrorCode::FeatureMissing,
@@ -844,6 +848,8 @@ mod unix {
     }
 
     pub fn capture(spec: Spec, cancel: Cancel) -> Result<Capture, ToolError> {
+        // A terminal is a launch mechanism: ask the policy here as `Process::spawn` does.
+        crate::execution::check()?;
         spec.terminal.validate()?;
         for w in spec.events.windows(2) {
             if let [a, b] = w
@@ -1238,6 +1244,37 @@ mod tests {
         assert!(cap.terminal.lines.iter().any(|l| l.contains("hello world")), "{} bytes: {:?}", cap.terminal.output_bytes, cap.terminal.lines);
         assert_eq!(cap.manifest.run_id.len(), 32);
         assert!(!cap.manifest.run_id.is_empty());
+    }
+
+    /// A policy that refuses a launch holds for a terminal too: `capture` used to spawn through
+    /// `portable_pty` without asking, so a route the sandbox refuses could still start there.
+    #[test]
+    fn a_refused_launch_never_opens_a_terminal() {
+        struct Refuse;
+        impl crate::execution::Policy for Refuse {
+            fn check(&self, _class: crate::execution::Class) -> Result<(), ToolError> {
+                Err(ToolError::invalid("the policy refuses this launch"))
+            }
+        }
+        let spec = Spec {
+            executable: "/bin/sh".into(),
+            args: vec!["-c".into(), "echo hello".into()],
+            cwd: None,
+            env: Vec::new(),
+            terminal: Terminal::default(),
+            events: Vec::new(),
+            timeout: Duration::from_secs(5),
+            idle_timeout: Duration::from_secs(5),
+            settle: Duration::ZERO,
+            finalization: Duration::ZERO,
+            observation_paths: Vec::new(),
+            limits: Limits::default(),
+            sandbox: SandboxRequest::Off,
+        };
+        let refused =
+            crate::execution::with_policy(std::sync::Arc::new(Refuse), crate::execution::Class::Generated("game_probe"), || capture(spec, no_cancel()));
+        let error = refused.expect_err("a refused launch never starts");
+        assert!(error.message.contains("refuses this launch"), "{}", error.message);
     }
 
     #[test]

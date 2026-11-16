@@ -975,7 +975,7 @@ Owner: open · Status: in progress
       `runtime_walkthrough_record` and `project_play` are refused, and `TOOL_ROUTES` is gone
       (R3.0 PR 2)
       — claimed: Devin, branch feature/r3.0-execution-inventory
-- [ ] A pseudo-terminal launch is held to the same policy: `capture` and `console_text` called
+- [x] A pseudo-terminal launch is held to the same policy: `capture` and `console_text` called
       `portable_pty`'s `spawn_command` directly, so a program the policy refuses at
       `Process::spawn` could still start through a terminal (found in an external audit)
       — claimed: Devin, branch bugfix/r3.0-pty-policy
