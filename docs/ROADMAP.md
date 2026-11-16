@@ -222,8 +222,8 @@ cheapest help we can give anyone, so nothing below should hold it up for long.
 - [x] Stop recording Python tool caches in the source manifest and re-baseline it: `main`'s
       manifest named three `.ruff_cache` files a clean checkout lacks, so `verify-tree` failed on
       `main` and the release preflight with it. `create` now ignores `.ruff_cache`,
-      `.pytest_cache` and `.mypy_cache` at any depth, and the manifest (935 files, 20,678,015
-      bytes) was generated from a clean export and verifies with `--require-declared-root`
+      `.pytest_cache` and `.mypy_cache` at any depth, and the manifest (935 files) was generated
+      from a clean export and verifies with `--require-declared-root`
       — claimed: Devin, branch chore/security-and-release-gates
 - [ ] Make `create` list tracked files (`git ls-files`) in a work tree instead of walking it, so an
       untracked file at the root cannot enter the manifest; keep the walk for a tree without `.git`
@@ -408,6 +408,10 @@ Every round spends the person's money or quota. One that can't do anything shoul
       processes (the app and the CLI) can each write the total they read, so one turn's figure is
       lost and the day's ceiling under-counts. Builds in one process are covered by a lock; a
       cross-process one needs a bounded wait (AGENTS.md: never lock up)
+- [ ] A ledger that can't be written silently stops enforcing the day's ceiling: `record_usage`
+      logs a warning and the build carries on, so a read-only config folder or a full disk lets
+      every run spend with no shared total (the run's own ceiling still holds in memory). Decide
+      whether that stops the build or refuses new starts until the ledger can be written
 - [ ] Check live that the stop fires on a real API-backend build and the message reads well. It
       fired on a local Ollama build (the same built-in loop) after two turns that changed nothing
       in `app/` ("The build stopped after two builder turns changed no files in app/…"); an

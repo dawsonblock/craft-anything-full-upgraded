@@ -1288,9 +1288,9 @@
       "sha256": "3d3ca79ae008aec097813f79d64e6645e57d9b26329106ca878ef6059f8dc713"
     },
     {
-      "bytes": 86898,
+      "bytes": 86934,
       "path": "crates/ai/src/rebuild/mod.rs",
-      "sha256": "e45140d364784d8616ef8aa8c097bbbc48f42224fe9423ea80568ae64d978ce0"
+      "sha256": "1dd0b9731b281abdd0e4e5beeb4f5f9ba6c5e84e06cb7aac45eacc715471b72f"
     },
     {
       "bytes": 12771,
@@ -3698,9 +3698,9 @@
       "sha256": "6acf6fd08b66a059d37695a3ec00f75ce5cd77d34785a6082266263eae2e3fb3"
     },
     {
-      "bytes": 141805,
+      "bytes": 142165,
       "path": "docs/ROADMAP.md",
-      "sha256": "b776157f9fdc80091d85a26c351408cf97ed8a6a93f590b5dcf2cdb181d0a793"
+      "sha256": "ee01b2a5c30f1cbae054189dc2cb12d86548ab8c189302baac804c9f9e28a978"
     },
     {
       "bytes": 137378,
@@ -4680,5 +4680,5 @@
   ],
   "root": "craft-anything-full-upgraded",
   "schema": 1,
-  "total_bytes": 20679170
+  "total_bytes": 20679566
 }
