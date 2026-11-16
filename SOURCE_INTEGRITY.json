@@ -1,6 +1,6 @@
 {
   "algorithm": "sha256",
-  "file_count": 940,
+  "file_count": 938,
   "files": [
     {
       "bytes": 49,
@@ -3718,16 +3718,6 @@
       "sha256": "6acf6fd08b66a059d37695a3ec00f75ce5cd77d34785a6082266263eae2e3fb3"
     },
     {
-      "bytes": 155045,
-      "path": "docs/ROADMAP.md",
-      "sha256": "acce1309e7e72fa69baaaef871d0ac624077a461b2a9aeba276e0afacc54bd87"
-    },
-    {
-      "bytes": 145228,
-      "path": "docs/STATUS.md",
-      "sha256": "96e5264e516f1f45e518f8116d83503fa10270345b84e3a084c555b6ac42d6c0"
-    },
-    {
       "bytes": 2298,
       "path": "docs/brand/LICENSE-brand.txt",
       "sha256": "9053effe807a57db75acb29c5bb9c78233c1ca4e740ec8be2b424c3672a6ec7f"
@@ -3838,9 +3828,9 @@
       "sha256": "fb3f445a7bedc93cbbe530bed731ca80396588129cf188f051e542ee514e34a0"
     },
     {
-      "bytes": 82227,
+      "bytes": 82839,
       "path": "docs/pitfalls.md",
-      "sha256": "78d8504f1966eaaef5f3d574fb95a0c7a6cf52b4944e6d27cb8050681d9855d7"
+      "sha256": "0fbdd2edf7fda6785f80606cbbef7f542134f0c91100475bcbb979d6f6ffa027"
     },
     {
       "bytes": 4263,
@@ -4168,9 +4158,9 @@
       "sha256": "15351f30c17da2ede7e7279947c46529e7ef05fc081c38fb3260a3a4f330203d"
     },
     {
-      "bytes": 28132,
+      "bytes": 28772,
       "path": "scripts/source_bundle_integrity.py",
-      "sha256": "d32ff011d71781a886ea783c9ba7033c2245617ae00fc186a36919907cb76925"
+      "sha256": "a4979c5df0ab7073826ec06a9bd99d94a56aed9945b387fcc0beae9cac919c90"
     },
     {
       "bytes": 2482,
@@ -4218,9 +4208,9 @@
       "sha256": "6cde1497e0546c77e28e9891b7adf21b0198fbd5b8ffcc4c9923d3b8e973ecbd"
     },
     {
-      "bytes": 27977,
+      "bytes": 29202,
       "path": "scripts/tests/test_source_bundle_integrity.py",
-      "sha256": "e0c4d5a24f587bc66bf5040f4b538dda0567872d1d31a2fd10b5774d2a80d8e8"
+      "sha256": "b4338f1e095d09e74eb650a28a81a88d25d888caecbbd8591dbe8a19b0e3df26"
     },
     {
       "bytes": 31785,
@@ -4705,5 +4695,5 @@
   ],
   "root": "craft-anything-full-upgraded",
   "schema": 1,
-  "total_bytes": 20915805
+  "total_bytes": 20618009
 }

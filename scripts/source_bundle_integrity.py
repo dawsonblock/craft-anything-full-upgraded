@@ -82,6 +82,14 @@ def check_component_spelling(name: str, seen: dict[str, str]) -> None:
 
 TOOL_CACHES = frozenset({".ruff_cache", ".pytest_cache", ".mypy_cache"})
 
+# Living records the contribution rules require editing in almost every pull request
+# ("the roadmap item ticked, STATUS.md if what works changed"). Hashing them would invalidate the
+# manifest on every commit, so a clean checkout stops verifying the moment anyone follows those
+# rules, and two concurrent PRs both rewrite a 158 KB generated file. They are process records,
+# not build inputs, so they are neither inventoried nor packaged. The archive's own bytes are
+# still bound to the commit by the release attestation.
+LIVING_RECORDS = frozenset({"docs/ROADMAP.md", "docs/STATUS.md"})
+
 
 def ignored(rel: Path) -> bool:
     # A freshly checked-out source tree carries Git internals not distributed
@@ -89,7 +97,8 @@ def ignored(rel: Path) -> bool:
     # are similarly not part of the source. Ignore only the root-level folders
     # (tool caches excepted: a run from a subfolder puts one beside the code),
     # not nested files.
-    return (".git" in rel.parts or "__pycache__" in rel.parts
+    return (rel.as_posix() in LIVING_RECORDS
+            or ".git" in rel.parts or "__pycache__" in rel.parts
             or rel.suffix == ".pyc"
             or any(part in TOOL_CACHES for part in rel.parts)
             or (bool(rel.parts) and rel.parts[0] in ("target", "log")))

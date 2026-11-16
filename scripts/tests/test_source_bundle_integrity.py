@@ -38,6 +38,29 @@ class SourceBundleIntegrityTests(unittest.TestCase):
                 if path.is_file() and path.name != skip:
                     zf.write(path, arcname=f"{root.name}/{path.relative_to(root).as_posix()}")
 
+    def test_living_records_are_neither_inventoried_nor_packaged(self):
+        with tempfile.TemporaryDirectory() as temp:
+            parent = Path(temp)
+            root = self.sample(parent)
+            (root / "docs").mkdir()
+            (root / "docs" / "ROADMAP.md").write_text("plan\n", encoding="utf-8")
+            (root / "docs" / "STATUS.md").write_text("status\n", encoding="utf-8")
+            (root / "docs" / "releasing.md").write_text("release\n", encoding="utf-8")
+            manifest = make_manifest(root)
+            (root / MANIFEST_NAME).write_text(json.dumps(manifest), encoding="utf-8")
+            self.assertEqual(
+                [row["path"] for row in manifest["files"]],
+                ["README.md", "docs/releasing.md", "src/app.rs"],
+            )
+            self.assertEqual(verify_tree(root)["status"], "verified")
+            archive = parent / "source.zip"
+            package_zip(root, archive)
+            with zipfile.ZipFile(archive) as zf:
+                names = zf.namelist()
+            self.assertNotIn(f"{root.name}/docs/ROADMAP.md", names)
+            self.assertNotIn(f"{root.name}/docs/STATUS.md", names)
+            self.assertIn(f"{root.name}/docs/releasing.md", names)
+
     def test_tree_and_zip_roundtrip_passes(self):
         with tempfile.TemporaryDirectory() as temp:
             parent = Path(temp)

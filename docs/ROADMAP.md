@@ -196,6 +196,13 @@ cheapest help we can give anyone, so nothing below should hold it up for long.
       the manifest: `package-zip` already does, but the external reusable workflow can attach a ZIP
       made outside it, so the draft check needs to compare the attached archive with the preflight
       receipt before publishing
+- [x] Stop hashing the two living records: `docs/ROADMAP.md` and `docs/STATUS.md` are excluded
+      from the inventory (`LIVING_RECORDS`), because the contribution rules require editing the
+      roadmap in almost every pull request — so following the rules invalidated the manifest, and
+      two concurrent PRs would both rewrite a 158 KB generated file. They are now absent from the
+      source ZIP as well; the archive's bytes stay bound to the commit by the release attestation,
+      and every other `docs/` page is still inventoried. One regression covers the exclusion
+      — claimed: Devin, branch feature/r3.0-project-disk-ceiling
 - [ ] Run the release source check against the first published release that attaches a
       manifest-bearing source ZIP
 - [x] Re-baseline `SOURCE_INTEGRITY.json` against a pristine `git archive` export of `HEAD`: the

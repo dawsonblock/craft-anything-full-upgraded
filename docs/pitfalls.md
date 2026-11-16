@@ -1091,6 +1091,14 @@ the gate silently reopens through whichever path forgot.
 **A manifest regenerated "at the end of the branch".** `SOURCE_INTEGRITY.json` was re-baselined,
 then four commits landed on top of it, so a pristine export of `main` failed
 `verify-tree --require-declared-root` and the release preflight with it — while every Python test
-still passed. Regenerate the manifest in the same commit as the last tracked-file change, and
-check it against a `git archive` export, not the working tree (untracked scratch files hide the
-difference in one direction and cause it in the other).
+still passed. Regenerate it in the same commit as the last tracked-file change, and check it
+against a `git archive` export, not the working tree (untracked scratch files hide the difference
+in one direction and cause it in the other).
+
+**An inventory that includes files the rules make you edit every time.** The same manifest went
+stale twice because it hashed `docs/ROADMAP.md` and `docs/STATUS.md`, and the contribution rules
+require touching the roadmap in almost every pull request: following the rules invalidated the
+manifest, and two concurrent PRs would both rewrite a 158 KB generated file. A file that changes
+on a schedule the checksum can't follow doesn't belong in a checksum. Those two are excluded
+(`LIVING_RECORDS`), so they are also absent from the source ZIP; the archive's bytes are still
+bound to the commit by the release attestation.
