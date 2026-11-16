@@ -1478,3 +1478,6 @@ The built app, checks and conversation move to a recoverable archive beside this
 The archive can be reopened later; this action does not permanently delete its contents.	Архив можно будет открыть позже; эта операция не удаляет его содержимое безвозвратно.
 Restore an archived project	Восстановить архивный проект
 Restored project: {path}	Проект восстановлен: {path}
+Build confinement	Ограничение сборок
+Refuse unconfined builds	Отклонять незащищённые сборки
+A build whose agent declares neither its own sandbox nor our approval tool is refused before it starts. Off, it runs with your own access and the result says so.	Сборка, агент которой не заявляет ни собственную песочницу, ни наше подтверждение, отклоняется до запуска. Если выключено, она выполняется с вашим доступом, и результат это сообщает.

@@ -1056,9 +1056,10 @@ Owner: open · Status: in progress
 - [x] Clean room outside builds (#564): a chat or question with Claude Code refuses the agent's own
       file, shell and web tools outright (`--disallowedTools`), not through its defaults; an ACP chat
       refuses them through an approver instead of a consent card (`docs/claude-code.md`)
-- [ ] Offer `require_confined_build` in Settings → AI: it is on by default and the refusal names
-      config.toml, but nothing in the interface lets a person allow an unconfined build or see
-      which of their agents is held in
+- [x] Offer `require_confined_build` in Settings → AI: a "Refuse unconfined builds" switch, on by
+      default, saved through `AiHub::save_config`, with the help text saying what Off means; the
+      strings are in every catalogue (a native speaker should still check the security wording)
+      — claimed: Devin, branch chore/security-and-release-gates
 - [ ] Enforce the chat and question declarations: they are recorded now but no run acts on them,
       and Codex's, Gemini CLI's, OpenCode's, Antigravity's, Hermes's and Maki's own sandboxes in a
       chat are still not established. The decision above covers builds only, so a chat still runs

@@ -1478,3 +1478,6 @@ The built app, checks and conversation move to a recoverable archive beside this
 The archive can be reopened later; this action does not permanently delete its contents.	以后可以重新打开归档；此操作不会永久删除其中的内容。
 Restore an archived project	恢复已归档的项目
 Restored project: {path}	已恢复项目：{path}
+Build confinement	构建隔离
+Refuse unconfined builds	拒绝未隔离的构建
+A build whose agent declares neither its own sandbox nor our approval tool is refused before it starts. Off, it runs with your own access and the result says so.	如果智能体既未声明自己的沙箱，也未使用我们的审批工具，构建会在开始前被拒绝。关闭后，构建将以你的权限运行，结果中会说明。

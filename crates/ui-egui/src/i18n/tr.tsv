@@ -1478,3 +1478,6 @@ The built app, checks and conversation move to a recoverable archive beside this
 The archive can be reopened later; this action does not permanently delete its contents.	Arşiv daha sonra yeniden açılabilir; bu işlem içeriğini kalıcı olarak silmez.
 Restore an archived project	Arşivlenmiş projeyi geri yükle
 Restored project: {path}	Proje geri yüklendi: {path}
+Build confinement	Derleme yalıtımı
+Refuse unconfined builds	Yalıtılmamış derlemeleri reddet
+A build whose agent declares neither its own sandbox nor our approval tool is refused before it starts. Off, it runs with your own access and the result says so.	Aracısı kendi korumalı alanını da bizim onayımızı da bildirmeyen bir derleme başlamadan reddedilir. Kapalıysa senin erişiminle çalışır ve sonuç bunu söyler.

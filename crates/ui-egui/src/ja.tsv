@@ -916,3 +916,6 @@ The built app, checks and conversation move to a recoverable archive beside this
 The archive can be reopened later; this action does not permanently delete its contents.	アーカイブは後から開き直せます。この操作で内容が完全に削除されることはありません。
 Restore an archived project	アーカイブ済みプロジェクトを復元
 Restored project: {path}	プロジェクトを復元しました: {path}
+Build confinement	ビルドの隔離
+Refuse unconfined builds	未隔離のビルドを拒否
+A build whose agent declares neither its own sandbox nor our approval tool is refused before it starts. Off, it runs with your own access and the result says so.	エージェントが自身のサンドボックスも私たちの承認も宣言していないビルドは、開始前に拒否されます。オフの場合、あなたの権限で実行され、結果にその旨が表示されます。

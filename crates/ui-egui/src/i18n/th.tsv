@@ -1478,3 +1478,6 @@ The built app, checks and conversation move to a recoverable archive beside this
 The archive can be reopened later; this action does not permanently delete its contents.	สามารถเปิดที่เก็บถาวรได้อีกภายหลัง การดำเนินการนี้ไม่ลบเนื้อหาอย่างถาวร
 Restore an archived project	กู้คืนโปรเจกต์ที่เก็บถาวร
 Restored project: {path}	กู้คืนโปรเจกต์แล้ว: {path}
+Build confinement	การแยกบิลด์
+Refuse unconfined builds	ปฏิเสธบิลด์ที่ไม่ถูกแยก
+A build whose agent declares neither its own sandbox nor our approval tool is refused before it starts. Off, it runs with your own access and the result says so.	บิลด์ที่เอเจนต์ไม่ได้ประกาศแซนด์บ็อกซ์ของตนเองหรือใช้การอนุมัติของเราจะถูกปฏิเสธก่อนเริ่ม หากปิดไว้ บิลด์จะทำงานด้วยสิทธิ์ของคุณและผลลัพธ์จะบอกไว้

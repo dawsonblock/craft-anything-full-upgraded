@@ -1478,3 +1478,6 @@ The built app, checks and conversation move to a recoverable archive beside this
 The archive can be reopened later; this action does not permanently delete its contents.	Archiv lze později znovu otevřít; tato akce jeho obsah trvale nesmaže.
 Restore an archived project	Obnovit archivovaný projekt
 Restored project: {path}	Projekt obnoven: {path}
+Build confinement	Izolace buildů
+Refuse unconfined builds	Odmítat neizolované buildy
+A build whose agent declares neither its own sandbox nor our approval tool is refused before it starts. Off, it runs with your own access and the result says so.	Build, jehož agent nehlásí vlastní sandbox ani naše schvalování, se odmítne před spuštěním. Vypnuto: běží s tvým přístupem a výsledek to uvede.

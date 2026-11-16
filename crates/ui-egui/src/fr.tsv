@@ -1477,3 +1477,6 @@ The built app, checks and conversation move to a recoverable archive beside this
 The archive can be reopened later; this action does not permanently delete its contents.	Vous pourrez rouvrir l’archive plus tard ; cette action ne supprime pas définitivement son contenu.
 Restore an archived project	Restaurer un projet archivé
 Restored project: {path}	Projet restauré : {path}
+Build confinement	Confinement des builds
+Refuse unconfined builds	Refuser les builds non confinés
+A build whose agent declares neither its own sandbox nor our approval tool is refused before it starts. Off, it runs with your own access and the result says so.	Un build dont l'agent ne déclare ni son propre bac à sable ni notre outil d'approbation est refusé avant de démarrer. Désactivé, il s'exécute avec votre accès et le résultat le dit.

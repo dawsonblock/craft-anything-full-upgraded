@@ -858,6 +858,23 @@ pub(crate) fn server_form(app: &mut CraftApp, ui: &mut Ui) {
     if add {
         app.add_server();
     }
+    ui.add_space(16.0);
+    widgets::caption(ui, "Build confinement");
+    let mut confined = app.hub.config().require_confined_build;
+    row(
+        ui,
+        "Refuse unconfined builds",
+        "A build whose agent declares neither its own sandbox nor our approval tool is refused before it starts. Off, it runs with your own access and the result says so.",
+        |ui| {
+            if widgets::toggle(ui, &mut confined, "Refuse").changed() {
+                let mut cfg = app.hub.config();
+                cfg.require_confined_build = confined;
+                if let Err(e) = app.hub.save_config(&cfg) {
+                    app.toast(e.message, true);
+                }
+            }
+        },
+    );
 }
 
 /// A number field; true when it changed.

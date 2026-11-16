@@ -1478,3 +1478,6 @@ The built app, checks and conversation move to a recoverable archive beside this
 The archive can be reopened later; this action does not permanently delete its contents.	Arhiivi saab hiljem uuesti avada; see toiming ei kustuta selle sisu jäädavalt.
 Restore an archived project	Taasta arhiveeritud projekt
 Restored project: {path}	Projekt taastatud: {path}
+Build confinement	Ehituse isoleerimine
+Refuse unconfined builds	Keeldu isoleerimata ehitustest
+A build whose agent declares neither its own sandbox nor our approval tool is refused before it starts. Off, it runs with your own access and the result says so.	Ehitus, mille agent ei teata oma liivakasti ega meie kinnitust, lükatakse enne algust tagasi. Väljas: see töötab sinu õigustega ja tulemus ütleb seda.
