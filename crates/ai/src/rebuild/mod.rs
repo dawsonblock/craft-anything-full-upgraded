@@ -330,6 +330,7 @@ impl RebuildRun {
             reset_progress_after_notes: false,
             keys: hub.keys.clone(),
             spend: crate::budget::SpendBudget::open(cfg.spend_limits(), crate::budget::ledger_path(&hub.settings_path())),
+            spend_failure: None,
         };
         let r2 = running.clone();
         let key_store = hub.keys.clone();
@@ -531,6 +532,9 @@ struct Worker {
     keys: crate::keys::KeyStore,
     /// This run's spending against the `[ai]` ceilings (`None`: no ceiling is set).
     spend: Option<crate::budget::SpendBudget>,
+    /// A turn's cost that couldn't be written to the ledger: the day's ceiling can't be held
+    /// without it, so the run stops instead of spending unrecorded.
+    spend_failure: Option<ToolError>,
 }
 
 /// The project a run records its usage in, and when it last did.
@@ -622,7 +626,25 @@ impl Worker {
             && let Err(e) = budget.add(cost)
         {
             log::warn!("Couldn't record this build's AI spending: {}", e.message);
+            self.spend_failure = Some(
+                ToolError::new(
+                    ErrorCode::FileError,
+                    format!("This build stopped because its AI spending couldn't be recorded: {}", e.message),
+                )
+                .with_remediation(
+                    "The day's spending ceiling can't be enforced without the ledger. Check that the folder holding config.toml is writable, then continue the build.",
+                ),
+            );
         }
+    }
+
+    /// The ceiling this run has reached, or a ledger failure that stops it: a day's total it
+    /// can't record is a ceiling it can't hold.
+    fn spend_stop(&mut self) -> Option<ToolError> {
+        if let Some(error) = self.spend_failure.take() {
+            return Some(error);
+        }
+        self.spend.as_mut().and_then(|b| b.exceeded())
     }
 
     /// Recorded and sent under one lock, so [`RebuildRun::feed_now`] sees each event once.
@@ -928,7 +950,7 @@ impl Worker {
         loop {
             // A ceiling reached by this run (or by another build today) stops it before it spends
             // again; the turn that crossed the line has already finished.
-            if let Some(error) = self.spend.as_mut().and_then(|b| b.exceeded()) {
+            if let Some(error) = self.spend_stop() {
                 return Err(error);
             }
             if !std::mem::take(&mut only_check) {
@@ -970,7 +992,7 @@ impl Worker {
                         return Err(error);
                     }
                 };
-                if let Some(error) = self.spend.as_mut().and_then(|b| b.exceeded()) {
+                if let Some(error) = self.spend_stop() {
                     return Err(error);
                 }
                 // Only a finished turn counts: telling the builder twice costs little, and a turn that

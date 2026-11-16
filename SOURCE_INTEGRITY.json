@@ -1043,9 +1043,9 @@
       "sha256": "593e0cae67ec57dee750ad86a6ea1020b80077ed5b98d0c372676624c12f293a"
     },
     {
-      "bytes": 13372,
+      "bytes": 17609,
       "path": "crates/ai/src/budget.rs",
-      "sha256": "2d6b85d45dc43f813fdcb4e6f4870069ffda6840712715f1b740f2ad58d2b0bd"
+      "sha256": "e4ff0e2b99d2a52ecc169a3d010c1b754a6462a2d2ad25dcd34ff0d13ef49d1e"
     },
     {
       "bytes": 87715,
@@ -1288,9 +1288,9 @@
       "sha256": "3d3ca79ae008aec097813f79d64e6645e57d9b26329106ca878ef6059f8dc713"
     },
     {
-      "bytes": 89050,
+      "bytes": 90061,
       "path": "crates/ai/src/rebuild/mod.rs",
-      "sha256": "fdfcb176c264f1f116eb44741f85c88882f905047a495f3d17eece7ded94ea55"
+      "sha256": "f73ab1efa3f0755c5833f4ba0d33323f8c9b8496d294b760d5eea86ac05309a7"
     },
     {
       "bytes": 12771,
@@ -1353,9 +1353,9 @@
       "sha256": "70ffe13bb706c708abf5ee0f463792ec9e273c0a29d1da62a67134a0d07bbeec"
     },
     {
-      "bytes": 222683,
+      "bytes": 224632,
       "path": "crates/ai/src/rebuild/tests.rs",
-      "sha256": "47cfaf53b3f847232d46bfe43aba9ddbd889010f328d138240903e34fd137cce"
+      "sha256": "773325ba36a8d83a1419fa4d9ca9684e48faa26342858c65fd373b8291af6274"
     },
     {
       "bytes": 39478,
@@ -3718,14 +3718,14 @@
       "sha256": "6acf6fd08b66a059d37695a3ec00f75ce5cd77d34785a6082266263eae2e3fb3"
     },
     {
-      "bytes": 151123,
+      "bytes": 151324,
       "path": "docs/ROADMAP.md",
-      "sha256": "8ecd1ec2c7a3c1494007a456ba2fdaae21dfd7147dbcd01bd3d187a50c21acf0"
+      "sha256": "0aeb97e96f69f690c19540bcac861f292133a372cb489695821d3fc72d57de82"
     },
     {
-      "bytes": 143421,
+      "bytes": 143794,
       "path": "docs/STATUS.md",
-      "sha256": "484f69895f59760245c50ea9b39e623ebd98da98681e02276b1f4cfbd0f17ef5"
+      "sha256": "f07f5dd71bba417cd7607ee84851dcf7683ecf2140742d91be2629a199656aeb"
     },
     {
       "bytes": 2298,
@@ -4168,9 +4168,9 @@
       "sha256": "15351f30c17da2ede7e7279947c46529e7ef05fc081c38fb3260a3a4f330203d"
     },
     {
-      "bytes": 26624,
+      "bytes": 28132,
       "path": "scripts/source_bundle_integrity.py",
-      "sha256": "20e5b54e8ba940efb63d0b2f039a202336f012c7f017ceca84a69b55455c8f27"
+      "sha256": "d32ff011d71781a886ea783c9ba7033c2245617ae00fc186a36919907cb76925"
     },
     {
       "bytes": 2482,
@@ -4218,9 +4218,9 @@
       "sha256": "6cde1497e0546c77e28e9891b7adf21b0198fbd5b8ffcc4c9923d3b8e973ecbd"
     },
     {
-      "bytes": 26931,
+      "bytes": 27977,
       "path": "scripts/tests/test_source_bundle_integrity.py",
-      "sha256": "660d47e74b7eb95a7ec545e0a39454d35a0267fdf14bf32719c30d897a3fb801"
+      "sha256": "e0c4d5a24f587bc66bf5040f4b538dda0567872d1d31a2fd10b5774d2a80d8e8"
     },
     {
       "bytes": 29421,
@@ -4705,5 +4705,5 @@
   ],
   "root": "craft-anything-full-upgraded",
   "schema": 1,
-  "total_bytes": 20848426
+  "total_bytes": 20858751
 }

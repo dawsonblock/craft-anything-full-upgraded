@@ -15,6 +15,7 @@ import os
 from pathlib import Path
 import shutil
 import stat
+import subprocess
 import sys
 import tempfile
 from typing import BinaryIO
@@ -105,7 +106,28 @@ def sha256_stream(stream, limit: int) -> tuple[int, str]:
     return count, digest.hexdigest()
 
 
-def source_records(root: Path) -> list[dict]:
+def tracked_files(root: Path) -> set[str] | None:
+    """The paths Git tracks under `root`, or `None` when this isn't a work tree.
+
+    A manifest made by walking the working tree records whatever scratch files happen to be there,
+    and a clean checkout then fails to match it. In a work tree, list what Git tracks instead; a
+    tree without `.git` (an extracted ZIP) keeps the walk.
+    """
+    if not (root / ".git").exists():
+        return None
+    try:
+        run = subprocess.run(
+            ["git", "-C", str(root), "ls-files", "-z"],
+            capture_output=True, timeout=60, check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if run.returncode != 0:
+        return None
+    return {part.decode("utf-8", "surrogateescape") for part in run.stdout.split(b"\0") if part}
+
+
+def source_records(root: Path, only: set[str] | None = None) -> list[dict]:
     if not root.is_dir() or root.is_symlink():
         raise IntegrityError("Source root must be a real directory")
     result = []
@@ -125,6 +147,8 @@ def source_records(root: Path) -> list[dict]:
         name = rel.as_posix()
         if not permitted_path(name):
             raise IntegrityError(f"Unsafe source filename: {name}")
+        if only is not None and name not in only:
+            continue
         key = portable_key(name)
         check_component_spelling(name, seen_spelling)
         if key in seen_portable:
@@ -145,7 +169,7 @@ def source_records(root: Path) -> list[dict]:
 
 
 def make_manifest(root: Path) -> dict:
-    rows = source_records(root)
+    rows = source_records(root, tracked_files(root))
     return {
         "schema": SCHEMA_VERSION,
         "root": root.name,
@@ -515,6 +539,13 @@ def main(argv: list[str] | None = None) -> int:
             content = (json.dumps(make_manifest(root), indent=2, sort_keys=True) + "\n").encode("utf-8")
             if len(content) > MAX_MANIFEST_SIZE:
                 raise IntegrityError("Generated manifest is too large")
+            # A work tree can hold files Git doesn't track (scratch notes, a local cache). They are
+            # not source, and recording them makes a clean checkout fail, so refuse instead of
+            # writing a manifest that describes this tree only.
+            if source_records(root) != json.loads(content)["files"]:
+                raise IntegrityError(
+                    "The tree has files Git doesn't track, which are not source: commit, ignore "
+                    "or remove them before re-baselining the manifest")
             existing.write_bytes(content)
             result = verify_tree(root)
             result["action"] = "created"

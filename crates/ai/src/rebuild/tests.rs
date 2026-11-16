@@ -457,6 +457,7 @@ fn notes_added_while_it_works_reach_the_agent_at_its_next_step() {
         self_check: None,
         reset_progress_after_notes: false,
         spend: None,
+        spend_failure: None,
     };
     assert!(w.added(&mut ws, true, true).is_none(), "nothing added, nothing to say");
     use craft_anything_engine::questions::{self, AskedQuestion};
@@ -475,6 +476,42 @@ fn notes_added_while_it_works_reach_the_agent_at_its_next_step() {
     let shown: Vec<_> = events.iter().filter_map(|e| if let RunEvent::Note { shown, .. } = e { Some(shown.as_str()) } else { None }).collect();
     assert_eq!(shown, ["Make it faster", "A blue sky"]);
     assert!(matches!(events.last(), Some(RunEvent::Step { text, .. }) if text == "Reading what you added…"));
+}
+
+/// A ledger that can't be written stops the build: a day's total it can't record is a ceiling it
+/// can't hold.
+#[test]
+fn a_ledger_that_cannot_be_written_stops_the_run() {
+    let d = tempfile::tempdir().unwrap();
+    let ws = Workspace::create(d.path(), "x", "A thing", TargetRef::None).unwrap();
+    let (tx, _rx) = std::sync::mpsc::channel();
+    // A directory where the ledger file belongs: the write fails.
+    let ledger = d.path().join("spend.json");
+    std::fs::create_dir(&ledger).unwrap();
+    let mut w = Worker {
+        wake: Default::default(),
+        engine: Arc::new(Engine::new(craft_anything_engine::testing::session())),
+        tx,
+        stop: CancelToken::default(),
+        preview: Arc::default(),
+        seen: HashSet::new(),
+        inbox: Inbox::new(ws.inbox_dir()),
+        editor: None,
+        notes: Arc::default(),
+        feed: Arc::new(Mutex::new(feed::FeedLog::open(&ws))),
+        keys: crate::KeyStore::file_only(ws.root.join("keys.toml")),
+        assets: false,
+        decompiled: false,
+        usage: Some(UsageClock { root: ws.root.clone(), since: Instant::now() }),
+        self_check: None,
+        reset_progress_after_notes: false,
+        spend: crate::budget::SpendBudget::open(crate::budget::SpendLimits { run_usd: None, daily_usd: Some(10.0) }, ledger),
+        spend_failure: None,
+    };
+    w.record_usage(Some((10, 5, Some(0.25), false)));
+    let error = w.spend_stop().expect("the run stops when its spending can't be recorded");
+    assert_eq!(error.code, ErrorCode::FileError);
+    assert!(error.message.contains("couldn't be recorded"), "{}", error.message);
 }
 
 /// #857: a note handed over by a coding agent's tool hook never sees the after-turn message, so
@@ -1366,6 +1403,7 @@ fn an_api_backend_builds_with_the_build_tools() {
         self_check: None,
         reset_progress_after_notes: false,
         spend: None,
+        spend_failure: None,
     };
     w.attach(&ws).unwrap();
     // The model writes a file with the Build tools, then answers.
@@ -1485,6 +1523,7 @@ fn the_mechanics_sheet_is_required_and_held_against_the_code() {
         self_check: None,
         reset_progress_after_notes: false,
         spend: None,
+        spend_failure: None,
     };
     let check = |round| w.run_checks(&ws, &SheetKind, round).unwrap().remove(0);
 
@@ -2728,6 +2767,7 @@ fn check_worker_in(ws: &Workspace, deep: bool, build: craft_anything_engine::set
         self_check: None,
         reset_progress_after_notes: false,
         spend: None,
+        spend_failure: None,
         keys: crate::KeyStore::file_only(ws.root.join("keys.toml")),
     }
 }
@@ -3294,6 +3334,7 @@ fn preparing_the_builders_agent_does_not_lock_up() {
         self_check: None,
         reset_progress_after_notes: false,
         spend: None,
+        spend_failure: None,
     };
     let entry = crate::BackendEntry {
         config: crate::BackendConfig {
@@ -3338,6 +3379,7 @@ fn the_run_answers_the_builders_own_check_during_its_turn() {
         self_check: Some((Arc::new(SheetKind), 90.0)),
         reset_progress_after_notes: false,
         spend: None,
+        spend_failure: None,
     };
     let mut builder = ChecksItsWork { root: ws.root.clone(), asked: None, reply: None };
     let reply = w.turn(&mut ws, &mut builder, "Build it.", true, None).unwrap();
@@ -3537,6 +3579,7 @@ fn a_note_the_builder_took_at_a_step_joins_the_feed_and_isnt_sent_again() {
         self_check: None,
         reset_progress_after_notes: false,
         spend: None,
+        spend_failure: None,
     };
     let dir = notes::notes_dir(&ws.inbox_dir());
     notes::hand_over(&dir, 1, "make the header blue").unwrap();
@@ -3898,6 +3941,7 @@ fn a_session_left_on_another_computer_starts_a_new_one_from_the_project() {
         self_check: None,
         reset_progress_after_notes: false,
         spend: None,
+        spend_failure: None,
     };
     let first = resumed_elsewhere("THE BRIEF", &ws.manifest.last_reply, None);
     let reply = w.turn(&mut ws, &mut agent, "The person asks: make it blue", true, Some(first)).unwrap();
@@ -3955,6 +3999,7 @@ fn a_missing_session_with_nothing_to_start_from_is_said_plainly() {
         self_check: None,
         reset_progress_after_notes: false,
         spend: None,
+        spend_failure: None,
     };
     let e = w
         .turn_with_wait(&mut ws, &mut agent, "Carry on.", true, None, |_, _| panic!("a missing session without a fresh start must not be retried"))
@@ -4023,6 +4068,7 @@ fn the_builders_conversation_travels_with_the_project() {
         self_check: None,
         reset_progress_after_notes: false,
         spend: None,
+        spend_failure: None,
     };
     let adapter = KeepsSessions(store.path().to_path_buf());
     // No session yet, or one this computer doesn't have: nothing to keep, nothing said.
@@ -4108,6 +4154,7 @@ fn a_build_says_when_it_waits_for_an_analysis_started_earlier() {
         self_check: None,
         reset_progress_after_notes: false,
         spend: None,
+        spend_failure: None,
     };
 
     // Another process is already analysing this program: a fresh lock beside its project.

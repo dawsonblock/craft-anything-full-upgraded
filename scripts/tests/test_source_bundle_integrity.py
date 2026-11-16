@@ -524,6 +524,24 @@ class SourceBundleIntegrityTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertEqual(json.loads(result.stdout)["status"], "verified")
 
+    def test_create_refuses_untracked_files_in_a_work_tree(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = self.sample(Path(temp))
+            subprocess.run(["git", "-C", str(root), "init", "-q"], check=True, capture_output=True)
+            subprocess.run(
+                ["git", "-C", str(root), "add", "README.md", "src/app.rs", MANIFEST_NAME],
+                check=True, capture_output=True,
+            )
+            run = lambda: subprocess.run(  # noqa: E731 - one command, two phases
+                [sys.executable, str(SCRIPTS / "source_bundle_integrity.py"), "create", "--root", str(root)],
+                capture_output=True, text=True, timeout=30, check=False,
+            )
+            self.assertEqual(run().returncode, 0, "only tracked files")
+            (root / "scratch.txt").write_text("local notes", encoding="utf-8")
+            refused = run()
+            self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
+            self.assertIn("doesn't track", refused.stdout)
+
     def test_create_refuses_a_checkout_renamed_from_the_declared_root(self):
         with tempfile.TemporaryDirectory() as temp:
             root = self.sample(Path(temp))

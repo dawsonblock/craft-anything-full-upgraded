@@ -225,8 +225,11 @@ cheapest help we can give anyone, so nothing below should hold it up for long.
       `.pytest_cache` and `.mypy_cache` at any depth, and the manifest (935 files) was generated
       from a clean export and verifies with `--require-declared-root`
       — claimed: Devin, branch chore/security-and-release-gates
-- [ ] Make `create` list tracked files (`git ls-files`) in a work tree instead of walking it, so an
-      untracked file at the root cannot enter the manifest; keep the walk for a tree without `.git`
+- [x] Make `create` list tracked files (`git ls-files`) in a work tree instead of walking it, so an
+      untracked file at the root cannot enter the manifest; a tree without `.git` keeps the walk.
+      `create` also refuses a tree that holds files Git doesn't track, naming them as not source,
+      so a re-baseline can't describe a dirty checkout
+      — claimed: Devin, branch chore/security-and-release-gates
 - [ ] Run the preflight gate and the draft source check on the first real release, and confirm the
       external release workflow attaches the preflight source ZIP (or replace it before publishing)
 
@@ -404,14 +407,15 @@ Every round spends the person's money or quota. One that can't do anything shoul
       `config.toml`), and a start is refused once the day is spent. A coding agent's figure is its
       own estimate at API prices, and an agent that reports none isn't counted
       — claimed: Devin, branch chore/security-and-release-gates
-- [ ] Hold the spend ledger across processes: two builds adding at the same instant in different
-      processes (the app and the CLI) can each write the total they read, so one turn's figure is
-      lost and the day's ceiling under-counts. Builds in one process are covered by a lock; a
-      cross-process one needs a bounded wait (AGENTS.md: never lock up)
-- [ ] A ledger that can't be written silently stops enforcing the day's ceiling: `record_usage`
-      logs a warning and the build carries on, so a read-only config folder or a full disk lets
-      every run spend with no shared total (the run's own ceiling still holds in memory). Decide
-      whether that stops the build or refuses new starts until the ledger can be written
+- [x] Hold the spend ledger across processes: a lock file beside `spend.json` is created
+      exclusively and released on drop, so the app and the CLI add their turns instead of writing
+      over each other. The wait is bounded (5 s, 10 ms polls), a lock older than 30 s is treated as
+      left by a dead process and cleared, and a wait that runs out stops the build rather than
+      spending unrecorded
+- [x] A ledger that can't be written stops enforcing the day's ceiling silently: `record_usage`
+      now remembers the failure and the run stops before its next turn with a plain error, because
+      a day's total it can't record is a ceiling it can't hold (the run's own ceiling is still
+      checked in memory)
 - [ ] Check live that the stop fires on a real API-backend build and the message reads well. It
       fired on a local Ollama build (the same built-in loop) after two turns that changed nothing
       in `app/` ("The build stopped after two builder turns changed no files in app/…"); an

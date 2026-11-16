@@ -13,7 +13,7 @@ use craft_anything_platform::sync::Mutex;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// How many days the ledger keeps (the oldest are dropped).
 const KEEP_DAYS: usize = 31;
@@ -21,9 +21,60 @@ const KEEP_DAYS: usize = 31;
 const MAX_LEDGER_BYTES: u64 = 64 * 1024;
 const SPEND_VERSION: u32 = 1;
 const SECONDS_PER_DAY: u64 = 86_400;
+/// How long one process waits for another to finish with the ledger before it gives up and stops
+/// the build: a bounded wait, never a lock-up.
+const LOCK_WAIT: Duration = Duration::from_secs(5);
+/// A lock file older than this was left by a process that died holding it.
+const LOCK_STALE: Duration = Duration::from_secs(30);
+const LOCK_POLL: Duration = Duration::from_millis(10);
 
 /// Held while the ledger is read, changed and written, so parallel builds in this process add up.
 static LEDGER: Mutex<()> = Mutex::new(());
+
+/// A lock file beside the ledger, so two processes (the app and the CLI can both build) don't
+/// write the day's total over each other. The wait is bounded: a lock-up would stop a build for
+/// ever, so it gives up after [`LOCK_WAIT`] and the run stops rather than spend unrecorded.
+struct FileLock {
+    path: PathBuf,
+}
+
+impl FileLock {
+    fn acquire(ledger: &Path) -> Result<FileLock, ToolError> {
+        let path = ledger.with_extension("json.lock");
+        let deadline = Instant::now() + LOCK_WAIT;
+        loop {
+            match std::fs::OpenOptions::new().write(true).create_new(true).open(&path) {
+                Ok(_) => return Ok(FileLock { path }),
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                    if stale(&path) {
+                        let _ = std::fs::remove_file(&path);
+                        continue;
+                    }
+                    if Instant::now() >= deadline {
+                        return Err(ToolError::new(
+                            ErrorCode::FileError,
+                            "Another Craft Anything process is writing the AI spending ledger, so this build stopped instead of spending without recording it.",
+                        )
+                        .with_remediation("Wait a moment, then continue the build."));
+                    }
+                    std::thread::sleep(LOCK_POLL);
+                }
+                Err(e) => return Err(ToolError::io(path.display(), e)),
+            }
+        }
+    }
+}
+
+impl Drop for FileLock {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+/// Whether a lock file was left behind by a process that died holding it.
+fn stale(path: &Path) -> bool {
+    std::fs::metadata(path).and_then(|m| m.modified()).ok().and_then(|at| SystemTime::now().duration_since(at).ok()).is_some_and(|age| age > LOCK_STALE)
+}
 
 /// The ceilings from `[ai]`, in US dollars. `None` is no ceiling; `0` allows no spending.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -100,6 +151,9 @@ impl SpendBudget {
         }
         let guard = LEDGER.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         guard.label("ai spend ledger");
+        // Another process (the app and the CLI can both build) holds the file lock while it
+        // writes; wait a bounded time rather than lose its figure.
+        let _file = FileLock::acquire(&self.ledger)?;
         let mut ledger = read_ledger(&self.ledger);
         let saved = ledger.days.get(&self.day).copied().unwrap_or(0.0);
         self.run_usd += usd;
@@ -324,5 +378,40 @@ mod tests {
         }
         let total: f64 = read_ledger(&path).days.values().copied().sum();
         assert!((total - 4.0).abs() < 1e-6, "every turn's figure is in the ledger, got {total}");
+    }
+
+    /// A lock held by another process is waited for, not written over.
+    #[test]
+    fn another_process_lock_is_waited_for() {
+        let dir = tempfile::tempdir().expect("temp");
+        let path = temp_ledger(dir.path());
+        let lock = path.with_extension("json.lock");
+        let holder = std::thread::spawn({
+            let lock = lock.clone();
+            move || {
+                std::fs::File::create(&lock).expect("lock");
+                std::thread::sleep(Duration::from_millis(80));
+                std::fs::remove_file(&lock).expect("release");
+            }
+        });
+        std::thread::sleep(Duration::from_millis(20));
+        let mut budget = SpendBudget::open(SpendLimits { run_usd: None, daily_usd: Some(10.0) }, path.clone()).expect("budget");
+        budget.add(0.5).expect("waits for the other process");
+        holder.join().expect("holder");
+        assert_eq!(read_ledger(&path).days.values().copied().next(), Some(0.5));
+        assert!(!lock.exists(), "the lock is released");
+    }
+
+    /// A lock file left by a process that died is cleared instead of blocking for ever.
+    #[test]
+    fn a_stale_lock_is_cleared() {
+        let dir = tempfile::tempdir().expect("temp");
+        let path = temp_ledger(dir.path());
+        let lock = path.with_extension("json.lock");
+        let file = std::fs::File::create(&lock).expect("lock");
+        file.set_modified(SystemTime::now() - Duration::from_secs(60)).expect("age the lock");
+        let mut budget = SpendBudget::open(SpendLimits { run_usd: None, daily_usd: Some(10.0) }, path.clone()).expect("budget");
+        budget.add(0.25).expect("clears the stale lock");
+        assert!(!lock.exists(), "the lock is released");
     }
 }
