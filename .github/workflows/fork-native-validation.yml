@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           # Inventory validation also asserts the ZIP's declared source root.
           path: craft-anything-full-upgraded
@@ -30,7 +30,7 @@ jobs:
         run: python3 scripts/native_validation.py --root . --timeout 1200 --report /tmp/craft_native_validation.json
       - name: Retain validation receipt even when the gate fails
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: craft-native-validation-linux
           path: /tmp/craft_native_validation.json

@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from contextlib import redirect_stdout
 from unittest.mock import patch
@@ -400,6 +401,32 @@ class VerifyReleaseSourceTests(unittest.TestCase):
                     "storytold/craft-anything", "v1.0.0",
                 )
 
+    def test_run_gh_returns_the_captured_streams(self):
+        completed = verify_release_source.run_gh(
+            [sys.executable, "-c", "import sys; print('hello'); print('careful', file=sys.stderr)"],
+            timeout=30, what="Reading a reply",
+        )
+        self.assertEqual(completed.returncode, 0)
+        self.assertEqual(completed.stdout, "hello\n")
+        self.assertEqual(completed.stderr, "careful\n")
+
+    def test_run_gh_stops_reading_at_the_cap_instead_of_waiting_for_the_deadline(self):
+        writer = "import sys\nwhile True:\n    sys.stdout.write('x' * 65536)\n"
+        started = time.monotonic()
+        with self.assertRaisesRegex(IntegrityError, "produced too much output"):
+            verify_release_source.run_gh(
+                [sys.executable, "-c", writer], timeout=30,
+                what="Reading an endless reply",
+            )
+        self.assertLess(time.monotonic() - started, 20)
+
+    def test_run_gh_reports_a_deadline(self):
+        with self.assertRaisesRegex(IntegrityError, "timed out"):
+            verify_release_source.run_gh(
+                [sys.executable, "-c", "import time; time.sleep(30)"],
+                timeout=1, what="Waiting for a reply",
+            )
+
     def test_attestation_must_cover_the_verified_bytes(self):
         digest = "a" * 64
         payload = [{
@@ -487,6 +514,30 @@ class VerifyReleaseSourceTests(unittest.TestCase):
         text = (WORKFLOWS / "release.yml").read_text(encoding="utf-8")
         self.assertIn("source-preflight:", text)
         self.assertIn("needs: source-preflight", text)
+
+    def test_published_release_check_requires_the_attestation(self):
+        text = (WORKFLOWS / "fork-release-source-check.yml").read_text(encoding="utf-8")
+        self.assertIn("--verify-attestation", text)
+        self.assertIn("attestations: read", text)
+
+    def test_workflows_pin_actions_to_a_commit(self):
+        for path in sorted(WORKFLOWS.glob("*.yml")):
+            for line in path.read_text(encoding="utf-8").splitlines():
+                stripped = line.strip()
+                if stripped.startswith("#") or "uses:" not in stripped:
+                    continue
+                value = stripped.split("uses:", 1)[1].split("#", 1)[0].strip()
+                if value.startswith("./"):
+                    continue
+                ref = value.rpartition("@")[2]
+                self.assertNotRegex(
+                    ref, r"^v\d", f"{path.name} uses a mutable version tag: {value}",
+                )
+        release = (WORKFLOWS / "release.yml").read_text(encoding="utf-8")
+        self.assertRegex(
+            release,
+            r"craft-common-actions/\.github/workflows/release\.yml@[0-9a-f]{40}",
+        )
 
     def test_receipt_survives_a_valid_archive_swap_during_verification(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -639,7 +690,7 @@ class VerifyReleaseSourceTests(unittest.TestCase):
             (destination / "one.zip").write_bytes(b"one")
             (destination / "two.zip").write_bytes(b"two")
             completed = subprocess.CompletedProcess([], 0, "", "")
-            with patch.object(verify_release_source.subprocess, "run",
+            with patch.object(verify_release_source, "run_gh",
                               return_value=completed):
                 with self.assertRaisesRegex(IntegrityError, "exactly one source ZIP"):
                     verify_release_source.download_release(

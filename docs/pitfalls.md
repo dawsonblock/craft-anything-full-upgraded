@@ -1087,3 +1087,10 @@ in one tool, and every route that runs or reads the app must use it.
 "on". When a field's default isn't its type's default, implement `Default` by hand, drop the
 field-level attribute, and test both paths (an empty table and `AiConfig::default()`) — otherwise
 the gate silently reopens through whichever path forgot.
+
+**A manifest regenerated "at the end of the branch".** `SOURCE_INTEGRITY.json` was re-baselined,
+then four commits landed on top of it, so a pristine export of `main` failed
+`verify-tree --require-declared-root` and the release preflight with it — while every Python test
+still passed. Regenerate the manifest in the same commit as the last tracked-file change, and
+check it against a `git archive` export, not the working tree (untracked scratch files hide the
+difference in one direction and cause it in the other).

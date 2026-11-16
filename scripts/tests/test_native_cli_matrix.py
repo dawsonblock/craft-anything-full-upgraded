@@ -486,7 +486,7 @@ class NativeCliMatrixTests(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/fork-native-cli-matrix.yml").read_text(encoding="utf-8")
         for requirement in (
             "workflow_dispatch", "ubuntu-latest", "macos-latest", "windows-latest",
-            "scripts/native_cli_matrix.py", "actions/upload-artifact@v4", "--artifact-dir",
+            "scripts/native_cli_matrix.py", "actions/upload-artifact@", "--artifact-dir",
         ):
             self.assertIn(requirement, workflow)
         for forbidden in ("secrets.", "release: publish", "cargo install --git"):

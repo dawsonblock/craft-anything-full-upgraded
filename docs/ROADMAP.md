@@ -198,6 +198,31 @@ cheapest help we can give anyone, so nothing below should hold it up for long.
       receipt before publishing
 - [ ] Run the release source check against the first published release that attaches a
       manifest-bearing source ZIP
+- [x] Re-baseline `SOURCE_INTEGRITY.json` against a pristine `git archive` export of `HEAD`: the
+      committed manifest still described `b7ea333`, so four later commits (the sandbox disk
+      ceiling, the terminal policy, the settings strings) made a clean export fail
+      `verify-tree --require-declared-root`, and the release preflight with it, while all 203
+      Python tests passed. Regenerating from the export passes strict tree verification and
+      `package-zip`
+      — claimed: Devin, branch feature/r3.0-project-disk-ceiling
+- [x] Require a GitHub artifact attestation on the published release, not only on the draft:
+      `fork-release-source-check.yml` runs on `release: published` and now passes
+      `--verify-attestation` with `attestations: read`, so the attestation must cover the verified
+      bytes and the commit the tag resolves to. The draft check in `release.yml` already did this
+      — claimed: Devin, branch feature/r3.0-project-disk-ceiling
+- [x] Stop buffering `gh` output before refusing it: `run_gh` read every reply into memory and
+      checked the 5 MB cap afterwards, so a large or endless reply was captured in full first. It
+      now reads both pipes on threads, stops at the cap, kills the child and reports
+      `produced too much output`; the deadline is enforced the same way. Three regressions cover
+      the streams, an endless reply (which fails fast instead of waiting for the deadline) and the
+      timeout
+      — claimed: Devin, branch feature/r3.0-project-disk-ceiling
+- [x] Pin every versioned GitHub Action to the commit it names: `checkout@v4`,
+      `setup-python@v5`, `upload-artifact@v4`, `download-artifact@v4`,
+      `attest-build-provenance@v2` and `cargo-deny-action@v2` are now `@<sha> # vX.Y.Z`, resolved
+      from the tag itself. The secretless shared workflows keep tracking `@main` as documented, and
+      a regression test refuses a new `@vN` tag
+      — claimed: Devin, branch feature/r3.0-project-disk-ceiling
 - [x] Verify the final source ZIP before a release is published, not only after, and bind it to the
       intended commit with a signed provenance record: `fork-release-source-preflight.yml` verifies,
       packages, extracts and attests the source at the release commit, `release.yml` gates the

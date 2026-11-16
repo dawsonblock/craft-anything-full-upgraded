@@ -48,34 +48,34 @@
       "sha256": "9f2e64116654108425f8b312575ecd7dda1df31791846f46ac317a1665438d1b"
     },
     {
-      "bytes": 1389,
+      "bytes": 1483,
       "path": ".github/workflows/ci.yml",
-      "sha256": "596e1c132fe52d433b7ec634bded7746fc9ec48847d7c8ff9606c2417f770caa"
+      "sha256": "894556d40b1abab75244d7a29889be5a598291c8bb192384d88ba59cfd33f9b1"
     },
     {
-      "bytes": 4104,
+      "bytes": 4292,
       "path": ".github/workflows/fork-native-cli-matrix.yml",
-      "sha256": "1aaa331c79deb9e0cf289b4d335c9e5d22053640d4aa3976aeca7b5a10c55d82"
+      "sha256": "9eac4daf45d32a0a0f5aa2faa3ec04009f329a4f59898359fdf244c2ba87b84b"
     },
     {
-      "bytes": 1420,
+      "bytes": 1514,
       "path": ".github/workflows/fork-native-validation.yml",
-      "sha256": "f8050ea4e6d51b5d7c8c507ca14b2d0f2cea8d4ed96dd79167ec5f05de44588b"
+      "sha256": "92e759dbcd99b1675686b1c3b51da69043990395783d79b623949d6b21d88128"
     },
     {
-      "bytes": 2841,
+      "bytes": 3199,
       "path": ".github/workflows/fork-release-source-check.yml",
-      "sha256": "037230f646c89ed8cdb3c39de489ef22f57aa31d9b1eb3cb504526ea2c89bec8"
+      "sha256": "1bae24e693b5ebb8cd8c4c3baf73139b0b5f5a06ad42a54f3c2e2c34b0b68647"
     },
     {
-      "bytes": 2698,
+      "bytes": 2886,
       "path": ".github/workflows/fork-release-source-preflight.yml",
-      "sha256": "568bcd90124dcb8329c4bc6b86df7e95c62c16501f12a89dfc0633c2d969b118"
+      "sha256": "c02f6ce33f7b9d9852f354605edd780ba4b05aa2be550c3df2929430a6205b41"
     },
     {
-      "bytes": 2467,
+      "bytes": 2608,
       "path": ".github/workflows/fork-source-portability.yml",
-      "sha256": "3e7b7b7b2defe7476a0170800bb9024258c20329f5b073d2f7fa75b70642fb84"
+      "sha256": "431227298554deb772e47db3c0091a7f108923e403fe673186a9711e0c1bb35d"
     },
     {
       "bytes": 1333,
@@ -88,9 +88,9 @@
       "sha256": "906ed94773036da81a25e2940bd458dee10c85b9f54789011ea423c2352d94ba"
     },
     {
-      "bytes": 5895,
+      "bytes": 6083,
       "path": ".github/workflows/release.yml",
-      "sha256": "41accf7ff69b32095f2bd505dc0c959a524dddabe13b441971140d7c32c4060a"
+      "sha256": "489082270529e49ec3dae02db80b134f4df2c93f72829714bdb7469382d220cd"
     },
     {
       "bytes": 375,
@@ -1223,9 +1223,9 @@
       "sha256": "568b2b087358a8f749b1160b0485c2eedffe03ab289bd430bf3b0232bc612fac"
     },
     {
-      "bytes": 37051,
+      "bytes": 37097,
       "path": "crates/ai/src/rebuild/check.rs",
-      "sha256": "d449e2af6cc618c086c3eff4da9f5a69c2ee8a27cdc52dc16098379896126da9"
+      "sha256": "dcc1c9103121ff1dff1786a4ea5a2d6e8f71b563c7b7ca8790457bef52ada40f"
     },
     {
       "bytes": 15153,
@@ -1633,9 +1633,9 @@
       "sha256": "8c2c9ecacee71c4eb2858bb0f4848fecf79d60af7526db6fa44368d9b3981bb6"
     },
     {
-      "bytes": 37631,
+      "bytes": 37922,
       "path": "crates/engine/src/settings.rs",
-      "sha256": "945068a60368e1299d80c1233fb5d51a5d80609425d83b25f258b92f8d087b45"
+      "sha256": "ac5af1be9d285cda20013b95e5e97ebcabda186df56b907ff10ee68097817419"
     },
     {
       "bytes": 10991,
@@ -1743,9 +1743,9 @@
       "sha256": "e9e04087961af774bcf4eb67e1a83d5c12f831b7199d28d4fe9a04c7f3d07e64"
     },
     {
-      "bytes": 52242,
+      "bytes": 52313,
       "path": "crates/engine/src/tools/build_tools.rs",
-      "sha256": "57d15e90a6fb9d08c392d84332fb0094c5ecddae0537dde65de8707f9428f051"
+      "sha256": "2a21fbf43e4a5b7f3a2f1cd2b12030a53f92f4a822b8e13b1ee6154f3a590435"
     },
     {
       "bytes": 13913,
@@ -3148,9 +3148,9 @@
       "sha256": "0a599fae6a449a9657944b2adcd436a272a83a82b86f0ae778ccec55f4b6cca6"
     },
     {
-      "bytes": 60867,
+      "bytes": 62661,
       "path": "crates/platform/src/capture.rs",
-      "sha256": "4ccc38484f2dfdf6fdeeaac496efeb349f3befda447b23d90d51cb2a7a02b6b9"
+      "sha256": "da51a48b0560da1e8291f77d28643b407549fc063b3b83ef5cb7168df9cbd093"
     },
     {
       "bytes": 10382,
@@ -3178,9 +3178,9 @@
       "sha256": "fea1ea415a51d496f21f4c891ffcfe0563b71576235449127803c2074d720dd1"
     },
     {
-      "bytes": 31474,
+      "bytes": 39064,
       "path": "crates/platform/src/sandbox.rs",
-      "sha256": "c6a757fe8875f71906de4b44c9944d4425cffe2665eba3df72417912fd539416"
+      "sha256": "3745d844ecc268b0aa13276d2422e9c3920c89a9ebebafde8ffe25a09ddbf26e"
     },
     {
       "bytes": 14617,
@@ -3718,14 +3718,14 @@
       "sha256": "6acf6fd08b66a059d37695a3ec00f75ce5cd77d34785a6082266263eae2e3fb3"
     },
     {
-      "bytes": 151848,
+      "bytes": 155045,
       "path": "docs/ROADMAP.md",
-      "sha256": "defd6bf9ff6838d17a4491b23f038c17aefd9578f1b088ba50e5533f6a8de3a6"
+      "sha256": "acce1309e7e72fa69baaaef871d0ac624077a461b2a9aeba276e0afacc54bd87"
     },
     {
-      "bytes": 144117,
+      "bytes": 145228,
       "path": "docs/STATUS.md",
-      "sha256": "6c683fc2b8aa32b1d01b8da21f8f81953c3b0ea6c8e9df677586066118a5c2ab"
+      "sha256": "96e5264e516f1f45e518f8116d83503fa10270345b84e3a084c555b6ac42d6c0"
     },
     {
       "bytes": 2298,
@@ -3753,9 +3753,9 @@
       "sha256": "f87af81b6fa411da8820eed2bfdcc54c0ee9cd453b4e868c64f56c69db142d0e"
     },
     {
-      "bytes": 11085,
+      "bytes": 11599,
       "path": "docs/build-sandbox.md",
-      "sha256": "01e8c9f147b247f18a3faf0c2ee0206f366fe991c7b203f3bab5a63bd7dfbcdd"
+      "sha256": "d3e11425e038c4e9a7a3412af08397da63ea00f9e9c8a6fca9a451d4a7687c53"
     },
     {
       "bytes": 8719,
@@ -3838,9 +3838,9 @@
       "sha256": "fb3f445a7bedc93cbbe530bed731ca80396588129cf188f051e542ee514e34a0"
     },
     {
-      "bytes": 81706,
+      "bytes": 82227,
       "path": "docs/pitfalls.md",
-      "sha256": "de226562c3b4d8e3f8266533020f34427a1218d98157d6ffbb99c355337455eb"
+      "sha256": "78d8504f1966eaaef5f3d574fb95a0c7a6cf52b4944e6d27cb8050681d9855d7"
     },
     {
       "bytes": 4263,
@@ -4188,9 +4188,9 @@
       "sha256": "af17008d02092ea55beecbdfd2371de5407fa860c74f024e8c49a2d6814dcfa5"
     },
     {
-      "bytes": 29228,
+      "bytes": 29226,
       "path": "scripts/tests/test_native_cli_matrix.py",
-      "sha256": "83135953624e948cc6ca69c3788cfda5bee6c49f6a72c865de83ae0d2b5a50d5"
+      "sha256": "3a0b16fce4ca5acc0aca8124cd2ba6e987b3373a7d802ec3fb0f31eac35073d7"
     },
     {
       "bytes": 10503,
@@ -4223,9 +4223,9 @@
       "sha256": "e0c4d5a24f587bc66bf5040f4b538dda0567872d1d31a2fd10b5774d2a80d8e8"
     },
     {
-      "bytes": 29421,
+      "bytes": 31785,
       "path": "scripts/tests/test_verify_release_source.py",
-      "sha256": "8ff15e20c3b7caf29476834cbdefe1ab3870ce3b22b717fe3a14d1c7577b74bd"
+      "sha256": "2392022bcda0d73d3b9a91e51dbc8a83987528e5b3d3d37296bd91b8c3ca6b4c"
     },
     {
       "bytes": 1056,
@@ -4243,9 +4243,9 @@
       "sha256": "931277ba048a34ceb9dad98e941703de5a918f3162e8324565f54885e827eb60"
     },
     {
-      "bytes": 20451,
+      "bytes": 22053,
       "path": "scripts/verify_release_source.py",
-      "sha256": "b0e03e3ccf686e4c4a8bf6df30f773507923011924bfdb339a288bcc1158402b"
+      "sha256": "a27a2f3b26aef805f6896d5e9037e11d2d2d4f6decd52830a9fc2a502747fcba"
     },
     {
       "bytes": 1174,
@@ -4705,5 +4705,5 @@
   ],
   "root": "craft-anything-full-upgraded",
   "schema": 1,
-  "total_bytes": 20895455
+  "total_bytes": 20915805
 }
