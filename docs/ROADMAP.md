@@ -219,6 +219,14 @@ cheapest help we can give anyone, so nothing below should hold it up for long.
       sonarcloud, freebsd, windows-arm64) keep tracking `@main`; bumping the pin is a reviewed,
       one-line change (`docs/releasing.md`)
       — claimed: Devin, branch chore/security-and-release-gates
+- [x] Stop recording Python tool caches in the source manifest and re-baseline it: `main`'s
+      manifest named three `.ruff_cache` files a clean checkout lacks, so `verify-tree` failed on
+      `main` and the release preflight with it. `create` now ignores `.ruff_cache`,
+      `.pytest_cache` and `.mypy_cache` at any depth, and the manifest (935 files, 20,678,015
+      bytes) was generated from a clean export and verifies with `--require-declared-root`
+      — claimed: Devin, branch chore/security-and-release-gates
+- [ ] Make `create` list tracked files (`git ls-files`) in a work tree instead of walking it, so an
+      untracked file at the root cannot enter the manifest; keep the walk for a tree without `.git`
 - [ ] Run the preflight gate and the draft source check on the first real release, and confirm the
       external release workflow attaches the preflight source ZIP (or replace it before publishing)
 
