@@ -79,14 +79,19 @@ def check_component_spelling(name: str, seen: dict[str, str]) -> None:
             raise IntegrityError(f"Portable path component collision: {prior} and {original}")
 
 
+TOOL_CACHES = frozenset({".ruff_cache", ".pytest_cache", ".mypy_cache"})
+
+
 def ignored(rel: Path) -> bool:
     # A freshly checked-out source tree carries Git internals not distributed
-    # by the ZIP. Cargo build outputs, the local devlog and tool caches are
-    # similarly not part of the source. Ignore only the root-level folders, not
-    # nested files.
+    # by the ZIP. Cargo build outputs, the local devlog and Python tool caches
+    # are similarly not part of the source. Ignore only the root-level folders
+    # (tool caches excepted: a run from a subfolder puts one beside the code),
+    # not nested files.
     return (".git" in rel.parts or "__pycache__" in rel.parts
             or rel.suffix == ".pyc"
-            or (bool(rel.parts) and rel.parts[0] in ("target", "log", ".ruff_cache", ".pytest_cache")))
+            or any(part in TOOL_CACHES for part in rel.parts)
+            or (bool(rel.parts) and rel.parts[0] in ("target", "log")))
 
 
 def sha256_stream(stream, limit: int) -> tuple[int, str]:
