@@ -1055,6 +1055,11 @@ Owner: open · Status: in progress
       chat are still not established. The decision above covers builds only, so a chat still runs
       with whatever the agent allows itself; decide whether a chat needs a declared boundary too,
       or whether reading with the person's access is what a chat is for
+- [ ] The key fallback file is plain text: when the OS keychain is unavailable, `keys.toml` keeps
+      API keys with owner-only permissions but no encryption, so anything running as the person (a
+      coding agent, a script) can read them. The confinement decision leaves that boundary to the
+      agent; decide whether to refuse the fallback, encrypt it, or say in Settings that the
+      keychain is the only protected store
 - [ ] Check live that a Clean room chat with Claude Code can't read a file outside its folder, and
       that an ACP chat in Clean room still reaches our tools (its permission requests for them are
       allowed, only its own read/write/command/fetch are refused)
