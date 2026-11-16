@@ -155,6 +155,8 @@ pub struct RunOptions {
     /// A free session is read first; this is the fallback while it is held; the saved settings
     /// are the last fallback. A tool must pass it, or a change not yet saved to disk is missed.
     pub build: Option<craft_anything_engine::settings::BuildSettings>,
+    /// The `[ai]` spending ceilings this run is held to (`spend.json` holds the day's total).
+    pub spend: crate::budget::SpendLimits,
 }
 
 impl Default for RunOptions {
@@ -173,6 +175,7 @@ impl Default for RunOptions {
             wake: Wake::default(),
             clean_room: None,
             build: None,
+            spend: Default::default(),
         }
     }
 }
@@ -241,6 +244,7 @@ impl RebuildRun {
     pub fn start(hub: &AiHub, ws: Workspace, opts: RunOptions) -> Result<RebuildRun, ToolError> {
         let cfg = hub.config();
         let entry = builder_backend(&cfg, opts.backend.as_deref().or_else(|| project_builder(&cfg, &ws)))?;
+        refuse_unconfined(&cfg, &entry)?;
         // The person's choice of mode is a session setting. A run that waited its turn uses the mode
         // now, not the one when it was queued; a tool holds the session while it starts a run, so it
         // passes the mode instead, and the saved settings are the last fallback.
@@ -325,6 +329,7 @@ impl RebuildRun {
             self_check: None,
             reset_progress_after_notes: false,
             keys: hub.keys.clone(),
+            spend: crate::budget::SpendBudget::open(opts.spend, crate::budget::ledger_path(&hub.settings_path())),
         };
         let r2 = running.clone();
         let key_store = hub.keys.clone();
@@ -524,6 +529,8 @@ struct Worker {
     reset_progress_after_notes: bool,
     /// The backends' stored keys, for an agent CLI that asks the host to authenticate (Devin).
     keys: crate::keys::KeyStore,
+    /// This run's spending against the `[ai]` ceilings (`None`: no ceiling is set).
+    spend: Option<crate::budget::SpendBudget>,
 }
 
 /// The project a run records its usage in, and when it last did.
@@ -597,17 +604,24 @@ impl Worker {
     /// to the project's usage.json. The run is its only writer; a failure is logged and the build
     /// carries on.
     fn record_usage(&mut self, turn: Option<(u64, u64, Option<f64>, bool)>) {
-        let Some(clock) = self.usage.as_mut() else { return };
-        let ms = u64::try_from(clock.since.elapsed().as_millis()).unwrap_or(u64::MAX);
-        clock.since = Instant::now();
-        let saved = ProjectUsage::update(&clock.root, |u| {
-            u.work_ms = u.work_ms.saturating_add(ms);
-            if let Some((input, output, cost, estimate)) = turn {
-                u.add_turn(input, output, cost, estimate);
+        if let Some(clock) = self.usage.as_mut() {
+            let ms = u64::try_from(clock.since.elapsed().as_millis()).unwrap_or(u64::MAX);
+            clock.since = Instant::now();
+            let saved = ProjectUsage::update(&clock.root, |u| {
+                u.work_ms = u.work_ms.saturating_add(ms);
+                if let Some((input, output, cost, estimate)) = turn {
+                    u.add_turn(input, output, cost, estimate);
+                }
+            });
+            if let Err(e) = saved {
+                log::warn!("Couldn't save the project's usage in {}: {}", clock.root.display(), e.message);
             }
-        });
-        if let Err(e) = saved {
-            log::warn!("Couldn't save the project's usage in {}: {}", clock.root.display(), e.message);
+        }
+        if let Some((_, _, Some(cost), _)) = turn
+            && let Some(budget) = self.spend.as_mut()
+            && let Err(e) = budget.add(cost)
+        {
+            log::warn!("Couldn't record this build's AI spending: {}", e.message);
         }
     }
 
@@ -912,6 +926,11 @@ impl Worker {
         // The builder finished and only the check didn't: the build is there to check.
         let mut only_check = carrying_on && !first && opts.message.is_none() && ws.manifest.awaiting_check;
         loop {
+            // A ceiling reached by this run (or by another build today) stops it before it spends
+            // again; the turn that crossed the line has already finished.
+            if let Some(error) = self.spend.as_mut().and_then(|b| b.exceeded()) {
+                return Err(error);
+            }
             if !std::mem::take(&mut only_check) {
                 progress = BuildProgress::load(&ws.root)?;
                 if let Some(fingerprint) = self.progress_fingerprint(ws, &mut progress, &mut progress_available, &mut fingerprints)? {
@@ -951,6 +970,9 @@ impl Worker {
                         return Err(error);
                     }
                 };
+                if let Some(error) = self.spend.as_mut().and_then(|b| b.exceeded()) {
+                    return Err(error);
+                }
                 // Only a finished turn counts: telling the builder twice costs little, and a turn that
                 // failed may not have told it at all.
                 let told = std::mem::take(&mut asked);
@@ -1621,6 +1643,24 @@ pub fn builder_replacement(cfg: &crate::AiConfig, ws: &Workspace, explicit: Opti
 /// English for now: the wording needs a native speaker's check before it joins the catalogs.
 pub fn replaced_builder_notice(saved: &str, used: &str) -> String {
     format!("The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.")
+}
+
+/// Refuse a build when `[ai] require_confined_build` is on and this AI can't be held in.
+pub fn refuse_unconfined(cfg: &crate::AiConfig, entry: &crate::BackendEntry) -> Result<(), ToolError> {
+    if !cfg.require_confined_build {
+        return Ok(());
+    }
+    let confinement = crate::cli_agents::confinement_for(entry);
+    if !confinement.build_is_unconfined() {
+        return Ok(());
+    }
+    Err(ToolError::new(
+        ErrorCode::BadSettings,
+        format!("{} can't be held in during a build: it runs with your own access, and `[ai] require_confined_build` is on.", entry.config.name),
+    )
+    .with_remediation(
+        "Turn `require_confined_build` off, or build with Claude Code (it asks us before edits and commands) or Codex (it confines its own work).",
+    ))
 }
 
 /// The backend that builds: the one named while it is set up and on, else the Builder role's,

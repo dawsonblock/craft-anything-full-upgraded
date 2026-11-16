@@ -383,8 +383,12 @@ Every round spends the person's money or quota. One that can't do anything shoul
 - [x] A builder step on an API backend stops after 25 failed build commands in a row (none
       succeeding between), says so and keeps the project (`MAX_FAILED_BUILDS` in `agent.rs`, #399:
       9.4M tokens in 19 minutes of the first stage, never compiled). Try again carries on
-- [ ] **decision** Whether a build gets a token or cost limit of its own, beyond rounds and that
-      stop (#399): a model that changes code without ever running a build isn't caught by it
+- [x] **decision** Whether a build gets a token or cost limit of its own, beyond rounds and that
+      stop (#399): yes. `[ai] max_run_cost_usd` stops a run between turns, `max_daily_cost_usd`
+      stops one that would spend past the day's total (shared through `spend.json` beside
+      `config.toml`), and a start is refused once the day is spent. A coding agent's figure is its
+      own estimate at API prices, and an agent that reports none isn't counted
+      — claimed: Devin, branch chore/security-and-release-gates
 - [ ] Check live that the stop fires on a real API-backend build and the message reads well. It
       fired on a local Ollama build (the same built-in loop) after two turns that changed nothing
       in `app/` ("The build stopped after two builder turns changed no files in app/…"); an
@@ -1019,10 +1023,15 @@ Owner: open · Status: in progress
 - [x] Clean room outside builds (#564): a chat or question with Claude Code refuses the agent's own
       file, shell and web tools outright (`--disallowedTools`), not through its defaults; an ACP chat
       refuses them through an approver instead of a consent card (`docs/claude-code.md`)
-- [ ] Say on each adapter, as typed data, what it can be held to (asks us, its own sandbox,
-      nothing), in a build, a chat and a question, and have runs act on that, once the decision above
-      is made. Today Codex, Gemini CLI, OpenCode, Antigravity, Hermes and Maki are not held to
-      Clean room in a chat (their own sandbox, if any, is not established)
+- [x] Say on each adapter, as typed data, what it can be held to (asks us, its own sandbox,
+      nothing), in a build, a chat and a question, and have runs act on that: `Bound`/`Confinement`
+      on `AgentAdapter` (Claude Code asks us in a build, Codex confines its own, every other adapter
+      says nothing), `rebuild_start`'s result carries all three, and `[ai] require_confined_build`
+      refuses a build whose agent says nothing before a project is made
+      — claimed: Devin, branch chore/security-and-release-gates
+- [ ] Enforce the chat and question declarations: they are recorded now but no run acts on them,
+      and Codex's, Gemini CLI's, OpenCode's, Antigravity's, Hermes's and Maki's own sandboxes in a
+      chat are still not established (they wait on the decision above)
 - [ ] Check live that a Clean room chat with Claude Code can't read a file outside its folder, and
       that an ACP chat in Clean room still reaches our tools (its permission requests for them are
       allowed, only its own read/write/command/fetch are refused)

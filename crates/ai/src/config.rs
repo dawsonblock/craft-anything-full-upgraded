@@ -262,6 +262,15 @@ pub struct AiConfig {
     /// prompt caching survives restarts (and tests stay inside their own settings file).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub install_id: Option<String>,
+    /// The most one build may spend, in US dollars. `None`: no ceiling; `0` allows no spending.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_run_cost_usd: Option<f64>,
+    /// The most a day's builds together may spend, in US dollars (UTC days, in `spend.json`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_daily_cost_usd: Option<f64>,
+    /// Refuse a build whose agent can't be held in: it would run with the person's own access.
+    #[serde(default)]
+    pub require_confined_build: bool,
 }
 
 pub fn role_key(r: Role) -> &'static str {
@@ -285,7 +294,13 @@ impl AiConfig {
             backend.model_from_command();
             backend.thinking_from_model();
         }
+        c.spend_limits().validate()?;
         Ok(c)
+    }
+
+    /// The `[ai]` spending ceilings a build is held to.
+    pub fn spend_limits(&self) -> crate::budget::SpendLimits {
+        crate::budget::SpendLimits { run_usd: self.max_run_cost_usd, daily_usd: self.max_daily_cost_usd }
     }
 
     /// Parse from settings; unreadable config is logged and treated as empty.
@@ -495,5 +510,17 @@ mod tests {
         assert_eq!(one("model = \"claude-code\""), ("claude-code".into(), None));
         // Maki named by its program runs Maki's own adapter, not `maki <prompt>` (its terminal interface).
         assert_eq!(one("model = \"anthropic/claude-sonnet-4-6\"\ncommand = \"maki\""), ("maki".into(), Some("anthropic/claude-sonnet-4-6".into())));
+    }
+
+    /// The spending ceilings and the confinement switch are typed settings, refused when wrong.
+    #[test]
+    fn spending_and_confinement_settings_parse() {
+        let t: toml::Table = toml::from_str("max_run_cost_usd = 1.5\nmax_daily_cost_usd = 10\nrequire_confined_build = true").unwrap();
+        let cfg = AiConfig::from_table(&t).unwrap();
+        assert_eq!(cfg.spend_limits(), crate::budget::SpendLimits { run_usd: Some(1.5), daily_usd: Some(10.0) });
+        assert!(cfg.require_confined_build);
+        let bad: toml::Table = toml::from_str("max_daily_cost_usd = -2.0").unwrap();
+        assert_eq!(AiConfig::from_table(&bad).unwrap_err().code, ErrorCode::BadSettings);
+        assert!(!AiConfig::default().require_confined_build, "a build is allowed unless the person asks otherwise");
     }
 }

@@ -48,6 +48,11 @@ pub trait AgentAdapter: Send + Sync {
     fn ids(&self) -> &'static [&'static str];
     /// argv after the program for one message.
     fn args(&self, cx: &ArgsCx) -> Vec<String>;
+    /// What this agent can be held to while it builds, chats or answers a question. The default
+    /// is nothing, so a new adapter never claims more than it has been checked for.
+    fn confinement(&self) -> Confinement {
+        Confinement::NOTHING
+    }
     /// Whether this agent supplies its own live model and thinking choices.
     fn has_model_catalog(&self) -> bool {
         false
@@ -412,6 +417,12 @@ impl ClaudeCode {
 impl AgentAdapter for ClaudeCode {
     fn ids(&self) -> &'static [&'static str] {
         &["claude-code", "claude"]
+    }
+
+    /// A build is given `--permission-prompt-tool mcp__craft-anything__core_action_approve`, so
+    /// edits, commands and fetches ask us first. Outside a build there is no approval tool.
+    fn confinement(&self) -> Confinement {
+        Confinement::OUR_APPROVALS_BUILD
     }
 
     fn answers_questions(&self) -> bool {
@@ -782,6 +793,12 @@ impl AgentAdapter for Codex {
         &["codex"]
     }
 
+    /// A build runs with `--sandbox workspace-write`, so its own work is confined to the project.
+    /// A chat or question is not established to be.
+    fn confinement(&self) -> Confinement {
+        Confinement::OWN_SANDBOX_BUILD
+    }
+
     /// `codex exec -` reads the message from stdin, so a long one can't pass Windows'
     /// command-line limit (os error 206, #528).
     fn prompt_on_stdin(&self) -> bool {
@@ -1023,4 +1040,32 @@ pub(super) fn remote_failure(host: &str, out: &craft_anything_platform::Output) 
         } else {
             format!("ssh said: {snippet}")
         })
+}
+
+#[cfg(test)]
+mod confinement_tests {
+    use super::*;
+
+    /// Each adapter says what holds it in; only the two we have checked claim anything.
+    #[test]
+    fn each_adapter_says_what_holds_it_in() {
+        let build = |agent: &str| crate::cli_agents::adapter_for(agent).confinement().build;
+        assert_eq!(build("claude-code"), Bound::OurApprovals);
+        assert_eq!(build("claude"), Bound::OurApprovals, "the other name for it");
+        assert_eq!(build("codex"), Bound::OwnSandbox);
+        for agent in ["gemini", "opencode", "opencode-v1", "antigravity", "hermes", "maki", "aider", "copilot", "grok", "devin", "unknown-agent"] {
+            assert_eq!(build(agent), Bound::Nothing, "{agent}");
+        }
+    }
+
+    /// A build declaration doesn't claim anything about a chat or a question.
+    #[test]
+    fn a_build_declaration_leaves_a_chat_unclaimed() {
+        for agent in ["claude-code", "codex"] {
+            let confinement = crate::cli_agents::adapter_for(agent).confinement();
+            assert!(!confinement.build_is_unconfined(), "{agent}");
+            assert_eq!(confinement.chat, Bound::Nothing, "{agent}");
+            assert_eq!(confinement.question, Bound::Nothing, "{agent}");
+        }
+    }
 }
