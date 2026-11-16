@@ -458,6 +458,7 @@ fn notes_added_while_it_works_reach_the_agent_at_its_next_step() {
         reset_progress_after_notes: false,
         spend: None,
         spend_failure: None,
+        price: None,
     };
     assert!(w.added(&mut ws, true, true).is_none(), "nothing added, nothing to say");
     use craft_anything_engine::questions::{self, AskedQuestion};
@@ -507,11 +508,51 @@ fn a_ledger_that_cannot_be_written_stops_the_run() {
         reset_progress_after_notes: false,
         spend: crate::budget::SpendBudget::open(crate::budget::SpendLimits { run_usd: None, daily_usd: Some(10.0) }, ledger),
         spend_failure: None,
+        price: None,
     };
     w.record_usage(Some((10, 5, Some(0.25), false)));
     let error = w.spend_stop().expect("the run stops when its spending can't be recorded");
     assert_eq!(error.code, ErrorCode::FileError);
     assert!(error.message.contains("couldn't be recorded"), "{}", error.message);
+}
+
+/// An agent that reports tokens but no cost is priced at the model's list rate, so the ceiling sees
+/// the spending instead of treating the turn as free; a reported cost still wins.
+#[test]
+fn a_turn_with_tokens_but_no_cost_is_priced() {
+    let d = tempfile::tempdir().unwrap();
+    let ws = Workspace::create(d.path(), "x", "A thing", TargetRef::None).unwrap();
+    let (tx, _rx) = std::sync::mpsc::channel();
+    let ledger = d.path().join("spend.json");
+    let mut w = Worker {
+        wake: Default::default(),
+        engine: Arc::new(Engine::new(craft_anything_engine::testing::session())),
+        tx,
+        stop: CancelToken::default(),
+        preview: Arc::default(),
+        seen: HashSet::new(),
+        inbox: Inbox::new(ws.inbox_dir()),
+        editor: None,
+        notes: Arc::default(),
+        feed: Arc::new(Mutex::new(feed::FeedLog::open(&ws))),
+        keys: crate::KeyStore::file_only(ws.root.join("keys.toml")),
+        assets: false,
+        decompiled: false,
+        usage: Some(UsageClock { root: ws.root.clone(), since: Instant::now() }),
+        self_check: None,
+        reset_progress_after_notes: false,
+        spend: crate::budget::SpendBudget::open(crate::budget::SpendLimits { run_usd: None, daily_usd: Some(100.0) }, ledger.clone()),
+        spend_failure: None,
+        price: Some(crate::config::Price { input_per_mtok: 2.0, output_per_mtok: 10.0, cache_read_per_mtok: None, cache_write_per_mtok: None }),
+    };
+    // A million prompt tokens and half a million completion tokens at those rates: $2 + $5.
+    w.record_usage(Some((1_000_000, 500_000, None, false)));
+    let saved = std::fs::read_to_string(&ledger).unwrap();
+    assert!(saved.contains("7.0"), "{saved}");
+    // A reported cost is the agent's own figure and is not replaced by ours.
+    w.record_usage(Some((1_000_000, 0, Some(0.5), false)));
+    let saved = std::fs::read_to_string(&ledger).unwrap();
+    assert!(saved.contains("7.5"), "{saved}");
 }
 
 /// #857: a note handed over by a coding agent's tool hook never sees the after-turn message, so
@@ -1404,6 +1445,7 @@ fn an_api_backend_builds_with_the_build_tools() {
         reset_progress_after_notes: false,
         spend: None,
         spend_failure: None,
+        price: None,
     };
     w.attach(&ws).unwrap();
     // The model writes a file with the Build tools, then answers.
@@ -1524,6 +1566,7 @@ fn the_mechanics_sheet_is_required_and_held_against_the_code() {
         reset_progress_after_notes: false,
         spend: None,
         spend_failure: None,
+        price: None,
     };
     let check = |round| w.run_checks(&ws, &SheetKind, round).unwrap().remove(0);
 
@@ -2768,6 +2811,7 @@ fn check_worker_in(ws: &Workspace, deep: bool, build: craft_anything_engine::set
         reset_progress_after_notes: false,
         spend: None,
         spend_failure: None,
+        price: None,
         keys: crate::KeyStore::file_only(ws.root.join("keys.toml")),
     }
 }
@@ -3335,6 +3379,7 @@ fn preparing_the_builders_agent_does_not_lock_up() {
         reset_progress_after_notes: false,
         spend: None,
         spend_failure: None,
+        price: None,
     };
     let entry = crate::BackendEntry {
         config: crate::BackendConfig {
@@ -3380,6 +3425,7 @@ fn the_run_answers_the_builders_own_check_during_its_turn() {
         reset_progress_after_notes: false,
         spend: None,
         spend_failure: None,
+        price: None,
     };
     let mut builder = ChecksItsWork { root: ws.root.clone(), asked: None, reply: None };
     let reply = w.turn(&mut ws, &mut builder, "Build it.", true, None).unwrap();
@@ -3580,6 +3626,7 @@ fn a_note_the_builder_took_at_a_step_joins_the_feed_and_isnt_sent_again() {
         reset_progress_after_notes: false,
         spend: None,
         spend_failure: None,
+        price: None,
     };
     let dir = notes::notes_dir(&ws.inbox_dir());
     notes::hand_over(&dir, 1, "make the header blue").unwrap();
@@ -3942,6 +3989,7 @@ fn a_session_left_on_another_computer_starts_a_new_one_from_the_project() {
         reset_progress_after_notes: false,
         spend: None,
         spend_failure: None,
+        price: None,
     };
     let first = resumed_elsewhere("THE BRIEF", &ws.manifest.last_reply, None);
     let reply = w.turn(&mut ws, &mut agent, "The person asks: make it blue", true, Some(first)).unwrap();
@@ -4000,6 +4048,7 @@ fn a_missing_session_with_nothing_to_start_from_is_said_plainly() {
         reset_progress_after_notes: false,
         spend: None,
         spend_failure: None,
+        price: None,
     };
     let e = w
         .turn_with_wait(&mut ws, &mut agent, "Carry on.", true, None, |_, _| panic!("a missing session without a fresh start must not be retried"))
@@ -4069,6 +4118,7 @@ fn the_builders_conversation_travels_with_the_project() {
         reset_progress_after_notes: false,
         spend: None,
         spend_failure: None,
+        price: None,
     };
     let adapter = KeepsSessions(store.path().to_path_buf());
     // No session yet, or one this computer doesn't have: nothing to keep, nothing said.
@@ -4155,6 +4205,7 @@ fn a_build_says_when_it_waits_for_an_analysis_started_earlier() {
         reset_progress_after_notes: false,
         spend: None,
         spend_failure: None,
+        price: None,
     };
 
     // Another process is already analysing this program: a fresh lock beside its project.

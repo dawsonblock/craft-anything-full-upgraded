@@ -312,6 +312,11 @@ impl RebuildRun {
                 .unwrap_or_else(PoisonError::into_inner)
                 .push(feed::FeedItem::Note(format!("This build runs on this computer, outside the Docker sandbox: {why}.")));
         }
+        let price = {
+            // An agent CLI names the model it runs separately; an API backend's model is the model.
+            let model = entry.options.cli_model.as_deref().unwrap_or(&entry.config.model);
+            cfg.prices.get(model).copied().or_else(|| crate::price::builtin(model))
+        };
         let ctx = Worker {
             wake: opts.wake.clone(),
             engine: hub.engine.clone(),
@@ -331,6 +336,7 @@ impl RebuildRun {
             keys: hub.keys.clone(),
             spend: crate::budget::SpendBudget::open(cfg.spend_limits(), crate::budget::ledger_path(&hub.settings_path())),
             spend_failure: None,
+            price,
         };
         let r2 = running.clone();
         let key_store = hub.keys.clone();
@@ -535,6 +541,9 @@ struct Worker {
     /// A turn's cost that couldn't be written to the ledger: the day's ceiling can't be held
     /// without it, so the run stops instead of spending unrecorded.
     spend_failure: Option<ToolError>,
+    /// The model's list price, when known: an agent that reports tokens but no cost is counted at
+    /// it, so the ceiling sees the spending rather than treating it as free.
+    price: Option<crate::config::Price>,
 }
 
 /// The project a run records its usage in, and when it last did.
@@ -605,9 +614,15 @@ fn refuse_deep_session_reuse_in_clean_room(ws: &Workspace, model: &str, args: &[
 
 impl Worker {
     /// Add the time worked since the last record (and an agent turn's tokens and reported cost)
-    /// to the project's usage.json and the day's spend ledger. The run is usage.json's only
-    /// writer; a failure is logged and the build carries on.
+    /// to the project's usage.json and the day's spend ledger. A turn that reports tokens but no
+    /// cost is priced at the model's list rate. The run is usage.json's only writer; a failure is
+    /// logged and the build carries on.
     fn record_usage(&mut self, turn: Option<(u64, u64, Option<f64>, bool)>) {
+        let turn = turn.map(|(input, output, reported, estimate)| {
+            let estimated = reported.is_none();
+            let cost = reported.or_else(|| self.price.map(|p| (input as f64 * p.input_per_mtok + output as f64 * p.output_per_mtok) / 1_000_000.0));
+            (input, output, cost, estimate || estimated)
+        });
         if let Some(clock) = self.usage.as_mut() {
             let ms = u64::try_from(clock.since.elapsed().as_millis()).unwrap_or(u64::MAX);
             clock.since = Instant::now();

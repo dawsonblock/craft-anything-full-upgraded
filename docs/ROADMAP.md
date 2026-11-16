@@ -405,7 +405,8 @@ Every round spends the person's money or quota. One that can't do anything shoul
       stop (#399): yes. `[ai] max_run_cost_usd` stops a run between turns, `max_daily_cost_usd`
       stops one that would spend past the day's total (shared through `spend.json` beside
       `config.toml`), and a start is refused once the day is spent. A coding agent's figure is its
-      own estimate at API prices, and an agent that reports none isn't counted
+      own estimate at API prices; a turn that reports tokens but no cost is priced at the
+      model's list rate, and an agent that reports neither isn't counted
       — claimed: Devin, branch chore/security-and-release-gates
 - [x] Hold the spend ledger across processes: a lock file beside `spend.json` is created
       exclusively and released on drop, so the app and the CLI add their turns instead of writing

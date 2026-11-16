@@ -1288,9 +1288,9 @@
       "sha256": "3d3ca79ae008aec097813f79d64e6645e57d9b26329106ca878ef6059f8dc713"
     },
     {
-      "bytes": 90061,
+      "bytes": 91024,
       "path": "crates/ai/src/rebuild/mod.rs",
-      "sha256": "f73ab1efa3f0755c5833f4ba0d33323f8c9b8496d294b760d5eea86ac05309a7"
+      "sha256": "c703b43ad3a94fcad1829ea3b9e17fc9fdc4cf853f16ed8155d060044f73bb6e"
     },
     {
       "bytes": 12771,
@@ -1353,9 +1353,9 @@
       "sha256": "70ffe13bb706c708abf5ee0f463792ec9e273c0a29d1da62a67134a0d07bbeec"
     },
     {
-      "bytes": 224632,
+      "bytes": 226849,
       "path": "crates/ai/src/rebuild/tests.rs",
-      "sha256": "773325ba36a8d83a1419fa4d9ca9684e48faa26342858c65fd373b8291af6274"
+      "sha256": "7e4da0e6d5f1a805f8387efd8b34bd63e8a5bb91ffd60aedcb4a3dc79d7993fb"
     },
     {
       "bytes": 39478,
@@ -3718,14 +3718,14 @@
       "sha256": "6acf6fd08b66a059d37695a3ec00f75ce5cd77d34785a6082266263eae2e3fb3"
     },
     {
-      "bytes": 151324,
+      "bytes": 151408,
       "path": "docs/ROADMAP.md",
-      "sha256": "0aeb97e96f69f690c19540bcac861f292133a372cb489695821d3fc72d57de82"
+      "sha256": "7352e0140927320a206f2acc719bb4571f63fc31bfc47232616523e0f9c558d3"
     },
     {
-      "bytes": 143794,
+      "bytes": 143910,
       "path": "docs/STATUS.md",
-      "sha256": "f07f5dd71bba417cd7607ee84851dcf7683ecf2140742d91be2629a199656aeb"
+      "sha256": "91019fb8b3139ef87381e9ae8e6e98f9a7c401fc3b9fe06251e74a41fbb58f91"
     },
     {
       "bytes": 2298,
@@ -4705,5 +4705,5 @@
   ],
   "root": "craft-anything-full-upgraded",
   "schema": 1,
-  "total_bytes": 20858751
+  "total_bytes": 20862131
 }
