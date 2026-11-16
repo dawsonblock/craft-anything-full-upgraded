@@ -975,6 +975,10 @@ Owner: open · Status: in progress
       `runtime_walkthrough_record` and `project_play` are refused, and `TOOL_ROUTES` is gone
       (R3.0 PR 2)
       — claimed: Devin, branch feature/r3.0-execution-inventory
+- [ ] A pseudo-terminal launch is held to the same policy: `capture` and `console_text` called
+      `portable_pty`'s `spawn_command` directly, so a program the policy refuses at
+      `Process::spawn` could still start through a terminal (found in an external audit)
+      — claimed: Devin, branch bugfix/r3.0-pty-policy
 - [x] Harden Docker and project files: the project folder is resolved and must stay inside the
       project (a symlinked app/ that leads outside is refused); the container never runs as root
       (a root host falls back to 1000:1000); the image can be pinned by `sha256` digest; an
