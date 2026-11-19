@@ -384,7 +384,14 @@ impl AcpCore {
     fn turn_done(&self) -> Out {
         // This client has no attributable ACP usage totals. Leave the cost unknown instead of
         // treating another provider's prices, or a session-wide total, as this turn's bill.
-        Out::Event(AgentEvent::TurnDone { backend: self.backend.clone(), input_tokens: 0, output_tokens: 0, cost_usd: None, cost_is_estimate: false })
+        Out::Event(AgentEvent::TurnDone {
+            backend: self.backend.clone(),
+            input_tokens: 0,
+            cached_input_tokens: 0,
+            output_tokens: 0,
+            cost_usd: None,
+            cost_is_estimate: false,
+        })
     }
 
     fn response(&mut self, id: u64, msg: &Value) -> Vec<Out> {
@@ -937,6 +944,7 @@ impl AcpConversation {
                 let _ = self.tx.send(AgentEvent::TurnDone {
                     backend: self.backend.clone(),
                     input_tokens: 0,
+                    cached_input_tokens: 0,
                     output_tokens: 0,
                     cost_usd: None,
                     cost_is_estimate: false,
@@ -1004,7 +1012,14 @@ impl Conversation for AcpConversation {
                 )),
                 log,
             });
-            events.push(AgentEvent::TurnDone { backend: self.backend.clone(), input_tokens: 0, output_tokens: 0, cost_usd: None, cost_is_estimate: false });
+            events.push(AgentEvent::TurnDone {
+                backend: self.backend.clone(),
+                input_tokens: 0,
+                cached_input_tokens: 0,
+                output_tokens: 0,
+                cost_usd: None,
+                cost_is_estimate: false,
+            });
         }
         events
     }

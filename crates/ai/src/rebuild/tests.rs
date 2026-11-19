@@ -510,7 +510,7 @@ fn a_ledger_that_cannot_be_written_stops_the_run() {
         spend_failure: None,
         price: None,
     };
-    w.record_usage(Some((10, 5, Some(0.25), false)));
+    w.record_usage(Some(TurnUsage { input: 10, output: 5, cost: Some(0.25), ..Default::default() }));
     let error = w.spend_stop().expect("the run stops when its spending can't be recorded");
     assert_eq!(error.code, ErrorCode::FileError);
     assert!(error.message.contains("couldn't be recorded"), "{}", error.message);
@@ -546,13 +546,29 @@ fn a_turn_with_tokens_but_no_cost_is_priced() {
         price: Some(crate::config::Price { input_per_mtok: 2.0, output_per_mtok: 10.0, cache_read_per_mtok: None, cache_write_per_mtok: None }),
     };
     // A million prompt tokens and half a million completion tokens at those rates: $2 + $5.
-    w.record_usage(Some((1_000_000, 500_000, None, false)));
+    w.record_usage(Some(TurnUsage { input: 1_000_000, output: 500_000, ..Default::default() }));
     let saved = std::fs::read_to_string(&ledger).unwrap();
     assert!(saved.contains("7.0"), "{saved}");
     // A reported cost is the agent's own figure and is not replaced by ours.
-    w.record_usage(Some((1_000_000, 0, Some(0.5), false)));
+    w.record_usage(Some(TurnUsage { input: 1_000_000, cost: Some(0.5), ..Default::default() }));
     let saved = std::fs::read_to_string(&ledger).unwrap();
     assert!(saved.contains("7.5"), "{saved}");
+}
+
+/// Codex counts cached prompt tokens inside `input_tokens`. Priced at the full input rate, a long
+/// session's turn cost several times what it did and stopped at its ceiling early; the cached part
+/// is priced at the cache-read rate (10% of input unless the price names one).
+#[test]
+fn cached_prompt_tokens_are_priced_at_the_cache_read_rate() {
+    let price = crate::config::Price { input_per_mtok: 2.0, output_per_mtok: 10.0, cache_read_per_mtok: None, cache_write_per_mtok: None };
+    // 1M prompt tokens, 900k of them cached: 100k at $2 + 900k at $0.20 = $0.38 (not $2).
+    let turn = TurnUsage { input: 1_000_000, cached: 900_000, ..Default::default() };
+    assert!((turn.priced(price) - 0.38).abs() < 1e-9, "{}", turn.priced(price));
+    let named = crate::config::Price { cache_read_per_mtok: Some(0.5), ..price };
+    assert!((turn.priced(named) - (0.2 + 0.45)).abs() < 1e-9, "a price's own cache-read rate wins");
+    // A cached count larger than the total (a malformed report) can't price below zero input.
+    let odd = TurnUsage { input: 100, cached: 1_000, ..Default::default() };
+    assert!((odd.priced(price) - 100.0 * 0.2 / 1_000_000.0).abs() < 1e-12);
 }
 
 /// #857: a note handed over by a coding agent's tool hook never sees the after-turn message, so
@@ -767,7 +783,14 @@ mod typed_retries {
             } else {
                 AgentEvent::TextDelta { text: "Done".into() }
             });
-            self.queued.push(AgentEvent::TurnDone { backend: "scripted".into(), input_tokens: 0, output_tokens: 0, cost_usd: None, cost_is_estimate: false });
+            self.queued.push(AgentEvent::TurnDone {
+                backend: "scripted".into(),
+                input_tokens: 0,
+                cached_input_tokens: 0,
+                output_tokens: 0,
+                cost_usd: None,
+                cost_is_estimate: false,
+            });
         }
         fn session_id(&self) -> Option<String> {
             self.session.clone()
@@ -911,7 +934,14 @@ mod typed_retries {
                 vec![if std::mem::take(&mut self.first_poll) {
                     AgentEvent::Error { message: "The provider is rate limited.".into(), remediation: None, log: None }
                 } else {
-                    AgentEvent::TurnDone { backend: "scripted".into(), input_tokens: 0, output_tokens: 0, cost_usd: None, cost_is_estimate: false }
+                    AgentEvent::TurnDone {
+                        backend: "scripted".into(),
+                        input_tokens: 0,
+                        cached_input_tokens: 0,
+                        output_tokens: 0,
+                        cost_usd: None,
+                        cost_is_estimate: false,
+                    }
                 }]
             }
             fn last_failure(&self) -> Option<TurnFailure> {
@@ -3348,7 +3378,14 @@ impl Conversation for ChecksItsWork {
             Some(text) => {
                 vec![
                     AgentEvent::TextDelta { text },
-                    AgentEvent::TurnDone { backend: "test".into(), input_tokens: 0, output_tokens: 0, cost_usd: None, cost_is_estimate: false },
+                    AgentEvent::TurnDone {
+                        backend: "test".into(),
+                        input_tokens: 0,
+                        cached_input_tokens: 0,
+                        output_tokens: 0,
+                        cost_usd: None,
+                        cost_is_estimate: false,
+                    },
                 ]
             }
             None => Vec::new(),

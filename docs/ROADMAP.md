@@ -1148,11 +1148,14 @@ Owner: open · Status: in progress
       person's own `~/.claude/settings.json` allow rules (and `defaultMode`) may decide before our
       approval tool is asked, which no argument check can see. If they do, pass `--setting-sources`
       or say so in the declaration
-- [ ] The spend ledger: its module comment still says two processes can lose a turn's figure (the
-      lock file fixed that); clearing a lock older than 30 s lets two processes both take it (an OS
-      file lock wouldn't); a run that passes midnight UTC keeps adding to the day it started; and a
-      Codex turn is priced with its cached input tokens at the full input rate, so the ceiling stops
-      it early and the usage shown is too high
+- [x] Close the spend ledger's gaps. The cross-process lock is an OS lock (`File::try_lock`) on
+      `spend.json.lock`, which the system releases when its process ends, instead of an exclusive
+      file that a 30-second staleness guess deleted (two processes could both clear it and both
+      write); a run that crosses midnight UTC adds what it spends after it to the new day; and
+      `TurnDone` carries `cached_input_tokens` (Codex and Claude Code report it, the built-in loop
+      too), so an estimated turn prices cached prompt tokens at the cache-read rate instead of the
+      full input rate, which stopped a long Codex build early. The module comment says what holds
+      — claimed: Claude, branch claude/magical-faraday-dqfztt
 - [ ] Enforce the chat and question declarations: they are recorded now but no run acts on them,
       and Codex's, Gemini CLI's, OpenCode's, Antigravity's, Hermes's and Maki's own sandboxes in a
       chat are still not established. The decision above covers builds only, so a chat still runs

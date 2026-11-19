@@ -748,7 +748,17 @@ mod tests {
             },
         );
         apply_event(&mut chat, AgentEvent::ConsentNeeded { call_id: "c2".into(), tool: "run".into(), title: "Run it".into(), explanation: "runs".into() });
-        apply_event(&mut chat, AgentEvent::TurnDone { backend: "Claude".into(), input_tokens: 1, output_tokens: 2, cost_usd: None, cost_is_estimate: false });
+        apply_event(
+            &mut chat,
+            AgentEvent::TurnDone {
+                backend: "Claude".into(),
+                input_tokens: 1,
+                cached_input_tokens: 0,
+                output_tokens: 2,
+                cost_usd: None,
+                cost_is_estimate: false,
+            },
+        );
         match &chat[1] {
             ChatItem::Assistant { text, streaming, backend } => {
                 assert_eq!(text, "Hello");

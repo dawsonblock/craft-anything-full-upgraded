@@ -290,6 +290,11 @@ pub enum AgentEvent {
         backend: String,
         /// Every prompt token, cached ones included, as agent apps report them.
         input_tokens: u64,
+        /// The part of `input_tokens` read from the provider's prompt cache, when the agent says
+        /// (0 when it doesn't). A cost that has to be estimated prices these at the cache-read rate,
+        /// not the full input rate.
+        #[serde(default)]
+        cached_input_tokens: u64,
         output_tokens: u64,
         cost_usd: Option<f64>,
         /// `cost_usd` is the agent's own guess at API prices, not what a key was charged: a

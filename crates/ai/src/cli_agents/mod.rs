@@ -473,6 +473,8 @@ pub struct StreamParser {
     pub run_session: Option<String>,
     pub tool_names: HashMap<String, String>,
     pub input_tokens: u64,
+    /// The part of `input_tokens` read from the prompt cache, when the agent reports it.
+    pub cached_input_tokens: u64,
     pub output_tokens: u64,
     pub cost_usd: Option<f64>,
     /// A missing or invalid per-step cost cannot become a complete turn total later.
@@ -523,6 +525,7 @@ impl StreamParser {
             run_session: None,
             tool_names: HashMap::new(),
             input_tokens: 0,
+            cached_input_tokens: 0,
             output_tokens: 0,
             cost_usd: None,
             cost_incomplete: false,
@@ -873,7 +876,7 @@ fn end_turn(busy: &AtomicBool, done: AgentEvent, send: impl FnOnce(AgentEvent)) 
 
 /// The `TurnDone` that ends a turn of `backend` with no usage to report.
 fn nothing_done(backend: &str) -> AgentEvent {
-    AgentEvent::TurnDone { backend: backend.to_string(), input_tokens: 0, output_tokens: 0, cost_usd: None, cost_is_estimate: false }
+    AgentEvent::TurnDone { backend: backend.to_string(), input_tokens: 0, cached_input_tokens: 0, output_tokens: 0, cost_usd: None, cost_is_estimate: false }
 }
 
 /// One message as one run of the agent's program (here or over SSH), its events sent on `tx`
@@ -1142,7 +1145,14 @@ fn run_cli(spec: &CliSpec, text: &str, retry: bool, tx: &Sender<AgentEvent>, sto
     if gone && let Some(h) = held {
         h.done();
     }
-    AgentEvent::TurnDone { backend: name, input_tokens: p.input_tokens, output_tokens: p.output_tokens, cost_usd: p.cost_usd, cost_is_estimate: true }
+    AgentEvent::TurnDone {
+        backend: name,
+        input_tokens: p.input_tokens,
+        cached_input_tokens: p.cached_input_tokens,
+        output_tokens: p.output_tokens,
+        cost_usd: p.cost_usd,
+        cost_is_estimate: true,
+    }
 }
 
 /// What's needed to explain a failed CLI run: the command with the person's message left out, and
@@ -1761,7 +1771,7 @@ mod tests {
             }
             assert!(
                 matches!(events.last(), Some(AgentEvent::TurnDone {
-                backend, input_tokens: 0, output_tokens: 0, cost_usd: None, cost_is_estimate: false,
+                backend, input_tokens: 0, cached_input_tokens: 0, output_tokens: 0, cost_usd: None, cost_is_estimate: false,
             }) if backend == "Test"),
                 "{events:?}"
             );

@@ -612,16 +612,40 @@ fn refuse_deep_session_reuse_in_clean_room(ws: &Workspace, model: &str, args: &[
     Ok(())
 }
 
+/// One finished agent turn's usage, as its `TurnDone` reported it.
+#[derive(Debug, Clone, Copy, Default)]
+struct TurnUsage {
+    /// Every prompt token, cached ones included.
+    input: u64,
+    /// The part of `input` read from the prompt cache.
+    cached: u64,
+    output: u64,
+    /// The agent's own figure, if it gave one.
+    cost: Option<f64>,
+    /// `cost` is the agent's estimate at API prices.
+    estimate: bool,
+}
+
+impl TurnUsage {
+    /// The turn's cost at a list price: cached prompt tokens at the cache-read rate (10% of the
+    /// input rate unless the price names one), the rest of the prompt at the input rate.
+    fn priced(self, price: crate::config::Price) -> f64 {
+        let cached = self.cached.min(self.input);
+        let fresh = self.input.saturating_sub(cached);
+        let read = price.cache_read_per_mtok.unwrap_or(price.input_per_mtok * 0.1);
+        (fresh as f64 * price.input_per_mtok + cached as f64 * read + self.output as f64 * price.output_per_mtok) / 1_000_000.0
+    }
+}
+
 impl Worker {
     /// Add the time worked since the last record (and an agent turn's tokens and reported cost)
     /// to the project's usage.json and the day's spend ledger. A turn that reports tokens but no
     /// cost is priced at the model's list rate. The run is usage.json's only writer; a failure is
     /// logged and the build carries on.
-    fn record_usage(&mut self, turn: Option<(u64, u64, Option<f64>, bool)>) {
-        let turn = turn.map(|(input, output, reported, estimate)| {
-            let estimated = reported.is_none();
-            let cost = reported.or_else(|| self.price.map(|p| (input as f64 * p.input_per_mtok + output as f64 * p.output_per_mtok) / 1_000_000.0));
-            (input, output, cost, estimate || estimated)
+    fn record_usage(&mut self, turn: Option<TurnUsage>) {
+        let turn = turn.map(|t| {
+            let cost = t.cost.or_else(|| self.price.map(|p| t.priced(p)));
+            (t.input, t.output, cost, t.estimate || t.cost.is_none())
         });
         if let Some(clock) = self.usage.as_mut() {
             let ms = u64::try_from(clock.since.elapsed().as_millis()).unwrap_or(u64::MAX);
@@ -1364,8 +1388,14 @@ impl Worker {
                     AgentEvent::Error { message, remediation, .. } => failed = Some((message.clone(), remediation.clone())),
                     _ => {}
                 }
-                if let AgentEvent::TurnDone { input_tokens, output_tokens, cost_usd, cost_is_estimate, .. } = &e {
-                    self.record_usage(Some((*input_tokens, *output_tokens, *cost_usd, *cost_is_estimate)));
+                if let AgentEvent::TurnDone { input_tokens, cached_input_tokens, output_tokens, cost_usd, cost_is_estimate, .. } = &e {
+                    self.record_usage(Some(TurnUsage {
+                        input: *input_tokens,
+                        cached: *cached_input_tokens,
+                        output: *output_tokens,
+                        cost: *cost_usd,
+                        estimate: *cost_is_estimate,
+                    }));
                 }
                 let done = matches!(e, AgentEvent::TurnDone { .. });
                 // A saved session that isn't on this computer isn't the build failing: the turn

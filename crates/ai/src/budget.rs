@@ -3,9 +3,9 @@
 //! A coding agent's figure is its own estimate at API prices, so this is a spending guard, not a
 //! bill: a run that reaches its ceiling stops between turns, and a day's builds share one ledger
 //! (`spend.json` beside `config.toml`) so several projects can't each spend the whole day's limit.
-//! The read-modify-write takes a lock inside this process, so two parallel builds can't overwrite
-//! each other's figure; two processes (the app and the CLI) adding at the same instant can still
-//! lose one turn's number, which the guard tolerates and a bill would not.
+//! The read-modify-write holds a lock inside this process and an OS file lock across processes
+//! (the app and the CLI can both build), so no turn's figure is written over; the days are UTC, and
+//! a run that crosses midnight adds what it spends after it to the new day.
 
 use craft_anything_evidence::{ErrorCode, ToolError};
 use craft_anything_platform::fs::write_atomic_private;
@@ -24,56 +24,44 @@ const SECONDS_PER_DAY: u64 = 86_400;
 /// How long one process waits for another to finish with the ledger before it gives up and stops
 /// the build: a bounded wait, never a lock-up.
 const LOCK_WAIT: Duration = Duration::from_secs(5);
-/// A lock file older than this was left by a process that died holding it.
-const LOCK_STALE: Duration = Duration::from_secs(30);
 const LOCK_POLL: Duration = Duration::from_millis(10);
 
 /// Held while the ledger is read, changed and written, so parallel builds in this process add up.
 static LEDGER: Mutex<()> = Mutex::new(());
 
-/// A lock file beside the ledger, so two processes (the app and the CLI can both build) don't
-/// write the day's total over each other. The wait is bounded: a lock-up would stop a build for
-/// ever, so it gives up after [`LOCK_WAIT`] and the run stops rather than spend unrecorded.
+/// An OS lock on `spend.json.lock` beside the ledger, held from reading the day's total to writing
+/// it, so two processes (the app and the CLI can both build) don't write it over each other. The
+/// system releases it when the file is closed or the process ends, so one left by a process that
+/// died never blocks the next (the file itself stays; it holds nothing). The wait is bounded: a
+/// lock-up would stop a build for ever, so it gives up and the run stops rather than spend
+/// unrecorded.
 struct FileLock {
-    path: PathBuf,
+    _file: std::fs::File,
 }
 
 impl FileLock {
-    fn acquire(ledger: &Path) -> Result<FileLock, ToolError> {
+    fn acquire(ledger: &Path, wait: Duration) -> Result<FileLock, ToolError> {
         let path = ledger.with_extension("json.lock");
-        let deadline = Instant::now() + LOCK_WAIT;
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir).map_err(|e| ToolError::io(dir.display(), e))?;
+        }
+        let file = std::fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).open(&path).map_err(|e| ToolError::io(path.display(), e))?;
+        let deadline = Instant::now() + wait;
         loop {
-            match std::fs::OpenOptions::new().write(true).create_new(true).open(&path) {
-                Ok(_) => return Ok(FileLock { path }),
-                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                    if stale(&path) {
-                        let _ = std::fs::remove_file(&path);
-                        continue;
-                    }
-                    if Instant::now() >= deadline {
-                        return Err(ToolError::new(
-                            ErrorCode::FileError,
-                            "Another Craft Anything process is writing the AI spending ledger, so this build stopped instead of spending without recording it.",
-                        )
-                        .with_remediation("Wait a moment, then continue the build."));
-                    }
-                    std::thread::sleep(LOCK_POLL);
+            match file.try_lock() {
+                Ok(()) => return Ok(FileLock { _file: file }),
+                Err(std::fs::TryLockError::WouldBlock) if Instant::now() < deadline => std::thread::sleep(LOCK_POLL),
+                Err(std::fs::TryLockError::WouldBlock) => {
+                    return Err(ToolError::new(
+                        ErrorCode::FileError,
+                        "Another Craft Anything process is writing the AI spending ledger, so this build stopped instead of spending without recording it.",
+                    )
+                    .with_remediation("Wait a moment, then continue the build."));
                 }
-                Err(e) => return Err(ToolError::io(path.display(), e)),
+                Err(std::fs::TryLockError::Error(e)) => return Err(ToolError::io(path.display(), e)),
             }
         }
     }
-}
-
-impl Drop for FileLock {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.path);
-    }
-}
-
-/// Whether a lock file was left behind by a process that died holding it.
-fn stale(path: &Path) -> bool {
-    std::fs::metadata(path).and_then(|m| m.modified()).ok().and_then(|at| SystemTime::now().duration_since(at).ok()).is_some_and(|age| age > LOCK_STALE)
 }
 
 /// The ceilings from `[ai]`, in US dollars. `None` is no ceiling; `0` allows no spending.
@@ -144,8 +132,13 @@ impl SpendBudget {
         Some(SpendBudget { limits, ledger, day, run_usd: 0.0, today_usd })
     }
 
-    /// Add one turn's reported cost to this run and to the day's ledger.
+    /// Add one turn's reported cost to this run and to today's total in the ledger.
     pub fn add(&mut self, usd: f64) -> Result<(), ToolError> {
+        self.add_on(usd, today(), LOCK_WAIT)
+    }
+
+    /// [`add`](Self::add) on a given UTC day, waiting at most `wait` for another process.
+    fn add_on(&mut self, usd: f64, day: String, wait: Duration) -> Result<(), ToolError> {
         if !usd.is_finite() || usd <= 0.0 {
             return Ok(());
         }
@@ -153,7 +146,8 @@ impl SpendBudget {
         guard.label("ai spend ledger");
         // Another process (the app and the CLI can both build) holds the file lock while it
         // writes; wait a bounded time rather than lose its figure.
-        let _file = FileLock::acquire(&self.ledger)?;
+        let _file = FileLock::acquire(&self.ledger, wait)?;
+        self.roll_to(day);
         let mut ledger = read_ledger(&self.ledger);
         let saved = ledger.days.get(&self.day).copied().unwrap_or(0.0);
         self.run_usd += usd;
@@ -180,14 +174,24 @@ impl SpendBudget {
 
     /// The day's ceiling, if it has been reached (this run's own spending included).
     pub fn daily_exceeded(&mut self) -> Option<ToolError> {
+        self.daily_exceeded_on(today())
+    }
+
+    fn daily_exceeded_on(&mut self, day: String) -> Option<ToolError> {
         let limit = self.limits.daily_usd?;
-        self.refresh_today();
+        self.roll_to(day);
+        let saved = read_ledger(&self.ledger).days.get(&self.day).copied().unwrap_or(0.0);
+        self.today_usd = self.today_usd.max(saved);
         (self.today_usd >= limit).then(|| daily_limit_error(limit, self.today_usd))
     }
 
-    fn refresh_today(&mut self) {
-        let saved = read_ledger(&self.ledger).days.get(&self.day).copied().unwrap_or(0.0);
-        self.today_usd = self.today_usd.max(saved);
+    /// A run that crosses midnight UTC counts what it spends after it against the new day, which
+    /// starts from what the ledger already holds for that day, not from yesterday's total.
+    fn roll_to(&mut self, day: String) {
+        if day != self.day {
+            self.day = day;
+            self.today_usd = 0.0;
+        }
     }
 }
 
@@ -386,32 +390,66 @@ mod tests {
         let dir = tempfile::tempdir().expect("temp");
         let path = temp_ledger(dir.path());
         let lock = path.with_extension("json.lock");
-        let holder = std::thread::spawn({
-            let lock = lock.clone();
-            move || {
-                std::fs::File::create(&lock).expect("lock");
-                std::thread::sleep(Duration::from_millis(80));
-                std::fs::remove_file(&lock).expect("release");
-            }
+        // A separately opened file stands in for the other process: the OS lock belongs to the open
+        // file (flock on Unix, LockFileEx on Windows), not to the process's other handles.
+        let holder = std::fs::OpenOptions::new().write(true).create(true).truncate(false).open(&lock).expect("lock file");
+        holder.lock().expect("the other process holds the lock");
+        let release = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(80));
+            drop(holder);
         });
-        std::thread::sleep(Duration::from_millis(20));
         let mut budget = SpendBudget::open(SpendLimits { run_usd: None, daily_usd: Some(10.0) }, path.clone()).expect("budget");
         budget.add(0.5).expect("waits for the other process");
-        holder.join().expect("holder");
+        release.join().expect("holder");
         assert_eq!(read_ledger(&path).days.values().copied().next(), Some(0.5));
-        assert!(!lock.exists(), "the lock is released");
     }
 
-    /// A lock file left by a process that died is cleared instead of blocking for ever.
+    /// A lock held past the wait stops the build with a plain error instead of locking it up, and
+    /// leaves the ledger as it was.
     #[test]
-    fn a_stale_lock_is_cleared() {
+    fn a_lock_held_too_long_stops_rather_than_waits_for_ever() {
         let dir = tempfile::tempdir().expect("temp");
         let path = temp_ledger(dir.path());
-        let lock = path.with_extension("json.lock");
-        let file = std::fs::File::create(&lock).expect("lock");
-        file.set_modified(SystemTime::now() - Duration::from_secs(60)).expect("age the lock");
+        let holder = std::fs::OpenOptions::new().write(true).create(true).truncate(false).open(path.with_extension("json.lock")).expect("lock file");
+        holder.lock().expect("the other process holds the lock");
         let mut budget = SpendBudget::open(SpendLimits { run_usd: None, daily_usd: Some(10.0) }, path.clone()).expect("budget");
-        budget.add(0.25).expect("clears the stale lock");
-        assert!(!lock.exists(), "the lock is released");
+        let error = budget.add_on(0.5, today(), Duration::from_millis(50)).expect_err("the lock is never released");
+        assert_eq!(error.code, ErrorCode::FileError);
+        assert!(error.message.contains("Another Craft Anything process"), "{}", error.message);
+        assert!(read_ledger(&path).days.is_empty(), "nothing was written while another process held the lock");
+    }
+
+    /// A lock file left by a process that died holds no lock (the system released it with the
+    /// process), so it never blocks the next build, and nothing has to guess whether it is stale.
+    #[test]
+    fn a_lock_file_left_behind_does_not_block() {
+        let dir = tempfile::tempdir().expect("temp");
+        let path = temp_ledger(dir.path());
+        std::fs::write(path.with_extension("json.lock"), b"").expect("leftover lock file");
+        let mut budget = SpendBudget::open(SpendLimits { run_usd: None, daily_usd: Some(10.0) }, path.clone()).expect("budget");
+        budget.add_on(0.25, today(), Duration::from_millis(50)).expect("an unheld lock file is taken at once");
+        assert_eq!(read_ledger(&path).days.values().copied().next(), Some(0.25));
+    }
+
+    /// A run that crosses midnight UTC adds what it spends after it to the new day, which starts
+    /// from what that day already holds, and its own run total keeps counting across both.
+    #[test]
+    fn a_run_that_crosses_midnight_counts_against_the_new_day() {
+        let dir = tempfile::tempdir().expect("temp");
+        let path = temp_ledger(dir.path());
+        let limits = SpendLimits { run_usd: Some(1.0), daily_usd: Some(0.5) };
+        let mut budget = SpendBudget::open(limits, path.clone()).expect("budget");
+        let wait = Duration::from_millis(50);
+        budget.add_on(0.45, "2026-11-18".into(), wait).expect("add");
+        assert!(budget.daily_exceeded_on("2026-11-18".into()).is_none(), "under the day's ceiling");
+        // Another build already spent a little of the new day.
+        let mut other = SpendBudget::open(limits, path.clone()).expect("other");
+        other.add_on(0.1, "2026-11-19".into(), wait).expect("add");
+        budget.add_on(0.3, "2026-11-19".into(), wait).expect("add");
+        let ledger = read_ledger(&path);
+        assert_eq!(ledger.days.get("2026-11-18").copied(), Some(0.45), "yesterday keeps what was spent before midnight");
+        assert!(ledger.days.get("2026-11-19").is_some_and(|v| (v - 0.4).abs() < 1e-9), "{ledger:?}");
+        assert!(budget.daily_exceeded_on("2026-11-19".into()).is_none(), "0.40 of 0.50 today: yesterday's 0.45 doesn't count");
+        assert!((budget.run_usd - 0.75).abs() < 1e-9, "the run's own total spans both days");
     }
 }

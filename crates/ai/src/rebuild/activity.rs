@@ -460,6 +460,7 @@ mod tests {
         a.record(&RunEvent::Agent(AgentEvent::TurnDone {
             backend: "x".into(),
             input_tokens: 1,
+            cached_input_tokens: 0,
             output_tokens: 2,
             cost_usd: Some(9.0),
             cost_is_estimate: true,

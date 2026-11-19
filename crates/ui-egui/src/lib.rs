@@ -1320,7 +1320,7 @@ impl CraftApp {
             chat::apply_event(&mut self.state.chat, e.clone());
             match e {
                 AgentEvent::ToolFinished { .. } => self.view_dirty = true,
-                AgentEvent::TurnDone { backend, input_tokens, output_tokens, cost_usd, cost_is_estimate } => {
+                AgentEvent::TurnDone { backend, input_tokens, output_tokens, cost_usd, cost_is_estimate, .. } => {
                     self.view_dirty = true;
                     self.session_usage.add_turn(input_tokens, output_tokens, cost_usd, cost_is_estimate);
                     let cost = cost_usd.map(|c| format!(", ${c:.4}")).unwrap_or_default();

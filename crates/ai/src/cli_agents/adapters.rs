@@ -656,11 +656,9 @@ impl AgentAdapter for ClaudeCode {
                 p.saw_result = true;
                 p.cost_usd = v.get("total_cost_usd").and_then(Value::as_f64);
                 if let Some(u) = v.get("usage") {
-                    p.input_tokens = u
-                        .get("input_tokens")
-                        .and_then(Value::as_u64)
-                        .unwrap_or(0)
-                        .saturating_add(u.get("cache_read_input_tokens").and_then(Value::as_u64).unwrap_or(0));
+                    let cached = u.get("cache_read_input_tokens").and_then(Value::as_u64).unwrap_or(0);
+                    p.cached_input_tokens = cached;
+                    p.input_tokens = u.get("input_tokens").and_then(Value::as_u64).unwrap_or(0).saturating_add(cached);
                     p.output_tokens = u.get("output_tokens").and_then(Value::as_u64).unwrap_or(0);
                 }
                 if v.get("is_error").and_then(Value::as_bool).unwrap_or(false) && no_such_session(v) {
@@ -1005,7 +1003,10 @@ impl AgentAdapter for Codex {
             ("turn.completed", _) => {
                 p.saw_result = true;
                 if let Some(u) = v.get("usage") {
+                    // Codex's `input_tokens` already include `cached_input_tokens` (OpenAI's usage
+                    // shape), so the cached part is kept beside the total, not added to it.
                     p.input_tokens = p.input_tokens.saturating_add(u.get("input_tokens").and_then(Value::as_u64).unwrap_or(0));
+                    p.cached_input_tokens = p.cached_input_tokens.saturating_add(u.get("cached_input_tokens").and_then(Value::as_u64).unwrap_or(0));
                     p.output_tokens = p.output_tokens.saturating_add(u.get("output_tokens").and_then(Value::as_u64).unwrap_or(0));
                 }
             }
