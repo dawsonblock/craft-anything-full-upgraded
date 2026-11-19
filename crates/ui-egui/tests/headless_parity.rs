@@ -48,6 +48,7 @@ const ACTIONS: &[Action] = &[
     a("New project › Work on my project", "edit a project the person already has, in place", Cli("rebuild <target> <request> --project-folder --existing")),
     a("set_backend_enabled", "turn an AI on or off",                           Cli("ai on <name> / ai off <name>")),
     a("remove_backend",      "remove an AI and its key",                       Cli("ai remove <name>")),
+    a("set_require_confined_build", "refuse builds whose agent declares no boundary", Pending { tool: None, why: "`require_confined_build` under [ai] in config.toml; settings_set reaches it only once the [ai] section has been saved, so a CLI `ai` subcommand is still owed (ROADMAP R3.0)" }),
     a("set_agent_program",   "run an agent app from a program it isn't found as", Cli("ai program <name> <path>")),
     a("set_agent_folder",    "keep Claude Code's sign-in in another folder (another account)", Cli("ai folder <name> <path>")),
     a("refresh_projects",    "list the projects",                              Tool(&["project_list"])),

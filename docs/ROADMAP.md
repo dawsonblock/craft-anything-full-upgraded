@@ -1133,6 +1133,9 @@ Owner: open · Status: in progress
       goes through `config_to_change`, the app saves on a worker, and the switch draws a value a
       worker last read
       — claimed: Claude, branch claude/magical-faraday-dqfztt
+- [ ] Give the "Refuse unconfined builds" switch a headless counterpart: `settings_set` reaches
+      `ai.require_confined_build` only once the [ai] section has been saved with it, so add a CLI
+      `ai` subcommand (its row in `headless_parity.rs` is `Pending` until then)
 - [ ] Count the confinement declaration from what holds, not from a list of flags that break it:
       Claude Code's extra arguments go before ours, and only `--dangerously-skip-permissions` is
       counted (not `--permission-mode bypassPermissions` or `--allowedTools Bash`); the person's own
