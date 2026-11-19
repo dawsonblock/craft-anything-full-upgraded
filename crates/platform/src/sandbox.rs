@@ -249,10 +249,6 @@ impl ProjectWatch {
             _ => None,
         }
     }
-
-    fn tripped(&self) -> bool {
-        self.stopped().is_some()
-    }
 }
 
 impl Drop for ProjectWatch {
@@ -883,7 +879,7 @@ mod tests {
     /// Waits up to five seconds for the watcher to stop the build.
     fn wait_for_stop(watch: &ProjectWatch) -> Option<Measured> {
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
-        while !watch.tripped() && std::time::Instant::now() < deadline {
+        while watch.stopped().is_none() && std::time::Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(50));
         }
         watch.stopped()
@@ -896,7 +892,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let watch = ProjectWatch::start(dir.path().to_path_buf(), 4096, WATCH_ENTRIES);
         std::thread::sleep(WATCH_EVERY);
-        assert!(!watch.tripped(), "an empty folder is under the ceiling");
+        assert!(watch.stopped().is_none(), "an empty folder is under the ceiling");
         std::fs::write(dir.path().join("big.bin"), vec![0u8; 8192]).unwrap();
         assert!(matches!(wait_for_stop(&watch), Some(Measured::Over(_))), "the watcher sees the growth");
     }
@@ -908,7 +904,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let watch = ProjectWatch::start(dir.path().to_path_buf(), 1024 * 1024, 4);
         std::thread::sleep(WATCH_EVERY);
-        assert!(!watch.tripped(), "an empty folder is measured and under the ceiling");
+        assert!(watch.stopped().is_none(), "an empty folder is measured and under the ceiling");
         for i in 0..10 {
             std::fs::write(dir.path().join(format!("small{i}")), b"x").unwrap();
         }
