@@ -159,7 +159,9 @@ pub enum Done {
     Detected(Vec<Detected>, Vec<craft_anything_ai::detect::DetectHint>),
     /// The configured backends, the ones chosen to build with and to extract with, and each one's
     /// options.
-    Backends(Vec<BackendConfig>, Option<String>, Option<String>, std::collections::BTreeMap<String, craft_anything_ai::BackendOptions>),
+    /// The AIs, the Builder and Extractor choices, each AI's options, and whether unconfined builds
+    /// are refused (`[ai] require_confined_build`).
+    Backends(Vec<BackendConfig>, Option<String>, Option<String>, std::collections::BTreeMap<String, craft_anything_ai::BackendOptions>, bool),
     /// The models an AI can be set to (Settings → AI's model picker).
     ModelChoices {
         name: String,
@@ -435,6 +437,9 @@ pub struct CraftApp {
     pub backends: Vec<BackendConfig>,
     /// Each backend's options (an agent app's program and model), by name (Settings → AI).
     pub backend_options: std::collections::BTreeMap<String, craft_anything_ai::BackendOptions>,
+    /// `[ai] require_confined_build` as last read on a worker, for Settings → AI's switch: drawing
+    /// reads this, never config.toml.
+    pub require_confined_build: bool,
     /// The AI whose model is being chosen in Settings → AI, and the models it offers once they've
     /// come (`None`: still asking).
     pub model_picker: Option<(String, Option<Vec<String>>)>,
@@ -561,6 +566,7 @@ impl CraftApp {
             conversation: None,
             backends: Vec::new(),
             backend_options: Default::default(),
+            require_confined_build: craft_anything_ai::AiConfig::default().require_confined_build,
             model_picker: None,
             agent_model_picker: None,
             model_request: 0,
@@ -1480,7 +1486,7 @@ impl CraftApp {
                 self.log(false, format!("Found {} AI option(s) on this computer", d.len()));
                 self.detected = Some(d);
             }
-            Done::Backends(b, builder, extractor, options) => {
+            Done::Backends(b, builder, extractor, options, require_confined_build) => {
                 if self.state.backend.as_ref().is_some_and(|n| !b.iter().any(|c| &c.name == n)) {
                     self.state.backend = None;
                 }
@@ -1488,6 +1494,7 @@ impl CraftApp {
                 self.builder = builder;
                 self.extractor = extractor;
                 self.backend_options = options;
+                self.require_confined_build = require_confined_build;
                 self.model_tuning.retain(|name, state| {
                     self.backends.iter().any(|backend| backend.name == *name && craft_anything_ai::model_options::supported(backend))
                         && self.backend_options.get(name).and_then(|options| options.cli_model.as_ref()) == state.cli_model.as_ref()
@@ -1954,7 +1961,13 @@ pub fn app_icon(size: f32) -> egui::Image<'static> {
 /// Run an action; a panic is logged and swallowed so one bad action never takes the app down.
 /// The configured backends and the ones chosen to build and to extract (read off the UI thread).
 pub(crate) fn backends(hub: &AiHub) -> Done {
-    Done::Backends(hub.backends(), hub.chosen(craft_anything_ai::Role::Builder), hub.chosen(craft_anything_ai::Role::Extractor), hub.options())
+    Done::Backends(
+        hub.backends(),
+        hub.chosen(craft_anything_ai::Role::Builder),
+        hub.chosen(craft_anything_ai::Role::Extractor),
+        hub.options(),
+        hub.config().require_confined_build,
+    )
 }
 
 impl CraftApp {

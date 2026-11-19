@@ -575,6 +575,15 @@ impl AiHub {
         Ok(true)
     }
 
+    /// Whether a build whose agent declares no boundary is refused (`[ai] require_confined_build`).
+    /// Read through [`config_to_change`](Self::config_to_change), so an `[ai]` section that can't be
+    /// read is an error and is never replaced by the empty default (#261).
+    pub fn set_require_confined_build(&self, on: bool) -> Result<(), ToolError> {
+        let mut cfg = self.config_to_change()?;
+        cfg.require_confined_build = on;
+        self.save_config(&cfg)
+    }
+
     /// The program an agent app runs (`None` or empty: found by its usual name, on PATH and in the
     /// usual install folders). Returns false when there was no such backend.
     pub fn set_command(&self, name: &str, command: Option<&str>) -> Result<bool, ToolError> {

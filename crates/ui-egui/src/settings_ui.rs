@@ -861,21 +861,21 @@ pub(crate) fn server_form(app: &mut CraftApp, ui: &mut Ui) {
     }
     ui.add_space(16.0);
     widgets::caption(ui, "Build confinement");
-    let mut confined = app.hub.config().require_confined_build;
+    // Drawn from what a worker last read; the change is saved on a worker too, through the
+    // settings path that refuses to save over an [ai] section it can't read (#261).
+    let mut confined = app.require_confined_build;
+    let mut changed = false;
     row(
         ui,
         "Refuse unconfined builds",
         "A build whose agent declares neither its own sandbox nor our approval tool is refused before it starts. Off, it runs with your own access and the result says so.",
         |ui| {
-            if widgets::toggle(ui, &mut confined, "Refuse").changed() {
-                let mut cfg = app.hub.config();
-                cfg.require_confined_build = confined;
-                if let Err(e) = app.hub.save_config(&cfg) {
-                    app.toast(e.message, true);
-                }
-            }
+            changed = widgets::toggle(ui, &mut confined, "Refuse").changed();
         },
     );
+    if changed {
+        app.set_require_confined_build(confined);
+    }
 }
 
 /// A number field; true when it changed.

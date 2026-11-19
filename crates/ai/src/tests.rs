@@ -433,8 +433,29 @@ input_per_mtok = 1.0
     assert!(h.remove_backend("Claude Code").is_err());
     let options = crate::model_options::SetModelOptions { backend: "Claude Code".into(), expected_cli_model: None, context: None };
     assert_eq!(h.set_model_options(&options).unwrap_err().code, ErrorCode::BadSettings);
+    assert_eq!(h.set_require_confined_build(false).unwrap_err().code, ErrorCode::BadSettings);
     assert_eq!(std::fs::read(&file).unwrap(), before, "the settings file was changed");
     assert!(h.keys.get("Other").is_none(), "a refused add stored its key");
+}
+
+/// Settings → AI's "Refuse unconfined builds" switch saves only that field. A spending ceiling that
+/// can't be read (here a negative one) makes the whole [ai] section unreadable, and the switch must
+/// then refuse rather than save the empty default over the backends (#261).
+#[test]
+fn the_confinement_switch_never_saves_over_unreadable_ai_settings() {
+    let (h, d) = hub();
+    add(&h, "Claude Code", BackendKind::AgentCli, "http://127.0.0.1:9", None);
+    h.set_require_confined_build(false).unwrap();
+    assert!(!h.config().require_confined_build, "the switch is saved");
+    assert_eq!(h.backends().len(), 1, "and nothing else changed");
+    let file = d.path().join("config.toml");
+    let mut bad = h.engine.session().settings.clone();
+    bad.ai.insert("max_daily_cost_usd".into(), toml::Value::Float(-2.0));
+    bad.save_to(&file).unwrap();
+    h.engine.session().settings = bad;
+    let before = std::fs::read(&file).unwrap();
+    assert_eq!(h.set_require_confined_build(true).unwrap_err().code, ErrorCode::BadSettings);
+    assert_eq!(std::fs::read(&file).unwrap(), before, "the settings file was changed");
 }
 
 #[test]

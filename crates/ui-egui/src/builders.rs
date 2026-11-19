@@ -181,6 +181,16 @@ impl CraftApp {
         });
     }
 
+    /// Settings → AI's "Refuse unconfined builds" switch. Saved on a worker (the session may be
+    /// held by a running tool), and shown as changed only once the save worked.
+    pub fn set_require_confined_build(&mut self, on: bool) {
+        let hub = self.hub.clone();
+        self.jobs.spawn(tr("Save settings"), false, move |_| {
+            hub.set_require_confined_build(on).map_err(|e| e.message)?;
+            Ok(crate::backends(&hub))
+        });
+    }
+
     /// Ask an AI which models it can use, for Settings → AI's model picker.
     pub fn pick_model(&mut self, name: &str) {
         let (hub, name) = (self.hub.clone(), name.to_string());
