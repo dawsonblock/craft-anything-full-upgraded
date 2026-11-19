@@ -1691,6 +1691,20 @@ pub fn refuse_unconfined(cfg: &crate::AiConfig, entry: &crate::BackendEntry) -> 
     if !confinement.build_is_unconfined() {
         return Ok(());
     }
+    // An agent that has a boundary but an extra argument that may turn it off: name the argument,
+    // since removing it is the fix.
+    if let Some(arg) = crate::cli_agents::boundary_breaker_for(entry) {
+        return Err(ToolError::new(
+            ErrorCode::BadSettings,
+            format!(
+                "{} can't be held in during a build: its extra argument `{arg}` isn't one known to keep its approvals or sandbox in place, and `[ai] require_confined_build` is on.",
+                entry.config.name
+            ),
+        )
+        .with_remediation(format!(
+            "Remove `{arg}` from this AI's `args` in config.toml, or set `require_confined_build = false` under `[ai]` to accept a build with your own access."
+        )));
+    }
     Err(ToolError::new(
         ErrorCode::BadSettings,
         format!("{} can't be held in during a build: it runs with your own access, and `[ai] require_confined_build` is on.", entry.config.name),

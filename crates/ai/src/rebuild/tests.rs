@@ -1852,6 +1852,12 @@ mod picking_up_a_build {
         let mut weakened = entry("codex");
         weakened.options.args = vec!["--sandbox".into(), "danger-full-access".into()];
         assert!(refuse_unconfined(&cfg, &weakened).is_err(), "a configured sandbox override is not the boundary the adapter names");
+        // The refusal names the argument, since removing it is the fix.
+        let mut bypassed = entry("claude-code");
+        bypassed.options.args = vec!["--permission-mode".into(), "bypassPermissions".into()];
+        let error = refuse_unconfined(&cfg, &bypassed).unwrap_err();
+        assert!(error.message.contains("`--permission-mode`"), "{}", error.message);
+        assert!(error.remediation.as_deref().is_some_and(|r| r.contains("Remove `--permission-mode`")), "{:?}", error.remediation);
         let mut allowed = cfg.clone();
         allowed.require_confined_build = false;
         assert!(refuse_unconfined(&allowed, &entry("gemini-cli")).is_ok(), "the person allowed a build with their own access");

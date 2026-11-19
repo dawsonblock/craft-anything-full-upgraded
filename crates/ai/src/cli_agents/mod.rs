@@ -31,6 +31,15 @@ pub fn confinement_for(entry: &crate::BackendEntry) -> Confinement {
     }
 }
 
+/// The backend's own extra argument that keeps an agent CLI from the boundary its adapter names,
+/// if one does, so a refusal can say which (an API backend has none).
+pub fn boundary_breaker_for(entry: &crate::BackendEntry) -> Option<String> {
+    match entry.config.kind {
+        crate::BackendKind::AgentCli => adapter_for(&entry.config.model).boundary_breaker(&entry.options),
+        _ => None,
+    }
+}
+
 use crate::config::BackendOptions;
 use crate::model::Stop;
 use crate::{AgentEvent, BackendConfig, Conversation, FailureKind, TurnFailure};

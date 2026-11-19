@@ -42,6 +42,84 @@ pub struct ArgsCx<'a> {
     pub question: bool,
 }
 
+/// What a safe argument may carry.
+#[derive(Debug, Clone, Copy)]
+pub enum SafeValue {
+    /// A flag on its own; `--flag=value` is not it.
+    None,
+    /// Any value, as the next argument or after `=`.
+    Any,
+    /// Only one of these values.
+    OneOf(&'static [&'static str]),
+    /// A `key=value` setting whose key is one of these.
+    Keys(&'static [&'static str]),
+}
+
+/// Extra arguments that leave Claude Code's approval tool in charge of a build. Anything else
+/// (`--permission-mode`, `--allowedTools`, `--permission-prompt-tool`, `--settings`,
+/// `--dangerously-skip-permissions`…) may not, so it counts as breaking the boundary.
+pub const CLAUDE_CODE_SAFE_ARGS: &[(&str, SafeValue)] = &[
+    ("--verbose", SafeValue::None),
+    ("--model", SafeValue::Any),
+    ("--fallback-model", SafeValue::Any),
+    ("--max-turns", SafeValue::Any),
+    ("--append-system-prompt", SafeValue::Any),
+    // Only takes tools away.
+    ("--disallowedTools", SafeValue::Any),
+    ("--disallowed-tools", SafeValue::Any),
+];
+
+/// Extra arguments that keep Codex in its workspace sandbox. `-c` may set only settings that
+/// don't touch the sandbox or approvals.
+pub const CODEX_SAFE_ARGS: &[(&str, SafeValue)] = &[
+    ("--skip-git-repo-check", SafeValue::None),
+    ("--json", SafeValue::None),
+    ("-m", SafeValue::Any),
+    ("--model", SafeValue::Any),
+    ("--color", SafeValue::Any),
+    ("-s", SafeValue::OneOf(&["workspace-write", "read-only"])),
+    ("--sandbox", SafeValue::OneOf(&["workspace-write", "read-only"])),
+    ("-c", SafeValue::Keys(&["model_reasoning_effort", "model_reasoning_summary", "model_verbosity"])),
+    ("--config", SafeValue::Keys(&["model_reasoning_effort", "model_reasoning_summary", "model_verbosity"])),
+];
+
+/// The first argument in `args` that isn't in `safe` (or carries a value `safe` doesn't allow),
+/// as written, for the message that names it. A value-taking flag reads its value from `=` or the
+/// next argument; a bare word where a flag is expected is unsafe too.
+pub fn first_unsafe_arg(args: &[String], safe: &[(&str, SafeValue)]) -> Option<String> {
+    let mut rest = args.iter();
+    while let Some(arg) = rest.next() {
+        let (name, inline) = match arg.split_once('=') {
+            Some((name, value)) if name.starts_with('-') => (name, Some(value)),
+            _ => (arg.as_str(), None),
+        };
+        let Some((_, kind)) = safe.iter().find(|(flag, _)| *flag == name) else { return Some(arg.clone()) };
+        let value = match kind {
+            SafeValue::None if inline.is_some() => return Some(arg.clone()),
+            SafeValue::None => continue,
+            _ => match inline {
+                Some(value) => value,
+                // A value that looks like a flag may be read as one by the agent's own parser, so
+                // `--model --dangerously-skip-permissions` doesn't pass as a model name.
+                None => match rest.next() {
+                    Some(value) if value.starts_with('-') => return Some(value.clone()),
+                    Some(value) => value.as_str(),
+                    None => return Some(arg.clone()),
+                },
+            },
+        };
+        let allowed = match kind {
+            SafeValue::OneOf(values) => values.contains(&value),
+            SafeValue::Keys(keys) => value.split_once('=').is_some_and(|(key, _)| keys.contains(&key.trim())),
+            SafeValue::Any | SafeValue::None => true,
+        };
+        if !allowed {
+            return Some(format!("{name} {value}"));
+        }
+    }
+    None
+}
+
 /// One way of driving an agent CLI.
 pub trait AgentAdapter: Send + Sync {
     /// The agent id this adapter is registered under (`claude-code`), plus any other names.
@@ -53,12 +131,19 @@ pub trait AgentAdapter: Send + Sync {
     fn confinement(&self) -> Confinement {
         Confinement::NOTHING
     }
-    /// What it can be held to once the backend's own extra arguments are added. A flag that turns
-    /// the agent's sandbox or approvals off makes [`confinement`](Self::confinement) false, so an
-    /// adapter that lets arguments change its boundary reports nothing instead of claiming one.
-    fn confinement_with(&self, options: &BackendOptions) -> Confinement {
+    /// The first of the backend's own extra arguments that isn't known to keep the boundary
+    /// [`confinement`](Self::confinement) names, if any. An adapter that claims a boundary lists the
+    /// arguments it has checked ([`first_unsafe_arg`]); anything else, a flag added in a later
+    /// version of the agent included, counts as one that may turn it off. The default is none: an
+    /// adapter that claims nothing has nothing to lose.
+    fn boundary_breaker(&self, options: &BackendOptions) -> Option<String> {
         let _ = options;
-        self.confinement()
+        None
+    }
+    /// What it can be held to once the backend's own extra arguments are added: nothing at all
+    /// when one of them isn't known to keep the boundary ([`boundary_breaker`](Self::boundary_breaker)).
+    fn confinement_with(&self, options: &BackendOptions) -> Confinement {
+        if self.boundary_breaker(options).is_some() { Confinement::NOTHING } else { self.confinement() }
     }
     /// Whether this agent supplies its own live model and thinking choices.
     fn has_model_catalog(&self) -> bool {
@@ -432,13 +517,13 @@ impl AgentAdapter for ClaudeCode {
         Confinement::OUR_APPROVALS_BUILD
     }
 
-    /// `--dangerously-skip-permissions` turns the approval tool off, so a build with it is not
-    /// held by us at all.
-    fn confinement_with(&self, options: &BackendOptions) -> Confinement {
-        if options.args.iter().any(|a| a == "--dangerously-skip-permissions") {
-            return Confinement::NOTHING;
-        }
-        self.confinement()
+    /// Only arguments that leave our approval tool in charge. Several others don't: any
+    /// `--permission-mode` (`bypassPermissions`, `acceptEdits`), `--allowedTools` (pre-approves
+    /// what it names), `--permission-prompt-tool` (replaces ours), `--settings` (can carry allow
+    /// rules) and both skip-permissions flags, so they and every unlisted argument count as
+    /// breaking it.
+    fn boundary_breaker(&self, options: &BackendOptions) -> Option<String> {
+        first_unsafe_arg(&options.args, CLAUDE_CODE_SAFE_ARGS)
     }
 
     fn answers_questions(&self) -> bool {
@@ -815,24 +900,12 @@ impl AgentAdapter for Codex {
         Confinement::OWN_SANDBOX_BUILD
     }
 
-    /// The backend's own arguments are added after ours, so an explicit `--sandbox` replaces the
-    /// boundary the declaration names, and the bypass flag removes it. Either makes the build
-    /// unconfined rather than silently claiming the workspace sandbox.
-    fn confinement_with(&self, options: &BackendOptions) -> Confinement {
-        let mut args = options.args.iter();
-        while let Some(arg) = args.next() {
-            if arg == "--dangerously-bypass-approvals-and-sandbox" {
-                return Confinement::NOTHING;
-            }
-            let sandbox = if arg == "--sandbox" { args.next().map(String::as_str) } else { arg.strip_prefix("--sandbox=") };
-            if let Some(mode) = sandbox
-                && mode != "workspace-write"
-                && mode != "read-only"
-            {
-                return Confinement::NOTHING;
-            }
-        }
-        self.confinement()
+    /// The backend's own arguments are added after ours, so a `--sandbox`/`-s` other than
+    /// `workspace-write` or `read-only` replaces the boundary, and the bypass flag (`--yolo`) or a
+    /// `-c` override of the sandbox settings removes it. Only the arguments listed in
+    /// [`CODEX_SAFE_ARGS`] are taken as keeping it.
+    fn boundary_breaker(&self, options: &BackendOptions) -> Option<String> {
+        first_unsafe_arg(&options.args, CODEX_SAFE_ARGS)
     }
 
     /// `codex exec -` reads the message from stdin, so a long one can't pass Windows'
@@ -1121,5 +1194,42 @@ mod confinement_tests {
         assert_eq!(build("claude-code", &[]), Bound::OurApprovals);
         assert_eq!(build("claude-code", &["--dangerously-skip-permissions"]), Bound::Nothing);
         assert_eq!(build("gemini", &["--sandbox", "workspace-write"]), Bound::Nothing, "an adapter that says nothing stays nothing");
+    }
+
+    /// Only arguments known to keep the boundary keep it. Each of these was let through when the
+    /// declaration counted a list of flags that break it.
+    #[test]
+    fn only_known_safe_arguments_keep_the_boundary() {
+        let breaker = |agent: &str, args: &[&str]| {
+            let options = BackendOptions { args: args.iter().map(|a| a.to_string()).collect(), ..Default::default() };
+            crate::cli_agents::adapter_for(agent).boundary_breaker(&options)
+        };
+        let some = |s: &str| Some(s.to_string());
+        // Claude Code: whatever pre-approves, replaces our approval tool or changes the mode.
+        assert_eq!(breaker("claude-code", &["--permission-mode", "bypassPermissions"]), some("--permission-mode"));
+        assert_eq!(breaker("claude-code", &["--permission-mode=acceptEdits"]), some("--permission-mode=acceptEdits"));
+        assert_eq!(breaker("claude-code", &["--allowedTools", "Bash"]), some("--allowedTools"));
+        assert_eq!(breaker("claude-code", &["--allow-dangerously-skip-permissions"]), some("--allow-dangerously-skip-permissions"));
+        assert_eq!(breaker("claude-code", &["--permission-prompt-tool", "mcp__other__ok"]), some("--permission-prompt-tool"));
+        assert_eq!(breaker("claude-code", &["--settings", "{}"]), some("--settings"));
+        // A value-taking flag can't swallow a flag as its value.
+        assert_eq!(breaker("claude-code", &["--model", "--dangerously-skip-permissions"]), some("--dangerously-skip-permissions"));
+        assert_eq!(breaker("claude-code", &["--model"]), some("--model"), "a flag missing its value");
+        assert_eq!(breaker("claude-code", &["--verbose=1"]), some("--verbose=1"), "a plain flag given a value");
+        assert_eq!(breaker("claude-code", &["stray"]), some("stray"), "a bare word");
+        // And what keeps it.
+        assert_eq!(breaker("claude-code", &["--verbose", "--model", "opus", "--max-turns=40", "--disallowedTools", "WebFetch"]), None);
+        // Codex: the short sandbox flag, the bypass alias and config overrides of the sandbox.
+        assert_eq!(breaker("codex", &["-s", "danger-full-access"]), some("-s danger-full-access"));
+        assert_eq!(breaker("codex", &["--sandbox=danger-full-access"]), some("--sandbox danger-full-access"));
+        assert_eq!(breaker("codex", &["--yolo"]), some("--yolo"));
+        assert_eq!(breaker("codex", &["--dangerously-bypass-approvals-and-sandbox"]), some("--dangerously-bypass-approvals-and-sandbox"));
+        assert_eq!(breaker("codex", &["-c", "sandbox_mode=\"danger-full-access\""]), some("-c sandbox_mode=\"danger-full-access\""));
+        assert_eq!(breaker("codex", &["-c", "approval_policy=never"]), some("-c approval_policy=never"));
+        assert_eq!(breaker("codex", &["--profile", "work"]), some("--profile"), "a profile can set the sandbox");
+        assert_eq!(breaker("codex", &["--skip-git-repo-check", "-s", "read-only", "-c", "model_reasoning_effort=high", "-m", "gpt-5"]), None);
+        // An adapter that claims nothing has nothing to break.
+        assert_eq!(breaker("gemini", &["--yolo"]), None);
+        assert_eq!(crate::cli_agents::adapter_for("gemini").confinement_with(&BackendOptions::default()).build, Bound::Nothing);
     }
 }

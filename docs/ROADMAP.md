@@ -1136,12 +1136,18 @@ Owner: open · Status: in progress
 - [ ] Give the "Refuse unconfined builds" switch a headless counterpart: `settings_set` reaches
       `ai.require_confined_build` only once the [ai] section has been saved with it, so add a CLI
       `ai` subcommand (its row in `headless_parity.rs` is `Pending` until then)
-- [ ] Count the confinement declaration from what holds, not from a list of flags that break it:
-      Claude Code's extra arguments go before ours, and only `--dangerously-skip-permissions` is
-      counted (not `--permission-mode bypassPermissions` or `--allowedTools Bash`); the person's own
-      `~/.claude/settings.json` allow rules may also decide before our approval tool is asked; Codex's
-      `-s danger-full-access` and `--yolo` are not counted. Allow known-safe arguments instead, and
-      check live which settings Claude Code consults before `--permission-prompt-tool`
+- [x] Count the confinement declaration from what holds, not from a list of flags that break it:
+      only `--dangerously-skip-permissions` (Claude Code) and a Codex `--sandbox` were counted, so
+      `--permission-mode bypassPermissions`, `--allowedTools Bash`, `--permission-prompt-tool`,
+      `--settings`, Codex's `-s danger-full-access`, `--yolo` and a `-c` sandbox override kept the
+      claimed boundary. Each adapter that claims one now lists the extra arguments it has checked
+      (`CLAUDE_CODE_SAFE_ARGS`, `CODEX_SAFE_ARGS`); any other argument, a flag that swallows a flag as
+      its value, or a `-c` key outside the list reports nothing, and the refusal names the argument
+      — claimed: Claude, branch claude/magical-faraday-dqfztt
+- [ ] Check live which settings Claude Code consults before `--permission-prompt-tool`: the
+      person's own `~/.claude/settings.json` allow rules (and `defaultMode`) may decide before our
+      approval tool is asked, which no argument check can see. If they do, pass `--setting-sources`
+      or say so in the declaration
 - [ ] The spend ledger: its module comment still says two processes can lose a turn's figure (the
       lock file fixed that); clearing a lock older than 30 s lets two processes both take it (an OS
       file lock wouldn't); a run that passes midnight UTC keeps adding to the day it started; and a
