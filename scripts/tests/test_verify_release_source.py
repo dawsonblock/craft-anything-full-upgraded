@@ -162,22 +162,35 @@ class VerifyReleaseSourceTests(unittest.TestCase):
             self.assertIn("--tag is required", receipt["error"])
 
     def test_download_failure_reports_the_cli_message(self):
-        with tempfile.TemporaryDirectory() as temp:
-            completed = subprocess.CompletedProcess(
-                [], 1, "", "no assets match the file pattern",
+        # `run_gh` starts gh with Popen. A local stand-in takes its place, so the real reader and
+        # error path run without reaching the network (tests never do).
+        real_popen = subprocess.Popen
+        started = []
+
+        def stand_in(command, **kwargs):
+            started.append(command)
+            return real_popen(
+                [sys.executable, "-c",
+                 "import sys; sys.stderr.write('no assets match the file pattern'); sys.exit(1)"],
+                **kwargs,
             )
-            with patch.object(verify_release_source.subprocess, "run",
-                              return_value=completed):
+
+        with tempfile.TemporaryDirectory() as temp:
+            with patch.object(verify_release_source.subprocess, "Popen",
+                              side_effect=stand_in):
                 with self.assertRaisesRegex(IntegrityError, "no assets match"):
                     verify_release_source.download_release(
                         "storytold/craft-anything", "v0.6.1", "*source*.zip",
                         Path(temp),
                     )
+        self.assertEqual(len(started), 1)
+        self.assertEqual(started[0][:3], ["gh", "release", "download"])
 
     def test_identity_validation_rejects_shell_syntax(self):
         with tempfile.TemporaryDirectory() as temp:
             destination = Path(temp)
-            with patch.object(verify_release_source.subprocess, "run") as run:
+            # `run_gh` starts gh with Popen: nothing may be started for a rejected identity.
+            with patch.object(verify_release_source.subprocess, "Popen") as run:
                 for repo, tag, asset in (
                     ("owner/repo; rm -rf /", "v1", "*source*.zip"),
                     ("owner/repo", "v1$(touch pwned)", "*source*.zip"),

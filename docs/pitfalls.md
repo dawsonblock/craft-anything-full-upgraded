@@ -213,6 +213,12 @@ and the child still held the new file open for writing. Starting a program goes 
 `process::spawn_retrying`, which tries a busy file again for a moment; don't add a sleep to a test
 instead.
 
+**A test that stubbed a function the code stopped calling.** `run_gh` moved from `subprocess.run`
+to `Popen`, and two tests still patched `subprocess.run`: one began running the real `gh release
+download` over the network, and the other ("nothing is started for a bad identity") passed without
+checking anything. When a change replaces a call, grep the tests that patch the old one, and patch
+at the layer that starts the program.
+
 **Proving a refactor changed nothing.** Unit tests that check substrings can miss changed prompts.
 For a refactor that must keep output identical, dump the outputs for every combination before and
 after and compare them byte for byte (done for every brief across 162 combinations in R1.1).

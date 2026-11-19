@@ -1065,6 +1065,14 @@ Owner: open · Status: in progress
       removing the container when it grows past the ceiling; links are not followed and a tree
       over 100,000 entries is reported unknown rather than stopped on a guess
       — claimed: Devin, branch feature/r3.0-project-disk-ceiling
+- [x] Hold the project-folder ceiling when the folder can't be measured: a tree with more entries
+      than one walk takes (now 1,000,000) used to switch the ceiling off silently, so a build could
+      make many small files and then write without limit, and a large `node_modules` left it
+      unenforced. Such a folder is now refused before Docker starts, or the build stopped, with an
+      error that says it couldn't be measured; a large tree is measured less often (at least four
+      times the last walk's duration apart). The ceiling is checked before the sandbox user's
+      write check, so the refusal doesn't depend on who runs the host (the test failed as root)
+      — claimed: Claude, branch claude/magical-faraday-dqfztt
 - [ ] Put `sandbox_project_mb` in Settings → Builds → Sandbox, with its string in all sixteen
       catalogues: it is `config.toml`-only today, like the digest and the writable-layer limit
 - [ ] Live-check the project-folder ceiling against a running Docker daemon: a build that writes
@@ -1118,6 +1126,24 @@ Owner: open · Status: in progress
       default, saved through `AiHub::save_config`, with the help text saying what Off means; the
       strings are in every catalogue (a native speaker should still check the security wording)
       — claimed: Devin, branch chore/security-and-release-gates
+- [x] Save the "Refuse unconfined builds" switch without risking the [ai] section: it read the
+      settings with `AiHub::config()`, which answers the empty default for an [ai] section it can't
+      read (a negative `max_daily_cost_usd` is one), and saved that back over every backend, role
+      and price (#261), on the UI thread under a blocking session lock. `AiHub::set_require_confined_build`
+      goes through `config_to_change`, the app saves on a worker, and the switch draws a value a
+      worker last read
+      — claimed: Claude, branch claude/magical-faraday-dqfztt
+- [ ] Count the confinement declaration from what holds, not from a list of flags that break it:
+      Claude Code's extra arguments go before ours, and only `--dangerously-skip-permissions` is
+      counted (not `--permission-mode bypassPermissions` or `--allowedTools Bash`); the person's own
+      `~/.claude/settings.json` allow rules may also decide before our approval tool is asked; Codex's
+      `-s danger-full-access` and `--yolo` are not counted. Allow known-safe arguments instead, and
+      check live which settings Claude Code consults before `--permission-prompt-tool`
+- [ ] The spend ledger: its module comment still says two processes can lose a turn's figure (the
+      lock file fixed that); clearing a lock older than 30 s lets two processes both take it (an OS
+      file lock wouldn't); a run that passes midnight UTC keeps adding to the day it started; and a
+      Codex turn is priced with its cached input tokens at the full input rate, so the ceiling stops
+      it early and the usage shown is too high
 - [ ] Enforce the chat and question declarations: they are recorded now but no run acts on them,
       and Codex's, Gemini CLI's, OpenCode's, Antigravity's, Hermes's and Maki's own sandboxes in a
       chat are still not established. The decision above covers builds only, so a chat still runs
