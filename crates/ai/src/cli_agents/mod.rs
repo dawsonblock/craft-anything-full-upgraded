@@ -2265,7 +2265,7 @@ mod tests {
             json!({"type":"item.started","item":{"id":"i1","type":"mcp_tool_call","server":"craft-anything","tool":"core_target_open","arguments":{"path":"/bin/ls"}}}),
             json!({"type":"item.completed","item":{"id":"i1","type":"mcp_tool_call","tool":"core_target_open","status":"completed","result":{"ok":true}}}),
             json!({"type":"item.completed","item":{"id":"i2","type":"agent_message","text":"It lists files."}}),
-            json!({"type":"turn.completed","usage":{"input_tokens":3,"output_tokens":4}}),
+            json!({"type":"turn.completed","usage":{"input_tokens":3,"cached_input_tokens":2,"output_tokens":4}}),
         ] {
             ev.extend(p.line(&l.to_string()));
         }
@@ -2273,6 +2273,9 @@ mod tests {
         assert!(matches!(&ev[1], AgentEvent::ToolFinished { ok: true, .. }));
         assert!(matches!(&ev[2], AgentEvent::TextDelta { text } if text.starts_with("It lists")));
         assert!(p.saw_result && p.output_tokens == 4);
+        // Codex counts cached prompt tokens inside `input_tokens`: the total stays the total, and the
+        // cached part is kept beside it for pricing.
+        assert_eq!((p.input_tokens, p.cached_input_tokens), (3, 2));
         let mut g = StreamParser::new(adapter_for("gemini-cli"));
         let ev: Vec<_> = [
             json!({"type":"message","role":"assistant","content":"Hi","delta":true}),

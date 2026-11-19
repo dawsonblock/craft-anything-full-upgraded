@@ -1296,8 +1296,9 @@ pub(crate) mod tests {
             assert!(seen[3].len() < seen[1].len() + 2);
         }
         assert!(
-            // Cached tokens count as input (R5.4: Ollama 0.40 reports them, and usage.json left them out).
-            matches!(events.last(), Some(AgentEvent::TurnDone { input_tokens: 70, cached_input_tokens: 0, output_tokens: 19, cost_usd: Some(cost), .. }) if (cost - 0.00010125).abs() < 1e-12),
+            // Cached tokens count as input (R5.4: Ollama 0.40 reports them, and usage.json left them out),
+            // and the cached part is kept beside the total so an estimate can price it at the cache rate.
+            matches!(events.last(), Some(AgentEvent::TurnDone { input_tokens: 70, cached_input_tokens: 7, output_tokens: 19, cost_usd: Some(cost), .. }) if (cost - 0.00010125).abs() < 1e-12),
             "{events:?}"
         );
         {
