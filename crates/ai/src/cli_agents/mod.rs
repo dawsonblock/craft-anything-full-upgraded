@@ -25,8 +25,14 @@ pub use confinement::{Bound, Confinement};
 /// extra arguments, so a flag that weakens it is counted), or our approvals for our own agent loop
 /// (an API backend's tools all go through the approval policy).
 pub fn confinement_for(entry: &crate::BackendEntry) -> Confinement {
+    confinement_in(&AgentAdapters::built_in(), entry)
+}
+
+/// [`confinement_for`] read from `adapters`, the registry a run builds with, so an adapter a fork
+/// registers under a built-in id is the one whose boundary is checked.
+pub fn confinement_in(adapters: &AgentAdapters, entry: &crate::BackendEntry) -> Confinement {
     match entry.config.kind {
-        crate::BackendKind::AgentCli => adapter_for(&entry.config.model).confinement_with(&entry.options),
+        crate::BackendKind::AgentCli => adapters.for_backend(&entry.config.model, &entry.options).confinement_with(&entry.options),
         _ => Confinement::OUR_APPROVALS,
     }
 }
@@ -34,8 +40,13 @@ pub fn confinement_for(entry: &crate::BackendEntry) -> Confinement {
 /// The backend's own extra argument that keeps an agent CLI from the boundary its adapter names,
 /// if one does, so a refusal can say which (an API backend has none).
 pub fn boundary_breaker_for(entry: &crate::BackendEntry) -> Option<String> {
+    boundary_breaker_in(&AgentAdapters::built_in(), entry)
+}
+
+/// [`boundary_breaker_for`] read from `adapters`.
+pub fn boundary_breaker_in(adapters: &AgentAdapters, entry: &crate::BackendEntry) -> Option<String> {
     match entry.config.kind {
-        crate::BackendKind::AgentCli => adapter_for(&entry.config.model).boundary_breaker(&entry.options),
+        crate::BackendKind::AgentCli => adapters.for_backend(&entry.config.model, &entry.options).boundary_breaker(&entry.options),
         _ => None,
     }
 }

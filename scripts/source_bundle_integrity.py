@@ -125,19 +125,26 @@ def tracked_files(root: Path) -> set[str] | None:
 
     A manifest made by walking the working tree records whatever scratch files happen to be there,
     and a clean checkout then fails to match it. In a work tree, list what Git tracks instead; a
-    tree without `.git` (an extracted ZIP) keeps the walk.
+    tree without `.git` (an extracted ZIP) keeps the walk. A work tree Git can't list is refused:
+    falling back to the walk there would put untracked files in the manifest without a word.
     """
     if not (root / ".git").exists():
         return None
     try:
         run = subprocess.run(
             ["git", "-C", str(root), "ls-files", "-z"],
-            capture_output=True, timeout=60, check=False,
+            stdin=subprocess.DEVNULL, capture_output=True, timeout=60, check=False,
         )
-    except (OSError, subprocess.SubprocessError):
-        return None
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise IntegrityError(
+            "This is a Git checkout, but Git could not list its tracked files"
+        ) from exc
     if run.returncode != 0:
-        return None
+        detail = run.stderr.decode("utf-8", "replace").strip()[:200]
+        raise IntegrityError(
+            "This is a Git checkout, but Git could not list its tracked files"
+            + (f": {detail}" if detail else "")
+        )
     return {part.decode("utf-8", "surrogateescape") for part in run.stdout.split(b"\0") if part}
 
 

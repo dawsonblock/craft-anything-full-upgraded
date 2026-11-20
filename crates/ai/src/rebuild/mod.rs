@@ -241,7 +241,8 @@ impl RebuildRun {
     pub fn start(hub: &AiHub, ws: Workspace, opts: RunOptions) -> Result<RebuildRun, ToolError> {
         let cfg = hub.config();
         let entry = builder_backend(&cfg, opts.backend.as_deref().or_else(|| project_builder(&cfg, &ws)))?;
-        refuse_unconfined(&cfg, &entry)?;
+        // The registry the run builds with, so a replaced adapter is the one whose boundary counts.
+        refuse_unconfined_in(&cfg, &entry, &opts.adapters)?;
         // A day's builds share one ledger, so a spent day refuses the start here as well: every
         // caller (the app, the CLI, a tool) is held to it, not only the ones that check early.
         crate::budget::refuse_over_daily(cfg.spend_limits(), &crate::budget::ledger_path(&hub.settings_path()))?;
@@ -897,6 +898,11 @@ impl Worker {
         if first {
             self.study(ws, kind)?;
             if let Some((name, ex)) = extractor {
+                // The extractor is a paid model too: a day spent by other builds, or a zero run
+                // ceiling, stops the run before its first request rather than after it.
+                if let Some(error) = self.spend_stop() {
+                    return Err(error);
+                }
                 self.extract(ws, kind, &name, ex)?;
             }
         }
@@ -1031,9 +1037,6 @@ impl Worker {
                         return Err(error);
                     }
                 };
-                if let Some(error) = self.spend_stop() {
-                    return Err(error);
-                }
                 // Only a finished turn counts: telling the builder twice costs little, and a turn that
                 // failed may not have told it at all.
                 let told = std::mem::take(&mut asked);
@@ -1063,6 +1066,12 @@ impl Worker {
                 if let Some(fingerprint) = self.progress_fingerprint(ws, &mut progress, &mut progress_available, &mut fingerprints)? {
                     progress.after_turn(fingerprint);
                     progress.save(&ws.root)?;
+                }
+                // A ceiling this turn reached stops the run only now, with its reply, `awaiting_check`
+                // and progress saved, so continuing (after raising the ceiling) checks the work the
+                // turn did instead of asking for it again. No further turn starts.
+                if let Some(error) = self.spend_stop() {
+                    return Err(error);
                 }
                 // What the person added while the agent worked goes in before anything else.
                 if let Some((p, more)) = self.added(ws, deep, sees_pictures) {
@@ -1318,6 +1327,11 @@ impl Worker {
                 // Error events become ProgramFailed here; a simultaneous backend failure must
                 // not make an inbox or workspace write failure retryable.
                 Err(e) if !lost && e.code == ErrorCode::ProgramFailed && tries < 3 && agent.last_failure().is_some_and(crate::TurnFailure::retryable) => {
+                    // A failed try can still have been billed: a ceiling it reached stops the
+                    // retries, before waiting, rather than letting each one spend again.
+                    if let Some(error) = self.spend_stop() {
+                        return Err(error);
+                    }
                     tries += 1;
                     let why = e.message.chars().take(160).collect::<String>();
                     // Typed status decides whether to retry. A display-only wait remains a
@@ -1714,16 +1728,22 @@ pub fn replaced_builder_notice(saved: &str, used: &str) -> String {
 
 /// Refuse a build when `[ai] require_confined_build` is on (the default) and this AI can't be held in.
 pub fn refuse_unconfined(cfg: &crate::AiConfig, entry: &crate::BackendEntry) -> Result<(), ToolError> {
+    refuse_unconfined_in(cfg, entry, &crate::cli_agents::AgentAdapters::built_in())
+}
+
+/// [`refuse_unconfined`] with the adapter registry the run builds with, so the boundary checked is
+/// the one of the adapter that will actually drive the agent.
+pub fn refuse_unconfined_in(cfg: &crate::AiConfig, entry: &crate::BackendEntry, adapters: &crate::cli_agents::AgentAdapters) -> Result<(), ToolError> {
     if !cfg.require_confined_build {
         return Ok(());
     }
-    let confinement = crate::cli_agents::confinement_for(entry);
+    let confinement = crate::cli_agents::confinement_in(adapters, entry);
     if !confinement.build_is_unconfined() {
         return Ok(());
     }
     // An agent that has a boundary but an extra argument that may turn it off: name the argument,
     // since removing it is the fix.
-    if let Some(arg) = crate::cli_agents::boundary_breaker_for(entry) {
+    if let Some(arg) = crate::cli_agents::boundary_breaker_in(adapters, entry) {
         return Err(ToolError::new(
             ErrorCode::BadSettings,
             format!(

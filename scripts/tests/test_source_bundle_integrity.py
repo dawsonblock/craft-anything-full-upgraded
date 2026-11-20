@@ -18,7 +18,7 @@ SCRIPTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS))
 from source_bundle_integrity import (
     IntegrityError, MANIFEST_NAME, extract_verified_zip, make_manifest,
-    package_zip, parse_manifest, permitted_path, verify_tree, verify_zip,
+    package_zip, parse_manifest, permitted_path, tracked_files, verify_tree, verify_zip,
 )
 
 
@@ -588,6 +588,16 @@ class SourceBundleIntegrityTests(unittest.TestCase):
             refused = run()
             self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
             self.assertIn("doesn't track", refused.stdout)
+
+    def test_a_checkout_git_cannot_list_is_refused_not_walked(self):
+        # A `.git` Git can't read (here an empty gitfile) used to fall back to walking the folder,
+        # which would put untracked files in the manifest without a word.
+        with tempfile.TemporaryDirectory() as temp:
+            root = self.sample(Path(temp))
+            (root / ".git").write_text("", encoding="utf-8")
+            (root / "scratch.txt").write_text("local notes", encoding="utf-8")
+            with self.assertRaisesRegex(IntegrityError, "Git could not list its tracked files"):
+                tracked_files(root)
 
     def test_create_refuses_a_checkout_renamed_from_the_declared_root(self):
         with tempfile.TemporaryDirectory() as temp:

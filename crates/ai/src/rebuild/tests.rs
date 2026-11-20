@@ -1891,6 +1891,21 @@ mod picking_up_a_build {
         let mut allowed = cfg.clone();
         allowed.require_confined_build = false;
         assert!(refuse_unconfined(&allowed, &entry("gemini-cli")).is_ok(), "the person allowed a build with their own access");
+        // The run's own registry decides: an adapter a fork registers under "codex" that claims
+        // nothing is refused, though the built-in Codex adapter would pass.
+        struct Unchecked;
+        impl crate::cli_agents::AgentAdapter for Unchecked {
+            fn ids(&self) -> &'static [&'static str] {
+                &["codex"]
+            }
+            fn args(&self, _cx: &crate::cli_agents::ArgsCx) -> Vec<String> {
+                Vec::new()
+            }
+        }
+        let mut adapters = crate::cli_agents::AgentAdapters::built_in();
+        adapters.register(Arc::new(Unchecked));
+        assert!(refuse_unconfined(&cfg, &entry("codex")).is_ok(), "the built-in Codex adapter declares its sandbox");
+        assert!(refuse_unconfined_in(&cfg, &entry("codex"), &adapters).is_err(), "the replacement the run would use declares nothing");
     }
 
     /// A run ceiling stops a build before its first turn; the limits come from the config, not from
@@ -1916,6 +1931,47 @@ mod picking_up_a_build {
         };
         assert!(message.contains("AI spending limit"), "{message}");
         assert_eq!(prompts_given(&b), 0, "it stopped before the first turn");
+    }
+
+    /// A ceiling reached during a turn (here another build spends the day while this one's turn
+    /// runs) stops the run after the turn is kept: its reply and `awaiting_check` are saved, so
+    /// continuing after raising the ceiling checks that work instead of asking for it again, and no
+    /// second turn starts.
+    #[test]
+    fn a_ceiling_reached_during_a_turn_keeps_the_turn() {
+        let b = bench();
+        let ledger = crate::budget::ledger_path(&b.hub.settings_path());
+        let agent = b._dir.path().join("agent.sh");
+        std::fs::write(
+            &agent,
+            format!(
+                "#!/bin/sh\nfor last; do :; done\nprintf '%s\\n===\\n' \"$last\" >> '{}'\nprintf '{{\"version\":1,\"days\":{{\"%s\":5.0}}}}' \"$(date -u +%F)\" > '{}'\necho Done.\n",
+                b.prompts.display(),
+                ledger.display()
+            ),
+        )
+        .unwrap();
+        let mut cfg = b.hub.config();
+        cfg.max_daily_cost_usd = Some(1.0);
+        b.hub.engine.session().settings.ai = cfg.to_table().unwrap();
+        let ws = Workspace::create(&b.projects, "x", "A website for a bakery", TargetRef::None).unwrap();
+        let opts = RunOptions { backend: Some("Stand-in".into()), ..RunOptions::default() };
+        let run = RebuildRun::start(&b.hub, Workspace::open(&ws.root).unwrap(), opts).unwrap();
+        let message = loop {
+            match run.rx.recv_timeout(Duration::from_secs(60)) {
+                Ok(RunEvent::Finished { ok, message, .. }) => {
+                    assert!(!ok, "the run claimed success past the day's ceiling");
+                    break message;
+                }
+                Ok(_) => {}
+                Err(e) => panic!("the run went away: {e}"),
+            }
+        };
+        assert!(message.contains("AI spending limit"), "{message}");
+        assert_eq!(prompts_given(&b), 1, "the turn that crossed the line ran, and no other started");
+        let kept = Workspace::open(&ws.root).unwrap();
+        assert_eq!(kept.manifest.last_reply, "Done.", "the turn's reply is kept");
+        assert!(kept.manifest.awaiting_check, "the turn's work waits for its checks");
     }
 
     /// A day already spent refuses the start itself, whichever caller asked for the run.
