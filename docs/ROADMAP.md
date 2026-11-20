@@ -261,6 +261,15 @@ cheapest help we can give anyone, so nothing below should hold it up for long.
       sonarcloud, freebsd, windows-arm64) keep tracking `@main`; bumping the pin is a reviewed,
       one-line change (`docs/releasing.md`)
       — claimed: Devin, branch chore/security-and-release-gates
+- [x] Pin SonarCloud too: it was listed as secretless, but `sonarcloud.yml` passes
+      `secrets: inherit`, which hands the shared workflow every repository secret (the signing ones
+      included) while it tracked `@main`. It is pinned to `ecb64b2` (the commit its last green runs
+      used), bumped with the release pin, and `docs/releasing.md` lists only the truly secretless four
+      — claimed: Claude, branch claude/magical-faraday-dqfztt
+- [ ] Pin the shared release workflow's own actions: inside craft-common-actions, `release.yml`
+      still calls some actions at `@main` (`draft-release` among them, with the signing secrets), so
+      our SHA pin fixes which revision of that workflow runs but not what it calls. Pin them there,
+      then bump this repository's pin to the commit that does it (it can't be done from here)
 - [x] Stop recording Python tool caches in the source manifest and re-baseline it: `main`'s
       manifest named three `.ruff_cache` files a clean checkout lacks, so `verify-tree` failed on
       `main` and the release preflight with it. `create` now ignores `.ruff_cache`,
@@ -1155,6 +1164,15 @@ Owner: open · Status: in progress
       `TurnDone` carries `cached_input_tokens` (Codex and Claude Code report it, the built-in loop
       too), so an estimated turn prices cached prompt tokens at the cache-read rate instead of the
       full input rate, which stopped a long Codex build early. The module comment says what holds
+      — claimed: Claude, branch claude/magical-faraday-dqfztt
+- [x] Hold every paid request to the ceilings, and keep the turn that reached one. The extractor's
+      first request and each retry of a failed turn (which can still be billed) now check the ceiling
+      first; a turn that crosses it saves its reply, `awaiting_check` and progress before the run
+      stops, so continuing after raising the ceiling checks that work instead of asking for it
+      again. The confinement gate reads the run's own adapter registry (`refuse_unconfined_in`), so
+      an adapter registered over a built-in id is the one whose boundary counts. And a Git checkout
+      Git can't list is refused by the source manifest instead of walked, which would have put
+      untracked files in it
       — claimed: Claude, branch claude/magical-faraday-dqfztt
 - [ ] Enforce the chat and question declarations: they are recorded now but no run acts on them,
       and Codex's, Gemini CLI's, OpenCode's, Antigravity's, Hermes's and Maki's own sandboxes in a

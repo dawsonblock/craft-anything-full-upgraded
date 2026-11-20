@@ -57,9 +57,17 @@ A dry run of the unsigned platforms from any branch: `gh workflow run release.ym
 not `@main`, because that workflow receives the Apple, Windows and Azure signing secrets: an
 unreviewed push to the shared repository must not be able to reach them. Bumping the pin is a
 deliberate, reviewed change — look over the commits between the pinned SHA and the one you want,
-change the `uses:` line, and record the new SHA and date in the comment beside it. The workflows
-that take no secrets (`ci.yml`, `packaging-lint.yml`, `sonarcloud.yml`, `freebsd.yml`,
-`windows-arm64.yml`) still track `@main`, so org-wide improvements there arrive without churn.
+change the `uses:` line, and record the new SHA and date in the comment beside it.
+
+`sonarcloud.yml` is pinned the same way: it passes `secrets: inherit`, which hands the shared
+workflow every repository secret, the signing ones included. Bump it with the release pin. The
+workflows that take no secrets (`ci.yml`, `packaging-lint.yml`, `freebsd.yml`, `windows-arm64.yml`)
+still track `@main`, so org-wide improvements there arrive without churn.
+
+The shared release workflow still calls some of its own actions at `@main` (`draft-release` among
+them, which runs with the signing secrets). Pinning our `uses:` line fixes which revision of that
+workflow runs, not what it calls: those inner references have to be pinned in craft-common-actions
+itself, then this pin bumped to the commit that does it.
 
 ## Before publishing: a Deep build from the packages
 
