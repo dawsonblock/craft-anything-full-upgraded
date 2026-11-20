@@ -1100,6 +1100,10 @@ Owner: open · Status: in progress
       other adapter says nothing), `rebuild_start`'s result carries all three, and
       `[ai] require_confined_build` (on by default) refuses a build whose agent declares nothing
       — claimed: Devin, branch chore/security-and-release-gates
+- [x] **decision** Whether `require_confined_build` is on by default, which refuses Gemini CLI,
+      OpenCode, Copilot, Aider and the other agents that declare no boundary until the person turns
+      it off in Settings → AI: yes, on. The default was first chosen by the agent that built the
+      gate; a maintainer confirmed it on 2026-11-20
 - [ ] Hold a chat or a question with a coding agent to the same policy: this change covers a
       build's agent, not the agent's own tools in a chat (their own approvals are R2.2's decision)
 - [ ] Sweep containers carrying the sandbox label at startup, for one left behind by a crash
