@@ -159,6 +159,14 @@ pub enum Done {
     Detected(Vec<Detected>, Vec<craft_anything_ai::detect::DetectHint>),
     /// The configured backends, the ones chosen to build with and to extract with, and each one's
     /// options.
+    /// Settings → AI's spending fields were saved (or not), and the ceilings now in `[ai]`.
+    SpendSaved {
+        result: Result<(), String>,
+        /// What the save asked for.
+        sent: craft_anything_ai::budget::SpendLimits,
+        /// What is saved now, whether the save worked or not.
+        saved: craft_anything_ai::budget::SpendLimits,
+    },
     /// The AIs, the Builder and Extractor choices, each AI's options, and the build policy
     /// (`[ai] require_confined_build` and the spending ceilings).
     Backends(Vec<BackendConfig>, Option<String>, Option<String>, std::collections::BTreeMap<String, craft_anything_ai::BackendOptions>, AiPolicy),
@@ -445,6 +453,10 @@ pub struct CraftApp {
     /// What is typed in Settings → AI's two spending fields (per build, per day), saved when the
     /// field is left; empty is no ceiling.
     pub spend_drafts: SpendDrafts,
+    /// A save of the spending fields is running, and whether another was asked for meanwhile: one
+    /// save at a time, each from both fields, so two quick saves can't land out of order.
+    pub spend_saving: bool,
+    pub spend_resave: bool,
     /// The AI whose model is being chosen in Settings → AI, and the models it offers once they've
     /// come (`None`: still asking).
     pub model_picker: Option<(String, Option<Vec<String>>)>,
@@ -574,6 +586,8 @@ impl CraftApp {
             require_confined_build: craft_anything_ai::AiConfig::default().require_confined_build,
             spend_limits: Default::default(),
             spend_drafts: Default::default(),
+            spend_saving: false,
+            spend_resave: false,
             model_picker: None,
             agent_model_picker: None,
             model_request: 0,
@@ -1506,6 +1520,26 @@ impl CraftApp {
                 self.log(false, format!("Found {} AI option(s) on this computer", d.len()));
                 self.detected = Some(d);
             }
+            Done::SpendSaved { result, sent, saved } => {
+                self.spend_saving = false;
+                self.spend_limits = saved;
+                if let Err(e) = result {
+                    self.toast(e, true);
+                }
+                // A field still reading what was sent shows what is saved now; one changed since
+                // (being typed in) keeps its text.
+                let mut shown = SpendDrafts::showing(saved);
+                for which in [SpendLimit::PerBuild, SpendLimit::PerDay] {
+                    let draft = self.spend_drafts.get_mut(which);
+                    if parse_dollars(draft) == Ok(which.of(sent)) {
+                        *draft = std::mem::take(shown.get_mut(which));
+                    }
+                }
+                if std::mem::take(&mut self.spend_resave) {
+                    // A field was left while this save ran: save both fields as they now read.
+                    self.save_spend_limits();
+                }
+            }
             Done::Backends(b, builder, extractor, options, policy) => {
                 if self.state.backend.as_ref().is_some_and(|n| !b.iter().any(|c| &c.name == n)) {
                     self.state.backend = None;
@@ -1517,7 +1551,8 @@ impl CraftApp {
                 self.require_confined_build = policy.require_confined_build;
                 // The fields show what is saved, except while it is what they already say: a
                 // refresh for something else doesn't wipe what the person is typing.
-                if policy.spend != self.spend_limits {
+                // A spending save in flight reports its own result (`SpendSaved`).
+                if policy.spend != self.spend_limits && !self.spend_saving {
                     self.spend_drafts = SpendDrafts::showing(policy.spend);
                     self.spend_limits = policy.spend;
                 }
@@ -2012,6 +2047,16 @@ pub enum SpendLimit {
     PerDay,
 }
 
+impl SpendLimit {
+    /// This ceiling in `limits`.
+    pub fn of(self, limits: craft_anything_ai::budget::SpendLimits) -> Option<f64> {
+        match self {
+            SpendLimit::PerBuild => limits.run_usd,
+            SpendLimit::PerDay => limits.daily_usd,
+        }
+    }
+}
+
 /// The text in Settings → AI's two spending fields.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SpendDrafts {
@@ -2034,17 +2079,31 @@ impl SpendDrafts {
     }
 }
 
-/// A spending field's text as a ceiling in US dollars: empty is none, a leading `$` and a decimal
-/// comma are accepted, and anything that isn't an amount of zero or more is refused.
+/// A spending field's text as a ceiling in US dollars: empty is none; otherwise digits, with an
+/// optional leading `$` and at most one decimal point (`2.50`, or `1.234` as the field shows a
+/// value set in config.toml) or one decimal comma followed by one or two digits (`1,5`). A comma
+/// before three digits (`1,000`) could be a thousands separator, so it's refused rather than
+/// guessed at, as is anything else that isn't an amount of zero or more.
 pub(crate) fn parse_dollars(text: &str) -> Result<Option<f64>, ()> {
     let text = text.trim();
     let text = text.strip_prefix('$').unwrap_or(text).trim();
     if text.is_empty() {
         return Ok(None);
     }
-    let normal = if text.contains('.') { text.to_string() } else { text.replace(',', ".") };
+    let (whole, cents, comma) = match text.find(['.', ',']) {
+        Some(at) => (text.get(..at).ok_or(())?, Some(text.get(at + 1..).ok_or(())?), text.get(at..at + 1) == Some(",")),
+        None => (text, None, false),
+    };
+    let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+    if !digits(whole) || cents.is_some_and(|c| !digits(c) || (comma && c.len() > 2)) {
+        return Err(());
+    }
+    let normal = match cents {
+        Some(c) => format!("{whole}.{c}"),
+        None => whole.to_string(),
+    };
     match normal.parse::<f64>() {
-        Ok(v) if v.is_finite() && v >= 0.0 => Ok(Some(v)),
+        Ok(v) if v.is_finite() => Ok(Some(v)),
         _ => Err(()),
     }
 }

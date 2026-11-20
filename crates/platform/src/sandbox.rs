@@ -186,6 +186,9 @@ enum Measured {
     /// treated like [`Measured::Over`], never as "probably fine" (a build could otherwise make many
     /// small files first and then write without limit).
     TooManyEntries,
+    /// A folder or file in it can't be read (a build can `chmod 300` a folder and write into it),
+    /// so its size isn't known either: treated the same way, never counted as empty.
+    Unreadable,
 }
 
 impl Measured {
@@ -198,6 +201,7 @@ impl Measured {
 const STOP_NONE: u8 = 0;
 const STOP_OVER: u8 = 1;
 const STOP_TOO_MANY: u8 = 2;
+const STOP_UNREADABLE: u8 = 3;
 
 /// Measures the project folder while a container runs, so a build that writes past the ceiling is
 /// stopped instead of filling the disk. The folder is a bind mount, which Docker can't quota.
@@ -207,7 +211,9 @@ struct ProjectWatch {
 }
 
 impl ProjectWatch {
-    fn start(root: PathBuf, limit: u64, max_entries: usize) -> ProjectWatch {
+    /// Start watching, or an error when no watcher can run: a ceiling that isn't watched isn't
+    /// held, so the build is refused rather than run without it.
+    fn start(root: PathBuf, limit: u64, max_entries: usize) -> Result<ProjectWatch, ToolError> {
         let stop = Arc::new(AtomicU8::new(STOP_NONE));
         let done = Arc::new(AtomicBool::new(false));
         let thread = {
@@ -229,16 +235,23 @@ impl ProjectWatch {
                         Measured::Under(_) => continue,
                         Measured::Over(_) => STOP_OVER,
                         Measured::TooManyEntries => STOP_TOO_MANY,
+                        Measured::Unreadable => STOP_UNREADABLE,
                     };
                     stop.store(why, Ordering::SeqCst);
                     return;
                 }
             })
         };
-        if thread.is_err() {
-            log::warn!("Couldn't start the sandbox's disk watcher; the project folder's ceiling isn't enforced this run");
+        if let Err(e) = thread {
+            return Err(ToolError::new(
+                ErrorCode::ProgramFailed,
+                format!("The sandboxed build didn't start: the watcher for its project folder's {} MiB ceiling couldn't start ({e}).", limit / (1024 * 1024)),
+            )
+            .with_remediation(
+                "Try again; if it keeps happening, close other programs, or set `[build] sandbox_project_mb = 0` to build without the ceiling.",
+            ));
         }
-        ProjectWatch { stop, done }
+        Ok(ProjectWatch { stop, done })
     }
 
     /// Why the watcher stopped the build, if it did.
@@ -246,6 +259,7 @@ impl ProjectWatch {
         match self.stop.load(Ordering::SeqCst) {
             STOP_OVER => Some(Measured::Over(0)),
             STOP_TOO_MANY => Some(Measured::TooManyEntries),
+            STOP_UNREADABLE => Some(Measured::Unreadable),
             _ => None,
         }
     }
@@ -258,19 +272,35 @@ impl Drop for ProjectWatch {
 }
 
 /// The bytes under `root`, stopping as soon as they pass `limit` or the walk passes `max_entries`.
-/// Links are not followed, so a link back up the tree can't loop.
+/// Links are not followed, so a link back up the tree can't loop. A folder or file that can't be
+/// read makes the size unknown ([`Measured::Unreadable`]); one that vanished while the walk ran
+/// (the build deleted it) is simply gone.
 fn measure(root: &Path, limit: u64, max_entries: usize) -> Measured {
+    let gone = |e: &std::io::Error| e.kind() == std::io::ErrorKind::NotFound;
     let mut total = 0u64;
     let mut seen = 0usize;
     let mut stack = vec![root.to_path_buf()];
     while let Some(dir) = stack.pop() {
-        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
-        for entry in entries.flatten() {
+        let entries = match std::fs::read_dir(&dir) {
+            Ok(entries) => entries,
+            Err(e) if gone(&e) => continue,
+            Err(_) => return Measured::Unreadable,
+        };
+        for entry in entries {
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(e) if gone(&e) => continue,
+                Err(_) => return Measured::Unreadable,
+            };
             seen = seen.saturating_add(1);
             if seen > max_entries {
                 return Measured::TooManyEntries;
             }
-            let Ok(meta) = entry.metadata() else { continue };
+            let meta = match entry.metadata() {
+                Ok(meta) => meta,
+                Err(e) if gone(&e) => continue,
+                Err(_) => return Measured::Unreadable,
+            };
             if meta.is_dir() {
                 stack.push(entry.path());
             } else if meta.is_file() {
@@ -309,6 +339,14 @@ fn ceiling_error(project: &Path, limit_mb: u64, measured: Measured, running: boo
             "The build made more than {max_entries} files and folders in {}, too many to measure against its {limit_mb} MiB ceiling, so it was stopped.",
             project.display()
         ),
+        (Measured::Unreadable, false) => format!(
+            "A folder or file in the project folder {} can't be read, so it can't be measured against its {limit_mb} MiB ceiling and the sandboxed build didn't start.",
+            project.display()
+        ),
+        (Measured::Unreadable, true) => format!(
+            "The build made a folder or file in {} that can't be read, so the folder can't be measured against its {limit_mb} MiB ceiling and the build was stopped.",
+            project.display()
+        ),
         (_, false) => format!("The project folder {} is already more than {limit_mb} MiB, so the sandboxed build didn't start.", project.display()),
         (_, true) => format!("The build wrote more than {limit_mb} MiB into {}, so it was stopped before it filled the disk.", project.display()),
     };
@@ -343,7 +381,7 @@ pub fn run_argv(spec: &Spec, command: &[String], timeout: Duration, cancel: Opti
     argv.insert(2, name.clone());
     argv.insert(3, "--label".into());
     argv.insert(4, LABEL.into());
-    let watch = (limit > 0).then(|| ProjectWatch::start(spec.project.clone(), limit, WATCH_ENTRIES));
+    let watch = if limit > 0 { Some(ProjectWatch::start(spec.project.clone(), limit, WATCH_ENTRIES)?) } else { None };
     let mut process = Process::new("docker")
         .args(argv)
         .cwd(&spec.project)
@@ -876,6 +914,34 @@ mod tests {
         assert!(!Measured::TooManyEntries.holds(), "an unknown size never passes as under the ceiling");
     }
 
+    /// A folder the host can't list (a build can `chmod 300` one and write into it) makes the size
+    /// unknown, so it can't hide bytes from the ceiling.
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_that_cant_be_read_isnt_counted_as_empty() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = tempfile::tempdir().unwrap();
+        let hidden = dir.path().join("hidden");
+        std::fs::create_dir(&hidden).unwrap();
+        std::fs::write(hidden.join("big.bin"), vec![0u8; 8192]).unwrap();
+        std::fs::set_permissions(&hidden, std::fs::Permissions::from_mode(0o300)).unwrap();
+        // A read that fails for any reason but "it's gone" is unknown, for any user, root included
+        // (here, a file where a folder is expected).
+        assert_eq!(measure(&hidden.join("big.bin"), 4096, WATCH_ENTRIES), Measured::Unreadable);
+        assert_eq!(measure(&dir.path().join("gone"), 4096, WATCH_ENTRIES), Measured::Under(0), "a folder deleted meanwhile is simply gone");
+        let listable = std::fs::read_dir(&hidden).is_ok();
+        let measured = measure(dir.path(), 4096, WATCH_ENTRIES);
+        std::fs::set_permissions(&hidden, std::fs::Permissions::from_mode(0o700)).unwrap();
+        if listable {
+            // Running as root: the folder can still be listed, so the bytes are counted.
+            assert!(matches!(measured, Measured::Over(_)), "{measured:?}");
+            return;
+        }
+        assert_eq!(measured, Measured::Unreadable, "never counted as zero bytes");
+        let err = ceiling_error(dir.path(), 1, Measured::Unreadable, true, WATCH_ENTRIES);
+        assert!(err.message.contains("can't be read") && err.message.contains("was stopped"), "{}", err.message);
+    }
+
     /// Waits up to five seconds for the watcher to stop the build.
     fn wait_for_stop(watch: &ProjectWatch) -> Option<Measured> {
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
@@ -890,7 +956,7 @@ mod tests {
     #[test]
     fn the_watcher_trips_when_the_folder_grows_past_the_ceiling() {
         let dir = tempfile::tempdir().unwrap();
-        let watch = ProjectWatch::start(dir.path().to_path_buf(), 4096, WATCH_ENTRIES);
+        let watch = ProjectWatch::start(dir.path().to_path_buf(), 4096, WATCH_ENTRIES).expect("watcher");
         std::thread::sleep(WATCH_EVERY);
         assert!(watch.stopped().is_none(), "an empty folder is under the ceiling");
         std::fs::write(dir.path().join("big.bin"), vec![0u8; 8192]).unwrap();
@@ -902,7 +968,7 @@ mod tests {
     #[test]
     fn the_watcher_stops_a_build_that_grows_too_large_to_measure() {
         let dir = tempfile::tempdir().unwrap();
-        let watch = ProjectWatch::start(dir.path().to_path_buf(), 1024 * 1024, 4);
+        let watch = ProjectWatch::start(dir.path().to_path_buf(), 1024 * 1024, 4).expect("watcher");
         std::thread::sleep(WATCH_EVERY);
         assert!(watch.stopped().is_none(), "an empty folder is measured and under the ceiling");
         for i in 0..10 {

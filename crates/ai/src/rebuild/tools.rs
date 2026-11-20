@@ -304,24 +304,43 @@ fn rebuild_questions_list(_ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutpu
     Ok(ToolOutput::Value(json!({"count": questions.len(), "questions": questions})))
 }
 
+/// Refuse a named picture or document that [`Workspace::add_references`] would skip or refuse: a
+/// file that isn't there, one of a kind it doesn't take, or one over its size limit.
+fn refuse_unaddable_references(pictures: &[PathBuf], documents: &[PathBuf]) -> Result<(), ToolError> {
+    use craft_anything_engine::workspace::{DOCUMENT_EXTENSIONS, document_too_large, is_document, is_picture, picture_too_large};
+    if let Some(f) = pictures.iter().chain(documents).find(|f| !f.is_file()) {
+        return Err(
+            ToolError::invalid(format!("{} can't be added: there's no file there.", f.display())).with_remediation("Pass the full path of a file that exists.")
+        );
+    }
+    if let Some(f) = pictures.iter().find(|f| !is_picture(f)) {
+        return Err(ToolError::invalid(format!("{} isn't a picture Craft Anything can add.", f.display()))
+            .with_remediation("Add pictures as .png, .jpg, .jpeg, .webp or .gif, and manuals or notes as `documents`."));
+    }
+    if let Some(f) = pictures.iter().find(|f| picture_too_large(f)) {
+        return Err(ToolError::new(ErrorCode::OverLimit, format!("{} can't be added: a picture can be up to 20 MB.", f.display()))
+            .with_remediation("Add a smaller picture, or save it as a JPEG."));
+    }
+    if let Some(f) = documents.iter().find(|f| !is_document(f)) {
+        return Err(ToolError::invalid(format!("{} isn't a document Craft Anything can add.", f.display()))
+            .with_remediation(format!("Add a manual or notes as {}.", DOCUMENT_EXTENSIONS.iter().map(|e| format!(".{e}")).collect::<Vec<_>>().join(", "))));
+    }
+    if let Some(f) = documents.iter().find(|f| document_too_large(f)) {
+        return Err(ToolError::new(ErrorCode::OverLimit, format!("{} can't be added: a document can be up to 20 MB.", f.display()))
+            .with_remediation("Add the chapters that describe what the program does, or save the manual as plain text."));
+    }
+    Ok(())
+}
+
 fn rebuild_start(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolError> {
     let p: StartParams = parse_params(params)?;
     let engine = engine(ctx).ok_or_else(|| {
         ToolError::new(ErrorCode::FeatureMissing, "Building isn't available in this engine.").with_remediation("Use the app or `craft-anything-cli rebuild`.")
     })?;
     let runs = runs(ctx);
-    // A named document that can't be added is an error, not a silent skip (the person asked for it
-    // to be read), and it's refused before a project folder is made.
-    if let Some(d) = p.documents.iter().find(|d| !craft_anything_engine::workspace::is_document(d)) {
-        return Err(ToolError::invalid(format!("{} isn't a document Craft Anything can add.", d.display())).with_remediation(format!(
-            "Add a manual or notes as {}.",
-            craft_anything_engine::workspace::DOCUMENT_EXTENSIONS.iter().map(|e| format!(".{e}")).collect::<Vec<_>>().join(", ")
-        )));
-    }
-    if let Some(d) = p.documents.iter().find(|d| craft_anything_engine::workspace::document_too_large(d)) {
-        return Err(ToolError::new(ErrorCode::OverLimit, format!("{} can't be added: a document can be up to 20 MB.", d.display()))
-            .with_remediation("Add the chapters that describe what the program does, or save the manual as plain text."));
-    }
+    // A named picture or document that can't be added is an error, not a silent skip (the person
+    // asked for it to be used), and it's refused before a project folder is made.
+    refuse_unaddable_references(&p.pictures, &p.documents)?;
     let cfg = crate::AiConfig::from_settings(&ctx.session.settings);
     // Refuse a start that can only spend money it may not, before a project or pictures are made.
     crate::budget::refuse_over_daily(cfg.spend_limits(), &crate::budget::ledger_path(&ctx.session.config_dir().join("config.toml")))?;
@@ -687,9 +706,8 @@ mod tests {
         let _ = e.call("rebuild_stop", json!({"project": ws.root}), ok());
     }
 
-    /// A tool holds the session while it starts a run, so `try_session` fails and the run must
-    /// take the build policy the tool passes, not the copy saved to disk. A `refuse` set in the
-    /// session but not yet written must still stop an agent build.
+    /// A named picture or document that can't be added (missing, the wrong kind, too large) is
+    /// refused before a project folder is made, never skipped without a word.
     #[test]
     fn rebuild_start_refuses_a_document_it_cant_add_before_making_a_project() {
         let d = tempfile::tempdir().unwrap();
@@ -707,10 +725,27 @@ mod tests {
         std::fs::File::create(&big).unwrap().set_len(21 * 1024 * 1024).unwrap();
         let err = e.call("rebuild_start", json!({"target": "-", "request": "Recreate this app", "documents": [big]}), ok()).unwrap_err();
         assert_eq!(err.code, ErrorCode::OverLimit, "{}", err.message);
+        let missing = d.path().join("gone.pdf");
+        let err = e.call("rebuild_start", json!({"target": "-", "request": "Recreate this app", "documents": [missing]}), ok()).unwrap_err();
+        assert!(err.message.contains("no file there"), "{}", err.message);
+        let missing = d.path().join("gone.png");
+        let err = e.call("rebuild_start", json!({"target": "-", "request": "Recreate this app", "pictures": [missing]}), ok()).unwrap_err();
+        assert!(err.message.contains("no file there"), "{}", err.message);
+        let notes = d.path().join("notes.txt");
+        std::fs::write(&notes, "x").unwrap();
+        let err = e.call("rebuild_start", json!({"target": "-", "request": "Recreate this app", "pictures": [notes]}), ok()).unwrap_err();
+        assert!(err.message.contains("isn't a picture"), "{}", err.message);
+        let huge = d.path().join("screen.png");
+        std::fs::File::create(&huge).unwrap().set_len(21 * 1024 * 1024).unwrap();
+        let err = e.call("rebuild_start", json!({"target": "-", "request": "Recreate this app", "pictures": [huge]}), ok()).unwrap_err();
+        assert_eq!(err.code, ErrorCode::OverLimit, "{}", err.message);
         let made = std::fs::read_dir(&projects).map(|r| r.count()).unwrap_or(0);
         assert_eq!(made, 0, "no project folder was left behind");
     }
 
+    /// A tool holds the session while it starts a run, so `try_session` fails and the run must
+    /// take the build policy the tool passes, not the copy saved to disk. A `refuse` set in the
+    /// session but not yet written must still stop an agent build.
     #[test]
     fn rebuild_start_carries_the_sandbox_policy_when_the_session_is_held() {
         let d = tempfile::tempdir().unwrap();

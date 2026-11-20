@@ -140,6 +140,13 @@ changed valid Python to a syntax error within the same mtime second. `compileall
 exited zero; the screenshot run then failed instead. Use `compileall -f` for a build check, and
 hold the valid and broken fixture revisions at the same timestamp in the real-Python regression.
 
+**A reader that outlived its program, and a close that waited for it.** `run_gh` joined its
+output readers for five seconds and then parsed what they had read, even when a program `gh`
+started still held the pipe and a reader was mid-read, so a reply cut short could be used whole.
+The first fix closed the pipe under the reader; Python's buffered `close` waits for the read in
+progress, so it blocked as long as the holder lived. A reader still running after its grace is a
+refusal, and its pipe is left to the daemon thread rather than closed under it.
+
 **A test started a real download on a contributor's machine.** A test called `engines_install` for
 Unity; a later change made that download the vendor installer and open it on Windows. It also
 created folders in the real config directory (`Session::default()` uses it).

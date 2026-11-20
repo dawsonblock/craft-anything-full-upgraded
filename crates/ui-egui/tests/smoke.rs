@@ -583,7 +583,7 @@ fn pictures_of_the_original_go_with_the_draft_then_into_the_project() {
     let d = tempfile::tempdir().unwrap();
     let pic = d.path().join("original.webp");
     std::fs::write(&pic, "x").unwrap();
-    let notes = d.path().join("notes.txt");
+    let notes = d.path().join("tool.exe");
     std::fs::write(&notes, "x").unwrap();
 
     let mut h = harness(|| demo::app(demo::engine(Mode::Beginner, true)));
@@ -593,7 +593,7 @@ fn pictures_of_the_original_go_with_the_draft_then_into_the_project() {
     h.state_mut().add_pictures(vec![pic.clone(), notes, pic.clone()]);
     // Their sizes are checked on a worker first (#720).
     assert!(wait(&mut h, |a| !a.state.make.pictures.is_empty()), "checked on a worker, then added");
-    assert_eq!(h.state().state.make.pictures, vec![pic.clone()], "pictures only, once each");
+    assert_eq!(h.state().state.make.pictures, vec![pic.clone()], "pictures and documents only (not a program), once each");
     h.get_by_label("original.webp");
     h.get_by_label("Remove original.webp").click();
     h.run_steps(3);

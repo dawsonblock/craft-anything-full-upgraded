@@ -1201,7 +1201,10 @@ mod tests {
         assert_eq!(crate::parse_dollars("$2.50"), Ok(Some(2.5)));
         assert_eq!(crate::parse_dollars(" $ 0 "), Ok(Some(0.0)), "zero allows no spending");
         assert_eq!(crate::parse_dollars("1,5"), Ok(Some(1.5)), "a decimal comma");
-        for bad in ["-1", "abc", "1.2.3", "inf", "NaN", "1,000.5x"] {
+        assert_eq!(crate::parse_dollars("2,50"), Ok(Some(2.5)));
+        assert_eq!(crate::parse_dollars("1.234"), Ok(Some(1.234)), "a value set in config.toml reads back");
+        // A comma before three digits may separate thousands: refused, not read as a fraction.
+        for bad in ["-1", "abc", "1.2.3", "inf", "NaN", "1e3", "+5", ".5", "5.", "1,000", "1,000.50", "1.000,5", "1,2,3", "1,000.5x"] {
             assert_eq!(crate::parse_dollars(bad), Err(()), "{bad}");
         }
         let shown = crate::SpendDrafts::showing(craft_anything_ai::budget::SpendLimits { run_usd: Some(2.5), daily_usd: None });
@@ -1244,6 +1247,32 @@ mod tests {
         app.commit_spend_limit(crate::SpendLimit::PerDay);
         finish_jobs(&mut app);
         assert_eq!(app.hub.config().spend_limits().daily_usd, None);
+    }
+
+    /// Leaving one spending field while the other's save still runs keeps both: the second save
+    /// waits for the first and carries both fields, never the first one's old value.
+    #[test]
+    fn leaving_both_spending_fields_quickly_saves_both() {
+        let mut app = demo::app(demo::engine(craft_anything_engine::Mode::Experienced, true));
+        app.spend_drafts.per_build = "4".into();
+        app.commit_spend_limit(crate::SpendLimit::PerBuild);
+        assert!(app.spend_saving, "the first save is running");
+        app.spend_drafts.per_day = "20".into();
+        app.commit_spend_limit(crate::SpendLimit::PerDay);
+        assert_eq!(app.jobs.running().count(), 1, "the second save waits for the first");
+        finish_jobs(&mut app);
+        let saved = app.hub.config().spend_limits();
+        assert_eq!((saved.run_usd, saved.daily_usd), (Some(4.0), Some(20.0)), "both saved");
+        assert_eq!((app.spend_drafts.per_build.as_str(), app.spend_drafts.per_day.as_str()), ("4", "20"));
+        assert!(!app.spend_saving && !app.spend_resave);
+        // A field changed while a save runs keeps what's being typed.
+        app.spend_drafts.per_day = "30".into();
+        app.commit_spend_limit(crate::SpendLimit::PerDay);
+        app.spend_drafts.per_build = "7".into();
+        finish_jobs(&mut app);
+        assert_eq!(app.spend_drafts.per_build, "7", "not reset while it's being typed in");
+        assert_eq!(app.hub.config().spend_limits().run_usd, Some(4.0), "and not saved until it's left");
+        assert_eq!(app.spend_drafts.per_day, "30");
     }
 
     #[test]

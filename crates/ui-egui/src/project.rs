@@ -2294,7 +2294,7 @@ mod tests {
         finish(&mut app);
         assert_eq!(app.state.make.pictures, vec![manual.clone()], "the manual is in the draft");
         let ctx = egui::Context::default();
-        assert!(app.previews(&ctx, &[manual.clone()]).iter().all(Option::is_none), "shown by its name");
+        assert!(app.previews(&ctx, std::slice::from_ref(&manual)).iter().all(Option::is_none), "shown by its name");
         assert_eq!(app.jobs.running().count(), 0, "no picture decoding was started for it");
         let huge = d.path().join("huge.pdf");
         std::fs::File::create(&huge).unwrap().set_len(21 * 1024 * 1024).unwrap();

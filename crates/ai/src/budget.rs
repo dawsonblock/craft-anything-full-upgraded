@@ -208,7 +208,9 @@ fn run_limit_error(limit: f64, spent: f64) -> ToolError {
         ErrorCode::OverLimit,
         format!("This build reached its AI spending limit of {} and stopped; it had spent about {}.", dollars(limit), dollars(spent)),
     )
-    .with_remediation("Raise `max_run_cost_usd` in the [ai] section of config.toml, then continue the build, or start a new one.")
+    .with_remediation(
+        "Raise \"Most per build\" in Settings → AI → Spending limits (`max_run_cost_usd` under [ai] in config.toml), then continue the build, or start a new one.",
+    )
 }
 
 fn daily_limit_error(limit: f64, spent: f64) -> ToolError {
@@ -216,7 +218,9 @@ fn daily_limit_error(limit: f64, spent: f64) -> ToolError {
         ErrorCode::OverLimit,
         format!("Today's builds have reached the AI spending limit of {} (about {} spent today, UTC), so this build stopped.", dollars(limit), dollars(spent)),
     )
-    .with_remediation("Raise `max_daily_cost_usd` in the [ai] section of config.toml, or wait until tomorrow.")
+    .with_remediation(
+        "Raise \"Most per day\" in Settings → AI → Spending limits (`max_daily_cost_usd` under [ai] in config.toml), or wait until tomorrow (UTC).",
+    )
 }
 
 fn dollars(value: f64) -> String {

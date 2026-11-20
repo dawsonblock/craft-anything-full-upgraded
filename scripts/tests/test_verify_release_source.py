@@ -440,6 +440,23 @@ class VerifyReleaseSourceTests(unittest.TestCase):
                 timeout=1, what="Waiting for a reply",
             )
 
+    def test_run_gh_refuses_output_held_open_after_it_ends(self):
+        # gh ends, but a program it started keeps the output pipe open: what was read so far may
+        # be cut short, so it's refused instead of returned as the whole reply.
+        holder = (
+            "import subprocess, sys\n"
+            "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(3)'])\n"
+            "print('partial')\n"
+        )
+        started = time.monotonic()
+        with patch.object(verify_release_source, "READER_GRACE", 0.5):
+            with self.assertRaisesRegex(IntegrityError, "left its output open"):
+                verify_release_source.run_gh(
+                    [sys.executable, "-c", holder], timeout=30,
+                    what="Reading a reply",
+                )
+        self.assertLess(time.monotonic() - started, 2.5, "it doesn't wait for the holder")
+
     def test_attestation_must_cover_the_verified_bytes(self):
         digest = "a" * 64
         payload = [{

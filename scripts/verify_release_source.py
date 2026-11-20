@@ -91,6 +91,10 @@ def normalized_commit(value: str, what: str) -> str:
     return commit
 
 
+# How long, in seconds, the output readers may take to finish once `gh` has ended.
+READER_GRACE = 5
+
+
 def read_capped(stream, buffer: bytearray, overflow: threading.Event) -> None:
     """Read one pipe, stopping at the cap instead of buffering past it."""
     while not overflow.is_set():
@@ -104,10 +108,14 @@ def read_capped(stream, buffer: bytearray, overflow: threading.Event) -> None:
 
 
 def stop_process(process: subprocess.Popen) -> None:
-    """Kill a process that outlived its deadline or its output cap."""
+    """Kill a process that outlived its deadline or its output cap, and reap it."""
     try:
         process.kill()
     except OSError:
+        pass
+    try:
+        process.wait(timeout=5)
+    except (OSError, subprocess.TimeoutExpired):
         pass
 
 
@@ -144,11 +152,24 @@ def run_gh(command: list[str], *, timeout: int, what: str) -> subprocess.Complet
             break
         time.sleep(0.05)
     for reader in readers:
-        reader.join(5)
+        reader.join(READER_GRACE)
+    # A reader still running means something `gh` started holds its output open: what was read
+    # may be cut short, so it's refused rather than parsed.
+    unfinished = any(reader.is_alive() for reader in readers)
+    if not unfinished:
+        # Closing a pipe a reader is still blocked on would wait for that read to end; those
+        # are left to their daemon threads.
+        for stream in (process.stdout, process.stderr):
+            try:
+                stream.close()
+            except (OSError, ValueError):
+                pass
     if overflow.is_set():
         raise IntegrityError(f"{what} produced too much output")
     if timed_out:
         raise IntegrityError(f"{what} timed out")
+    if unfinished:
+        raise IntegrityError(f"{what} left its output open after it ended")
     completed = subprocess.CompletedProcess(
         command, process.returncode,
         bytes(sink["stdout"]).decode("utf-8", "replace"),

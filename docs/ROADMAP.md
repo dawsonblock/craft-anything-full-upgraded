@@ -1081,17 +1081,19 @@ Owner: open · Status: in progress
       layer, not the `/work` bind mount, so a build can still fill the host's disk inside its
       project. `[build] sandbox_project_mb` measures the folder (a folder already past it is
       refused before Docker starts) and every 250 ms while the build runs, cancelling the run and
-      removing the container when it grows past the ceiling; links are not followed and a tree
-      over 100,000 entries is reported unknown rather than stopped on a guess
-      — claimed: Devin, branch feature/r3.0-project-disk-ceiling
+      removing the container when it grows past the ceiling; links are not followed (a tree too
+      large to walk was first reported unknown and let through; the next item replaced that with
+      a refusal) — claimed: Devin, branch feature/r3.0-project-disk-ceiling
 - [x] Hold the project-folder ceiling when the folder can't be measured: a tree with more entries
       than one walk takes (now 1,000,000) used to switch the ceiling off silently, so a build could
       make many small files and then write without limit, and a large `node_modules` left it
       unenforced. Such a folder is now refused before Docker starts, or the build stopped, with an
       error that says it couldn't be measured; a large tree is measured less often (at least four
       times the last walk's duration apart). The ceiling is checked before the sandbox user's
-      write check, so the refusal doesn't depend on who runs the host (the test failed as root)
-      — claimed: Claude, branch claude/magical-faraday-dqfztt
+      write check, so the refusal doesn't depend on who runs the host (the test failed as root).
+      A folder that can't be read (a subfolder without list permission) is refused the same way
+      rather than counted as empty, and a watcher that can't start stops the build before Docker
+      runs — claimed: Claude, branch claude/magical-faraday-dqfztt
 - [ ] Put `sandbox_project_mb` in Settings → Builds → Sandbox, with its string in all sixteen
       catalogues: it is `config.toml`-only today, like the digest and the writable-layer limit
 - [ ] Live-check the project-folder ceiling against a running Docker daemon: a build that writes

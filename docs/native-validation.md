@@ -486,7 +486,9 @@ python3 scripts/native_validation.py --root . --timeout 900 --report ../craft_na
 
 Source inventory and ZIP checking from V5 remain available. `verify-tree` works on an
 extracted ZIP, which carries the manifest it was packaged with; a Git checkout has
-none, so `package-zip` inventories it:
+none, so it's checked against its commit and `package-zip` inventories it. The gate's
+declared-root check (`root_policy: strict`) applies only to an extracted ZIP; a checkout's
+folder name is never checked, since it's packaging, not content:
 
 ```bash
 python3 scripts/source_bundle_integrity.py verify-tree --root path/to/extracted
