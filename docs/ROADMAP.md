@@ -205,6 +205,31 @@ cheapest help we can give anyone, so nothing below should hold it up for long.
       with the preflight receipt. The published-asset check stays the backstop. The external
       reusable workflow still decides which ZIP it attaches, so the draft check fails if it is not
       the preflight artifact
+- [x] Bind the draft check to this run's release instead of the newest draft: the job names the tag
+      the release should carry (`v` plus the workspace version, or the dispatch's version), lists
+      every release with `--paginate --slurp`, and requires exactly one draft with that tag,
+      refusing none, several, or one whose `target_commitish` names another commit
+      (`scripts/release_draft.py`). The source ZIP is still checked against the preflight receipt
+      and attestation. 17 Python regressions cover the tag, the selection and each refusal
+      — claimed: Devin, branch chore/security-and-release-gates
+- [x] Pin the shared release workflow to the commit it releases with: `release.yml` calls
+      `craft-common-actions/.github/workflows/release.yml@59d1ecc` (2026-11-16) instead of `@main`,
+      because that workflow receives the Apple, Windows and Azure signing secrets and an
+      unreviewed push there must not reach them. The secretless workflows (gate, packaging-lint,
+      sonarcloud, freebsd, windows-arm64) keep tracking `@main`; bumping the pin is a reviewed,
+      one-line change (`docs/releasing.md`)
+      — claimed: Devin, branch chore/security-and-release-gates
+- [x] Stop recording Python tool caches in the source manifest and re-baseline it: `main`'s
+      manifest named three `.ruff_cache` files a clean checkout lacks, so `verify-tree` failed on
+      `main` and the release preflight with it. `create` now ignores `.ruff_cache`,
+      `.pytest_cache` and `.mypy_cache` at any depth, and the manifest (935 files) was generated
+      from a clean export and verifies with `--require-declared-root`
+      — claimed: Devin, branch chore/security-and-release-gates
+- [x] Make `create` list tracked files (`git ls-files`) in a work tree instead of walking it, so an
+      untracked file at the root cannot enter the manifest; a tree without `.git` keeps the walk.
+      `create` also refuses a tree that holds files Git doesn't track, naming them as not source,
+      so a re-baseline can't describe a dirty checkout
+      — claimed: Devin, branch chore/security-and-release-gates
 - [ ] Run the preflight gate and the draft source check on the first real release, and confirm the
       external release workflow attaches the preflight source ZIP (or replace it before publishing)
 
@@ -300,6 +325,15 @@ only when it's green and a maintainer has fully reviewed it, code as well as wor
       keys) when rsa 0.10 lands, and unmaintained `zbus_names`/`zvariant` (Linux-only via keyring
       and accesskit) when those move on. `deny.toml`'s comments pointed at R0.3, which never held
       them; they name this line now — claimed: kuseidos, branch docs/r5.2-deny-points-at-its-own-roadmap-line
+- [x] Upgrade `p256`, `p384` and `rsa` so `crypto-bigint` is >=0.7.6 (RUSTSEC-2026-0387) and
+      `rsa` is >=0.10.0 (RUSTSEC-2023-0071), then run `cargo deny check advisories` in CI:
+      `p256`/`p384` 0.14 move to `elliptic-curve` 0.14 and `rsa` 0.10 to `signature` 3, which
+      changes the signing API. Landed as `p256`/`p384` 0.14.0, `rsa` 0.10.0 and `crypto-bigint`
+      0.7.11, with the `rsa` exception removed from `deny.toml`; the same sweep took `wasmtime`
+      49.0.5, `rustls-webpki` 0.103.17, `webpki-roots` 1.0.12 and the yanked `clipboard-win`, and
+      CI's `advisories` job runs the check. The SHA-1 RSA key type uses `sha1` 0.11 under the
+      `rsa-sha1` name, because `signature` 3's digest is 0.11 while the crate hashes with 0.10
+      — claimed: Devin, branch chore/security-and-release-gates
 - [ ] Check whether the release workflows still run actions that target Node.js 20. None is named
       here any more: every job calls `storytold/craft-common-actions@main`, so a fix belongs there
 - [x] Correct STATUS.md's obsolete GUI-only limit: document the shared project feed, engine
@@ -367,8 +401,22 @@ Every round spends the person's money or quota. One that can't do anything shoul
 - [x] A builder step on an API backend stops after 25 failed build commands in a row (none
       succeeding between), says so and keeps the project (`MAX_FAILED_BUILDS` in `agent.rs`, #399:
       9.4M tokens in 19 minutes of the first stage, never compiled). Try again carries on
-- [ ] **decision** Whether a build gets a token or cost limit of its own, beyond rounds and that
-      stop (#399): a model that changes code without ever running a build isn't caught by it
+- [x] **decision** Whether a build gets a token or cost limit of its own, beyond rounds and that
+      stop (#399): yes. `[ai] max_run_cost_usd` stops a run between turns, `max_daily_cost_usd`
+      stops one that would spend past the day's total (shared through `spend.json` beside
+      `config.toml`), and a start is refused once the day is spent. A coding agent's figure is its
+      own estimate at API prices; a turn that reports tokens but no cost is priced at the
+      model's list rate, and an agent that reports neither isn't counted
+      — claimed: Devin, branch chore/security-and-release-gates
+- [x] Hold the spend ledger across processes: a lock file beside `spend.json` is created
+      exclusively and released on drop, so the app and the CLI add their turns instead of writing
+      over each other. The wait is bounded (5 s, 10 ms polls), a lock older than 30 s is treated as
+      left by a dead process and cleared, and a wait that runs out stops the build rather than
+      spending unrecorded
+- [x] A ledger that can't be written stops enforcing the day's ceiling silently: `record_usage`
+      now remembers the failure and the run stops before its next turn with a plain error, because
+      a day's total it can't record is a ceiling it can't hold (the run's own ceiling is still
+      checked in memory)
 - [ ] Check live that the stop fires on a real API-backend build and the message reads well. It
       fired on a local Ollama build (the same built-in loop) after two turns that changed nothing
       in `app/` ("The build stopped after two builder turns changed no files in app/…"); an
@@ -957,11 +1005,13 @@ Owner: open · Status: in progress
       are parsed (`00:00`); the mechanics check skips `app/Original`, caps reads and entries and
       honors a stop; a failed process reader kills the child
       — claimed: Devin, branch bugfix/sandbox-root-uid
-- [ ] Upgrade `p256`/`ecdsa` so `crypto-bigint` is >=0.7.6 (RUSTSEC-2026-0387): `p256` 0.14
+- [x] Upgrade `p256`/`ecdsa` so `crypto-bigint` is >=0.7.6 (RUSTSEC-2026-0387): `p256` 0.14
       changes the signing API; the other advisories are patched (`wasmtime` 49.0.5,
-      `rustls-webpki` 0.103.17, `webpki-roots` 1.0.12)
-- [ ] Run `cargo deny check advisories` in CI once the `crypto-bigint` upgrade lands; the yanked
-      crates (`clipboard-win` 5.4.3, `async-executor` 1.14.1) are fixed
+      `rustls-webpki` 0.103.17, `webpki-roots` 1.0.12). Landed with `p256`/`p384` 0.14.0, `rsa`
+      0.10.0 and `crypto-bigint` 0.7.11 (R5.2)
+- [x] Run `cargo deny check advisories` in CI once the `crypto-bigint` upgrade lands; the yanked
+      crates (`clipboard-win` 5.4.3, `async-executor` 1.14.1) are fixed — the `advisories` job in
+      `ci.yml`
 - [ ] Bound the project folder's own disk use: `sandbox_disk_mb` limits the container's writable
       layer, not the `/work` bind mount, so a build can still fill the host's disk inside its
       project
@@ -972,9 +1022,12 @@ Owner: open · Status: in progress
 - [ ] **decision** Whether `sandbox_network` should default to `false`: today turning the sandbox
       on gives the container bridge networking, because package installs (`npm install`) need it;
       a build that only compiles what it already has would be safer with the network off
-- [ ] Confine the coding agent itself, or say on each adapter what it can be held to (its own
-      sandbox, our approvals, nothing) and have runs act on that: a Docker container needs the
-      agent's sign-in, its own tools and the project, which this change does not attempt
+- [x] Confine the coding agent itself, or say on each adapter what it can be held to (its own
+      sandbox, our approvals, nothing) and have runs act on that: `Bound`/`Confinement` on every
+      adapter (Claude Code asks our approval tool in a build, Codex confines its own work, every
+      other adapter says nothing), `rebuild_start`'s result carries all three, and
+      `[ai] require_confined_build` (on by default) refuses a build whose agent declares nothing
+      — claimed: Devin, branch chore/security-and-release-gates
 - [ ] Hold a chat or a question with a coding agent to the same policy: this change covers a
       build's agent, not the agent's own tools in a chat (their own approvals are R2.2's decision)
 - [ ] Sweep containers carrying the sandbox label at startup, for one left behind by a crash
@@ -982,9 +1035,12 @@ Owner: open · Status: in progress
 - [ ] Run the game probe inside a container on Linux, where the built game can be a Linux binary
       and a headless display is available; macOS and Windows build a native game that a Linux
       container can't run
-- [ ] Put the sandbox in Settings → Build, with a Docker image field: today it is only
-      `[build] sandbox = "docker"` in `config.toml`, because new UI strings need every
-      translation catalogue
+- [x] Put the sandbox in Settings → Build, with a Docker image field: Settings → Builds has a
+      Sandbox section — where build commands run (this computer or Docker), the network toggle,
+      what happens to routes that can't be confined (allow or refuse), and the image — saved with
+      the rest of the build settings. The eleven new strings are in all sixteen catalogues (a
+      native speaker should still check the security wording)
+      — claimed: Devin, branch chore/security-and-release-gates
 - [x] Run the check's own build in the container when the image has the toolchain, so
       `sandbox_unconfined = "refuse"` can verify a build instead of recording the build check as
       `unknown`: Rust and Node.js have images (`rust:1.99-slim-bookworm`, `node:22-bookworm`), the
@@ -1003,10 +1059,20 @@ Owner: open · Status: in progress
 - [x] Clean room outside builds (#564): a chat or question with Claude Code refuses the agent's own
       file, shell and web tools outright (`--disallowedTools`), not through its defaults; an ACP chat
       refuses them through an approver instead of a consent card (`docs/claude-code.md`)
-- [ ] Say on each adapter, as typed data, what it can be held to (asks us, its own sandbox,
-      nothing), in a build, a chat and a question, and have runs act on that, once the decision above
-      is made. Today Codex, Gemini CLI, OpenCode, Antigravity, Hermes and Maki are not held to
-      Clean room in a chat (their own sandbox, if any, is not established)
+- [x] Offer `require_confined_build` in Settings → AI: a "Refuse unconfined builds" switch, on by
+      default, saved through `AiHub::save_config`, with the help text saying what Off means; the
+      strings are in every catalogue (a native speaker should still check the security wording)
+      — claimed: Devin, branch chore/security-and-release-gates
+- [ ] Enforce the chat and question declarations: they are recorded now but no run acts on them,
+      and Codex's, Gemini CLI's, OpenCode's, Antigravity's, Hermes's and Maki's own sandboxes in a
+      chat are still not established. The decision above covers builds only, so a chat still runs
+      with whatever the agent allows itself; decide whether a chat needs a declared boundary too,
+      or whether reading with the person's access is what a chat is for
+- [ ] The key fallback file is plain text: when the OS keychain is unavailable, `keys.toml` keeps
+      API keys with owner-only permissions but no encryption, so anything running as the person (a
+      coding agent, a script) can read them. The confinement decision leaves that boundary to the
+      agent; decide whether to refuse the fallback, encrypt it, or say in Settings that the
+      keychain is the only protected store
 - [ ] Check live that a Clean room chat with Claude Code can't read a file outside its folder, and
       that an ACP chat in Clean room still reaches our tools (its permission requests for them are
       allowed, only its own read/write/command/fetch are refused)

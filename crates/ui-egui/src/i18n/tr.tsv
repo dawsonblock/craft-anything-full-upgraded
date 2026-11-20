@@ -1478,3 +1478,18 @@ The built app, checks and conversation move to a recoverable archive beside this
 The archive can be reopened later; this action does not permanently delete its contents.	Arşiv daha sonra yeniden açılabilir; bu işlem içeriğini kalıcı olarak silmez.
 Restore an archived project	Arşivlenmiş projeyi geri yükle
 Restored project: {path}	Proje geri yüklendi: {path}
+Build confinement	Derleme yalıtımı
+Refuse unconfined builds	Yalıtılmamış derlemeleri reddet
+A build whose agent declares neither its own sandbox nor our approval tool is refused before it starts. Off, it runs with your own access and the result says so.	Aracısı kendi korumalı alanını da bizim onayımızı da bildirmeyen bir derleme başlamadan reddedilir. Kapalıysa senin erişiminle çalışır ve sonuç bunu söyler.
+Sandbox	Korumalı alan
+Build commands	Derleme komutları
+Where a build's shell commands run. Docker sees only the project folder, as a non-root user, with the network off unless you allow it.	Bir derlemenin kabuk komutlarının çalıştığı yer. Docker yalnızca proje klasörünü görür, root olmayan kullanıcı olarak ve izin vermezsen ağ olmadan çalışır.
+Package installs need it. Off, a build can only use what the project already contains.	Paket kurulumları buna ihtiyaç duyar. Kapalıyken bir derleme yalnızca projede zaten olanı kullanabilir.
+Unconfined routes	Sınırlanmayan yollar
+What happens to a route that can't run in the container (a native game, a self-test, the coding agent) while the sandbox is on.	Korumalı alan açıkken konteynerde çalışamayan bir yolun (yerel bir oyun, kendi kendine test, kodlama aracısı) ne olacağı.
+Image	İmaj
+The Docker image a sandboxed build runs in; it needs the project's toolchain. A sha256 digest in config.toml pins it.	Sınırlanmış bir derlemenin çalıştığı Docker imajı; projenin araç zincirini içermelidir. config.toml içindeki sha256 özeti onu sabitler.
+On this computer	Bu bilgisayarda
+Sandbox image	Korumalı alan imajı
+debian:bookworm-slim	debian:bookworm-slim
+Docker	Docker

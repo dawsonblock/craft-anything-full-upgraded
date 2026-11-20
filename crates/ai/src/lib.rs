@@ -8,6 +8,7 @@
 
 pub mod agent;
 pub mod anthropic;
+pub mod budget;
 pub mod cli_agents;
 pub mod config;
 pub mod context;
@@ -406,7 +407,8 @@ impl AiHub {
         AiHub { engine, settings_path: Some(settings_path), keys }
     }
 
-    fn settings_path(&self) -> PathBuf {
+    /// Where this hub reads and writes `config.toml` (the spend ledger sits beside it).
+    pub fn settings_path(&self) -> PathBuf {
         self.settings_path.clone().unwrap_or_else(Settings::path)
     }
 

@@ -1478,3 +1478,18 @@ The built app, checks and conversation move to a recoverable archive beside this
 The archive can be reopened later; this action does not permanently delete its contents.	Podrás volver a abrir el archivo más tarde; esta acción no elimina definitivamente su contenido.
 Restore an archived project	Restaurar un proyecto archivado
 Restored project: {path}	Proyecto restaurado: {path}
+Build confinement	Confinamiento de builds
+Refuse unconfined builds	Rechazar builds sin confinar
+A build whose agent declares neither its own sandbox nor our approval tool is refused before it starts. Off, it runs with your own access and the result says so.	Un build cuyo agente no declara ni su propio sandbox ni nuestra aprobación se rechaza antes de empezar. Desactivado, se ejecuta con tu acceso y el resultado lo dice.
+Sandbox	Sandbox
+Build commands	Comandos de compilación
+Where a build's shell commands run. Docker sees only the project folder, as a non-root user, with the network off unless you allow it.	Dónde se ejecutan los comandos de shell de una compilación. Docker solo ve la carpeta del proyecto, como usuario no root, sin red salvo que lo permitas.
+Package installs need it. Off, a build can only use what the project already contains.	Las instalaciones de paquetes lo necesitan. Desactivado, una compilación solo puede usar lo que el proyecto ya contiene.
+Unconfined routes	Rutas sin confinar
+What happens to a route that can't run in the container (a native game, a self-test, the coding agent) while the sandbox is on.	Qué pasa con una ruta que no puede ejecutarse en el contenedor (un juego nativo, una autoprueba, el agente de código) mientras el sandbox está activo.
+Image	Imagen
+The Docker image a sandboxed build runs in; it needs the project's toolchain. A sha256 digest in config.toml pins it.	La imagen de Docker en la que se ejecuta una compilación confinada; necesita la cadena de herramientas del proyecto. Un digest sha256 en config.toml la fija.
+On this computer	En este ordenador
+Sandbox image	Imagen del sandbox
+debian:bookworm-slim	debian:bookworm-slim
+Docker	Docker

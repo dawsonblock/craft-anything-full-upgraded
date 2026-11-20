@@ -23,7 +23,9 @@ release: `gh workflow run ci.yml --ref main`. The other workflows (`freebsd.yml`
    packages the canonical source ZIP, verifies and extracts it, writes a receipt bound to the
    release commit, and attests the ZIP. A failure stops the platform jobs. After they finish, the
    **source-verify** job checks the source ZIP attached to the draft against that receipt; a
-   failure means the draft must not be published.
+   failure means the draft must not be published. It names the tag the release should carry
+   (`v` plus the workspace version, or the dispatch's version) and checks that exactly one draft
+   carries it, rather than trusting whichever draft is newest.
 3. Before publishing, download the `release-source-preflight` artifact and keep its receipt. The
    `source-verify` job already checks the draft's source ZIP against it. To repeat that check with
    the attestation (draft tags do not exist as Git refs until publication, so check the downloaded
@@ -47,6 +49,16 @@ release: `gh workflow run ci.yml --ref main`. The other workflows (`freebsd.yml`
 5. After publication, follow the ticket checklist below.
 
 A dry run of the unsigned platforms from any branch: `gh workflow run release.yml --ref <branch>`.
+
+## The shared release workflow is pinned
+
+`release.yml` calls `storytold/craft-common-actions/.github/workflows/release.yml` at a commit SHA,
+not `@main`, because that workflow receives the Apple, Windows and Azure signing secrets: an
+unreviewed push to the shared repository must not be able to reach them. Bumping the pin is a
+deliberate, reviewed change — look over the commits between the pinned SHA and the one you want,
+change the `uses:` line, and record the new SHA and date in the comment beside it. The workflows
+that take no secrets (`ci.yml`, `packaging-lint.yml`, `sonarcloud.yml`, `freebsd.yml`,
+`windows-arm64.yml`) still track `@main`, so org-wide improvements there arrive without churn.
 
 ## Before publishing: a Deep build from the packages
 

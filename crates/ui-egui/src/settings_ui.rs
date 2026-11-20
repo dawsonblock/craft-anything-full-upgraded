@@ -7,6 +7,7 @@ use crate::theme::{self, ThemeKind, Tokens};
 use crate::{CraftApp, Pick, icons, widgets};
 use craft_anything_ai::BackendKind;
 use craft_anything_engine::Mode;
+use craft_anything_engine::settings::{SandboxMode, Unconfined};
 use egui::{RichText, Ui, Vec2};
 use std::path::PathBuf;
 
@@ -858,6 +859,23 @@ pub(crate) fn server_form(app: &mut CraftApp, ui: &mut Ui) {
     if add {
         app.add_server();
     }
+    ui.add_space(16.0);
+    widgets::caption(ui, "Build confinement");
+    let mut confined = app.hub.config().require_confined_build;
+    row(
+        ui,
+        "Refuse unconfined builds",
+        "A build whose agent declares neither its own sandbox nor our approval tool is refused before it starts. Off, it runs with your own access and the result says so.",
+        |ui| {
+            if widgets::toggle(ui, &mut confined, "Refuse").changed() {
+                let mut cfg = app.hub.config();
+                cfg.require_confined_build = confined;
+                if let Err(e) = app.hub.save_config(&cfg) {
+                    app.toast(e.message, true);
+                }
+            }
+        },
+    );
 }
 
 /// A number field; true when it changed.
@@ -889,6 +907,45 @@ fn builds(app: &mut CraftApp, ui: &mut Ui) {
     });
     row(ui, "Builds at once", "How many projects may build at the same time. More wait their turn.", |ui| {
         changed |= number(ui, &mut b.parallel, 1..=8, "", "");
+    });
+    ui.add_space(8.0);
+    widgets::caption(ui, "Sandbox");
+    let docker = usize::from(b.sandbox == SandboxMode::Docker);
+    row(
+        ui,
+        "Build commands",
+        "Where a build's shell commands run. Docker sees only the project folder, as a non-root user, with the network off unless you allow it.",
+        |ui| {
+            if let Some(i) = widgets::segmented(ui, &["On this computer", "Docker"], docker, 30.0) {
+                b.sandbox = if i == 0 { SandboxMode::Off } else { SandboxMode::Docker };
+                changed = true;
+            }
+        },
+    );
+    row(ui, "Network", "Package installs need it. Off, a build can only use what the project already contains.", |ui| {
+        changed |= widgets::toggle(ui, &mut b.sandbox_network, "").changed();
+    });
+    let refuse = usize::from(b.sandbox_unconfined == Unconfined::Refuse);
+    row(
+        ui,
+        "Unconfined routes",
+        "What happens to a route that can't run in the container (a native game, a self-test, the coding agent) while the sandbox is on.",
+        |ui| {
+            if let Some(i) = widgets::segmented(ui, &["Allow", "Refuse"], refuse, 30.0) {
+                b.sandbox_unconfined = if i == 0 { Unconfined::Allow } else { Unconfined::Refuse };
+                changed = true;
+            }
+        },
+    );
+    row(ui, "Image", "The Docker image a sandboxed build runs in; it needs the project's toolchain. A sha256 digest in config.toml pins it.", |ui| {
+        let r = ui.add(
+            egui::TextEdit::singleline(&mut b.sandbox_image)
+                .hint_text(tr("debian:bookworm-slim"))
+                .desired_width((ui.available_width() - 24.0).clamp(120.0, 240.0))
+                .frame(widgets::text_field_frame_compact(&Tokens::get(ui.ctx()))),
+        );
+        widgets::named(r.clone(), &tr("Sandbox image"));
+        changed |= r.changed();
     });
     ui.add_space(8.0);
     widgets::caption(ui, "Generated art (games)");

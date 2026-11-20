@@ -456,6 +456,9 @@ fn notes_added_while_it_works_reach_the_agent_at_its_next_step() {
         usage: None,
         self_check: None,
         reset_progress_after_notes: false,
+        spend: None,
+        spend_failure: None,
+        price: None,
     };
     assert!(w.added(&mut ws, true, true).is_none(), "nothing added, nothing to say");
     use craft_anything_engine::questions::{self, AskedQuestion};
@@ -474,6 +477,82 @@ fn notes_added_while_it_works_reach_the_agent_at_its_next_step() {
     let shown: Vec<_> = events.iter().filter_map(|e| if let RunEvent::Note { shown, .. } = e { Some(shown.as_str()) } else { None }).collect();
     assert_eq!(shown, ["Make it faster", "A blue sky"]);
     assert!(matches!(events.last(), Some(RunEvent::Step { text, .. }) if text == "Reading what you added…"));
+}
+
+/// A ledger that can't be written stops the build: a day's total it can't record is a ceiling it
+/// can't hold.
+#[test]
+fn a_ledger_that_cannot_be_written_stops_the_run() {
+    let d = tempfile::tempdir().unwrap();
+    let ws = Workspace::create(d.path(), "x", "A thing", TargetRef::None).unwrap();
+    let (tx, _rx) = std::sync::mpsc::channel();
+    // A directory where the ledger file belongs: the write fails.
+    let ledger = d.path().join("spend.json");
+    std::fs::create_dir(&ledger).unwrap();
+    let mut w = Worker {
+        wake: Default::default(),
+        engine: Arc::new(Engine::new(craft_anything_engine::testing::session())),
+        tx,
+        stop: CancelToken::default(),
+        preview: Arc::default(),
+        seen: HashSet::new(),
+        inbox: Inbox::new(ws.inbox_dir()),
+        editor: None,
+        notes: Arc::default(),
+        feed: Arc::new(Mutex::new(feed::FeedLog::open(&ws))),
+        keys: crate::KeyStore::file_only(ws.root.join("keys.toml")),
+        assets: false,
+        decompiled: false,
+        usage: Some(UsageClock { root: ws.root.clone(), since: Instant::now() }),
+        self_check: None,
+        reset_progress_after_notes: false,
+        spend: crate::budget::SpendBudget::open(crate::budget::SpendLimits { run_usd: None, daily_usd: Some(10.0) }, ledger),
+        spend_failure: None,
+        price: None,
+    };
+    w.record_usage(Some((10, 5, Some(0.25), false)));
+    let error = w.spend_stop().expect("the run stops when its spending can't be recorded");
+    assert_eq!(error.code, ErrorCode::FileError);
+    assert!(error.message.contains("couldn't be recorded"), "{}", error.message);
+}
+
+/// An agent that reports tokens but no cost is priced at the model's list rate, so the ceiling sees
+/// the spending instead of treating the turn as free; a reported cost still wins.
+#[test]
+fn a_turn_with_tokens_but_no_cost_is_priced() {
+    let d = tempfile::tempdir().unwrap();
+    let ws = Workspace::create(d.path(), "x", "A thing", TargetRef::None).unwrap();
+    let (tx, _rx) = std::sync::mpsc::channel();
+    let ledger = d.path().join("spend.json");
+    let mut w = Worker {
+        wake: Default::default(),
+        engine: Arc::new(Engine::new(craft_anything_engine::testing::session())),
+        tx,
+        stop: CancelToken::default(),
+        preview: Arc::default(),
+        seen: HashSet::new(),
+        inbox: Inbox::new(ws.inbox_dir()),
+        editor: None,
+        notes: Arc::default(),
+        feed: Arc::new(Mutex::new(feed::FeedLog::open(&ws))),
+        keys: crate::KeyStore::file_only(ws.root.join("keys.toml")),
+        assets: false,
+        decompiled: false,
+        usage: Some(UsageClock { root: ws.root.clone(), since: Instant::now() }),
+        self_check: None,
+        reset_progress_after_notes: false,
+        spend: crate::budget::SpendBudget::open(crate::budget::SpendLimits { run_usd: None, daily_usd: Some(100.0) }, ledger.clone()),
+        spend_failure: None,
+        price: Some(crate::config::Price { input_per_mtok: 2.0, output_per_mtok: 10.0, cache_read_per_mtok: None, cache_write_per_mtok: None }),
+    };
+    // A million prompt tokens and half a million completion tokens at those rates: $2 + $5.
+    w.record_usage(Some((1_000_000, 500_000, None, false)));
+    let saved = std::fs::read_to_string(&ledger).unwrap();
+    assert!(saved.contains("7.0"), "{saved}");
+    // A reported cost is the agent's own figure and is not replaced by ours.
+    w.record_usage(Some((1_000_000, 0, Some(0.5), false)));
+    let saved = std::fs::read_to_string(&ledger).unwrap();
+    assert!(saved.contains("7.5"), "{saved}");
 }
 
 /// #857: a note handed over by a coding agent's tool hook never sees the after-turn message, so
@@ -1364,6 +1443,9 @@ fn an_api_backend_builds_with_the_build_tools() {
         usage: None,
         self_check: None,
         reset_progress_after_notes: false,
+        spend: None,
+        spend_failure: None,
+        price: None,
     };
     w.attach(&ws).unwrap();
     // The model writes a file with the Build tools, then answers.
@@ -1482,6 +1564,9 @@ fn the_mechanics_sheet_is_required_and_held_against_the_code() {
         usage: None,
         self_check: None,
         reset_progress_after_notes: false,
+        spend: None,
+        spend_failure: None,
+        price: None,
     };
     let check = |round| w.run_checks(&ws, &SheetKind, round).unwrap().remove(0);
 
@@ -1644,6 +1729,9 @@ mod picking_up_a_build {
         let engine = Arc::new(Engine::new(craft_anything_engine::testing::session()));
         let hub = AiHub::with_stores(engine, dir.path().join("settings.toml"), crate::KeyStore::file_only(dir.path().join("keys.toml")));
         let mut cfg = hub.config();
+        // The stand-in declares no boundary, so this bench accepts unconfined builds; the gate has
+        // its own tests.
+        cfg.require_confined_build = false;
         cfg.upsert(crate::BackendEntry {
             config: crate::BackendConfig {
                 name: "Stand-in".into(),
@@ -1716,6 +1804,100 @@ mod picking_up_a_build {
 
     fn prompts_given(b: &Bench) -> usize {
         std::fs::read_to_string(&b.prompts).unwrap_or_default().matches("===").count()
+    }
+
+    /// An agent that can't be held in is refused before it runs when the person asks for that.
+    #[test]
+    fn a_build_is_refused_when_the_agent_cannot_be_held_in() {
+        let b = bench();
+        let mut cfg = b.hub.config();
+        cfg.require_confined_build = true;
+        b.hub.engine.session().settings.ai = cfg.to_table().unwrap();
+        let ws = Workspace::create(&b.projects, "x", "A website for a bakery", TargetRef::None).unwrap();
+        let opts = RunOptions { backend: Some("Stand-in".into()), ..RunOptions::default() };
+        let error = match RebuildRun::start(&b.hub, Workspace::open(&ws.root).unwrap(), opts) {
+            Ok(_) => panic!("the run started with an agent that can't be held in"),
+            Err(e) => e,
+        };
+        assert_eq!(error.code, ErrorCode::BadSettings);
+        assert!(error.message.contains("can't be held in"), "{}", error.message);
+        assert_eq!(prompts_given(&b), 0, "nothing ran");
+    }
+
+    /// The gate is on in a configuration that doesn't mention it: what declares a boundary builds,
+    /// what declares nothing is refused, and the person's switch turns it off.
+    #[test]
+    fn the_confinement_gate_is_on_by_default() {
+        let cfg = crate::AiConfig::default();
+        assert!(cfg.require_confined_build);
+        let entry = |model: &str| crate::BackendEntry {
+            config: crate::BackendConfig {
+                name: model.into(),
+                kind: BackendKind::AgentCli,
+                model: model.into(),
+                base_url: None,
+                ssh_host: None,
+                enabled: true,
+            },
+            options: Default::default(),
+        };
+        for model in ["codex", "claude-code"] {
+            assert!(refuse_unconfined(&cfg, &entry(model)).is_ok(), "{model} declares a boundary");
+        }
+        for model in ["gemini-cli", "opencode", "antigravity", "hermes", "maki"] {
+            let error = refuse_unconfined(&cfg, &entry(model)).unwrap_err();
+            assert_eq!(error.code, ErrorCode::BadSettings, "{model}");
+            assert!(error.message.contains("can't be held in"), "{model}: {}", error.message);
+        }
+        let mut weakened = entry("codex");
+        weakened.options.args = vec!["--sandbox".into(), "danger-full-access".into()];
+        assert!(refuse_unconfined(&cfg, &weakened).is_err(), "a configured sandbox override is not the boundary the adapter names");
+        let mut allowed = cfg.clone();
+        allowed.require_confined_build = false;
+        assert!(refuse_unconfined(&allowed, &entry("gemini-cli")).is_ok(), "the person allowed a build with their own access");
+    }
+
+    /// A run ceiling stops a build before its first turn; the limits come from the config, not from
+    /// the caller, so a path that forgets to pass them (the app's own start) is held to them too.
+    #[test]
+    fn a_build_stops_at_its_own_spending_ceiling() {
+        let b = bench();
+        let mut cfg = b.hub.config();
+        cfg.max_run_cost_usd = Some(0.0);
+        b.hub.engine.session().settings.ai = cfg.to_table().unwrap();
+        let ws = Workspace::create(&b.projects, "x", "A website for a bakery", TargetRef::None).unwrap();
+        let opts = RunOptions { backend: Some("Stand-in".into()), ..RunOptions::default() };
+        let run = RebuildRun::start(&b.hub, Workspace::open(&ws.root).unwrap(), opts).unwrap();
+        let message = loop {
+            match run.rx.recv_timeout(Duration::from_secs(60)) {
+                Ok(RunEvent::Finished { ok, message, .. }) => {
+                    assert!(!ok, "the run claimed success past its ceiling");
+                    break message;
+                }
+                Ok(_) => {}
+                Err(e) => panic!("the run went away: {e}"),
+            }
+        };
+        assert!(message.contains("AI spending limit"), "{message}");
+        assert_eq!(prompts_given(&b), 0, "it stopped before the first turn");
+    }
+
+    /// A day already spent refuses the start itself, whichever caller asked for the run.
+    #[test]
+    fn a_spent_day_refuses_the_start() {
+        let b = bench();
+        let mut cfg = b.hub.config();
+        cfg.max_daily_cost_usd = Some(0.0);
+        b.hub.engine.session().settings.ai = cfg.to_table().unwrap();
+        let ws = Workspace::create(&b.projects, "x", "A website for a bakery", TargetRef::None).unwrap();
+        let opts = RunOptions { backend: Some("Stand-in".into()), ..RunOptions::default() };
+        let error = match RebuildRun::start(&b.hub, Workspace::open(&ws.root).unwrap(), opts) {
+            Ok(_) => panic!("the run started on a day already past its ceiling"),
+            Err(e) => e,
+        };
+        assert_eq!(error.code, ErrorCode::OverLimit);
+        assert!(error.message.contains("AI spending limit"), "{}", error.message);
+        assert_eq!(prompts_given(&b), 0, "nothing ran");
     }
 
     fn studied(feed: &[feed::FeedItem]) -> bool {
@@ -2627,6 +2809,9 @@ fn check_worker_in(ws: &Workspace, deep: bool, build: craft_anything_engine::set
         usage: None,
         self_check: None,
         reset_progress_after_notes: false,
+        spend: None,
+        spend_failure: None,
+        price: None,
         keys: crate::KeyStore::file_only(ws.root.join("keys.toml")),
     }
 }
@@ -3192,6 +3377,9 @@ fn preparing_the_builders_agent_does_not_lock_up() {
         usage: None,
         self_check: None,
         reset_progress_after_notes: false,
+        spend: None,
+        spend_failure: None,
+        price: None,
     };
     let entry = crate::BackendEntry {
         config: crate::BackendConfig {
@@ -3235,6 +3423,9 @@ fn the_run_answers_the_builders_own_check_during_its_turn() {
         usage: None,
         self_check: Some((Arc::new(SheetKind), 90.0)),
         reset_progress_after_notes: false,
+        spend: None,
+        spend_failure: None,
+        price: None,
     };
     let mut builder = ChecksItsWork { root: ws.root.clone(), asked: None, reply: None };
     let reply = w.turn(&mut ws, &mut builder, "Build it.", true, None).unwrap();
@@ -3433,6 +3624,9 @@ fn a_note_the_builder_took_at_a_step_joins_the_feed_and_isnt_sent_again() {
         usage: None,
         self_check: None,
         reset_progress_after_notes: false,
+        spend: None,
+        spend_failure: None,
+        price: None,
     };
     let dir = notes::notes_dir(&ws.inbox_dir());
     notes::hand_over(&dir, 1, "make the header blue").unwrap();
@@ -3793,6 +3987,9 @@ fn a_session_left_on_another_computer_starts_a_new_one_from_the_project() {
         usage: None,
         self_check: None,
         reset_progress_after_notes: false,
+        spend: None,
+        spend_failure: None,
+        price: None,
     };
     let first = resumed_elsewhere("THE BRIEF", &ws.manifest.last_reply, None);
     let reply = w.turn(&mut ws, &mut agent, "The person asks: make it blue", true, Some(first)).unwrap();
@@ -3849,6 +4046,9 @@ fn a_missing_session_with_nothing_to_start_from_is_said_plainly() {
         usage: None,
         self_check: None,
         reset_progress_after_notes: false,
+        spend: None,
+        spend_failure: None,
+        price: None,
     };
     let e = w
         .turn_with_wait(&mut ws, &mut agent, "Carry on.", true, None, |_, _| panic!("a missing session without a fresh start must not be retried"))
@@ -3916,6 +4116,9 @@ fn the_builders_conversation_travels_with_the_project() {
         usage: None,
         self_check: None,
         reset_progress_after_notes: false,
+        spend: None,
+        spend_failure: None,
+        price: None,
     };
     let adapter = KeepsSessions(store.path().to_path_buf());
     // No session yet, or one this computer doesn't have: nothing to keep, nothing said.
@@ -4000,6 +4203,9 @@ fn a_build_says_when_it_waits_for_an_analysis_started_earlier() {
         usage: None,
         self_check: None,
         reset_progress_after_notes: false,
+        spend: None,
+        spend_failure: None,
+        price: None,
     };
 
     // Another process is already analysing this program: a fresh lock beside its project.

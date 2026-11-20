@@ -30,8 +30,12 @@ jobs:
     uses: ./.github/workflows/fork-release-source-preflight.yml
   release:
     needs: source-preflight
-    # Intentionally tracked at @main (not SHA-pinned) so org-wide CI improvements, security fixes, and build optimizations propagate without PR churn across all craftapp repos.
-    uses: storytold/craft-common-actions/.github/workflows/release.yml@main
+    # Pinned to the commit this repository releases with, not @main: this workflow receives the
+    # Apple, Windows and Azure signing secrets, so an unreviewed push to craft-common-actions must
+    # not reach them. Bump it deliberately (docs/releasing.md), reviewing the commits you cross.
+    # The secretless workflows (gate, packaging-lint, sonarcloud, freebsd, windows-arm64) still
+    # track @main so org-wide improvements arrive without churn.
+    uses: storytold/craft-common-actions/.github/workflows/release.yml@59d1ecc4ea15ab59f8d60d38b147d5016c1f1385 # 2026-11-16 "Fix shared cache save policy and target paths (#253)"
     with:
       app-name: craft-anything
       app-title: "Craft Anything"
@@ -71,19 +75,25 @@ jobs:
         with:
           name: release-source-preflight
           path: ${{ runner.temp }}/preflight
-      - name: Find the draft release
+      - name: Find this run's draft release
         id: draft
         env:
           GH_TOKEN: ${{ github.token }}
+          INPUT_VERSION: ${{ inputs.version }}
+          SOURCE_COMMIT: ${{ github.sha }}
+          RELEASES: ${{ runner.temp }}/releases.json
+          DRAFT: ${{ runner.temp }}/draft.json
         run: |
-          release=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=30" \
-            --jq '[.[] | select(.draft)] | sort_by(.created_at) | last | if . == null then "" else "\(.id) \(.tag_name)" end')
-          if [ -z "$release" ]; then
-            echo "::error::No draft release was found after the release job"
-            exit 1
-          fi
-          echo "id=${release%% *}" >> "$GITHUB_OUTPUT"
-          echo "tag=${release#* }" >> "$GITHUB_OUTPUT"
+          # A draft records its tag before the Git tag exists and several drafts can be open, so
+          # name the tag this release should carry and require exactly one draft with it.
+          tag=$(python3 scripts/release_draft.py tag --root . --version "$INPUT_VERSION")
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$RELEASES"
+          python3 scripts/release_draft.py select \
+            --releases "$RELEASES" --tag "$tag" --commit "$SOURCE_COMMIT" > "$DRAFT"
+          id=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["id"])' "$DRAFT")
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "Draft release $id carries $tag" >> "$GITHUB_STEP_SUMMARY"
       - name: Download the draft's source asset
         env:
           GH_TOKEN: ${{ github.token }}

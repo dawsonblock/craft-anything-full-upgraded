@@ -147,19 +147,19 @@ pub fn verify_signature(spki: &[u8], scheme: SigScheme, msg: &[u8], sig: &[u8]) 
     }
 }
 
-fn rsa_key(pkcs1_der: &[u8]) -> Option<rsa::RsaPublicKey> {
+fn rsa_key(pkcs1_der: &[u8]) -> Option<rsa::PublicKey> {
     use rsa::pkcs1::DecodeRsaPublicKey;
-    rsa::RsaPublicKey::from_pkcs1_der(pkcs1_der).ok()
+    rsa::PublicKey::from_pkcs1_der(pkcs1_der).ok()
 }
 
 fn rsa_pkcs1v15(pkcs1_der: &[u8], d: Digest, msg: &[u8], sig: &[u8]) -> Verified {
     let Some(key) = rsa_key(pkcs1_der) else { return Verified::Invalid };
     let Ok(signature) = rsa::pkcs1v15::Signature::try_from(sig) else { return Verified::Invalid };
     let ok = match d {
-        Digest::Sha1 => rsa::pkcs1v15::VerifyingKey::<sha1::Sha1>::new(key).verify(msg, &signature).is_ok(),
-        Digest::Sha256 => rsa::pkcs1v15::VerifyingKey::<sha2::Sha256>::new(key).verify(msg, &signature).is_ok(),
-        Digest::Sha384 => rsa::pkcs1v15::VerifyingKey::<sha2::Sha384>::new(key).verify(msg, &signature).is_ok(),
-        Digest::Sha512 => rsa::pkcs1v15::VerifyingKey::<sha2::Sha512>::new(key).verify(msg, &signature).is_ok(),
+        Digest::Sha1 => rsa::pkcs1v15::VerifyingKey::<rsa_sha1::Sha1>::new(key).verify(msg, &signature).is_ok(),
+        Digest::Sha256 => rsa::pkcs1v15::VerifyingKey::<rsa::sha2::Sha256>::new(key).verify(msg, &signature).is_ok(),
+        Digest::Sha384 => rsa::pkcs1v15::VerifyingKey::<rsa::sha2::Sha384>::new(key).verify(msg, &signature).is_ok(),
+        Digest::Sha512 => rsa::pkcs1v15::VerifyingKey::<rsa::sha2::Sha512>::new(key).verify(msg, &signature).is_ok(),
     };
     if ok { Verified::Valid } else { Verified::Invalid }
 }
@@ -168,9 +168,9 @@ fn rsa_pss(pkcs1_der: &[u8], d: Digest, msg: &[u8], sig: &[u8]) -> Verified {
     let Some(key) = rsa_key(pkcs1_der) else { return Verified::Invalid };
     let Ok(signature) = rsa::pss::Signature::try_from(sig) else { return Verified::Invalid };
     let ok = match d {
-        Digest::Sha256 => rsa::pss::VerifyingKey::<sha2::Sha256>::new(key).verify(msg, &signature).is_ok(),
-        Digest::Sha384 => rsa::pss::VerifyingKey::<sha2::Sha384>::new(key).verify(msg, &signature).is_ok(),
-        Digest::Sha512 => rsa::pss::VerifyingKey::<sha2::Sha512>::new(key).verify(msg, &signature).is_ok(),
+        Digest::Sha256 => rsa::pss::VerifyingKey::<rsa::sha2::Sha256>::new(key).verify(msg, &signature).is_ok(),
+        Digest::Sha384 => rsa::pss::VerifyingKey::<rsa::sha2::Sha384>::new(key).verify(msg, &signature).is_ok(),
+        Digest::Sha512 => rsa::pss::VerifyingKey::<rsa::sha2::Sha512>::new(key).verify(msg, &signature).is_ok(),
         Digest::Sha1 => return Verified::unsupported("RSASSA-PSS with SHA-1 is not checked"),
     };
     if ok { Verified::Valid } else { Verified::Invalid }

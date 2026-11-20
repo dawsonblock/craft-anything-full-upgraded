@@ -1478,3 +1478,18 @@ The built app, checks and conversation move to a recoverable archive beside this
 The archive can be reopened later; this action does not permanently delete its contents.	สามารถเปิดที่เก็บถาวรได้อีกภายหลัง การดำเนินการนี้ไม่ลบเนื้อหาอย่างถาวร
 Restore an archived project	กู้คืนโปรเจกต์ที่เก็บถาวร
 Restored project: {path}	กู้คืนโปรเจกต์แล้ว: {path}
+Build confinement	การแยกบิลด์
+Refuse unconfined builds	ปฏิเสธบิลด์ที่ไม่ถูกแยก
+A build whose agent declares neither its own sandbox nor our approval tool is refused before it starts. Off, it runs with your own access and the result says so.	บิลด์ที่เอเจนต์ไม่ได้ประกาศแซนด์บ็อกซ์ของตนเองหรือใช้การอนุมัติของเราจะถูกปฏิเสธก่อนเริ่ม หากปิดไว้ บิลด์จะทำงานด้วยสิทธิ์ของคุณและผลลัพธ์จะบอกไว้
+Sandbox	แซนด์บ็อกซ์
+Build commands	คำสั่งบิลด์
+Where a build's shell commands run. Docker sees only the project folder, as a non-root user, with the network off unless you allow it.	ที่ที่คำสั่งเชลล์ของบิลด์ทำงาน Docker เห็นเฉพาะโฟลเดอร์โปรเจกต์ ทำงานเป็นผู้ใช้ที่ไม่ใช่ root และไม่มีเครือข่ายเว้นแต่คุณจะอนุญาต
+Package installs need it. Off, a build can only use what the project already contains.	การติดตั้งแพ็กเกจต้องใช้มัน หากปิด บิลด์จะใช้ได้เฉพาะสิ่งที่มีอยู่ในโปรเจกต์แล้ว
+Unconfined routes	เส้นทางที่ไม่ถูกแยก
+What happens to a route that can't run in the container (a native game, a self-test, the coding agent) while the sandbox is on.	จะเกิดอะไรกับเส้นทางที่ไม่สามารถทำงานในคอนเทนเนอร์ได้ (เกมเนทีฟ การทดสอบตนเอง เอเจนต์เขียนโค้ด) เมื่อเปิดแซนด์บ็อกซ์
+Image	อิมเมจ
+The Docker image a sandboxed build runs in; it needs the project's toolchain. A sha256 digest in config.toml pins it.	อิมเมจ Docker ที่บิลด์ที่ถูกแยกทำงานอยู่ ต้องมีชุดเครื่องมือของโปรเจกต์ ไดเจสต์ sha256 ใน config.toml จะปักหมุดมัน
+On this computer	บนคอมพิวเตอร์เครื่องนี้
+Sandbox image	อิมเมจแซนด์บ็อกซ์
+debian:bookworm-slim	debian:bookworm-slim
+Docker	Docker

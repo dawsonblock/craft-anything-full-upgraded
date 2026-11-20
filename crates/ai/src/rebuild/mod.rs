@@ -241,6 +241,10 @@ impl RebuildRun {
     pub fn start(hub: &AiHub, ws: Workspace, opts: RunOptions) -> Result<RebuildRun, ToolError> {
         let cfg = hub.config();
         let entry = builder_backend(&cfg, opts.backend.as_deref().or_else(|| project_builder(&cfg, &ws)))?;
+        refuse_unconfined(&cfg, &entry)?;
+        // A day's builds share one ledger, so a spent day refuses the start here as well: every
+        // caller (the app, the CLI, a tool) is held to it, not only the ones that check early.
+        crate::budget::refuse_over_daily(cfg.spend_limits(), &crate::budget::ledger_path(&hub.settings_path()))?;
         // The person's choice of mode is a session setting. A run that waited its turn uses the mode
         // now, not the one when it was queued; a tool holds the session while it starts a run, so it
         // passes the mode instead, and the saved settings are the last fallback.
@@ -308,6 +312,11 @@ impl RebuildRun {
                 .unwrap_or_else(PoisonError::into_inner)
                 .push(feed::FeedItem::Note(format!("This build runs on this computer, outside the Docker sandbox: {why}.")));
         }
+        let price = {
+            // An agent CLI names the model it runs separately; an API backend's model is the model.
+            let model = entry.options.cli_model.as_deref().unwrap_or(&entry.config.model);
+            cfg.prices.get(model).copied().or_else(|| crate::price::builtin(model))
+        };
         let ctx = Worker {
             wake: opts.wake.clone(),
             engine: hub.engine.clone(),
@@ -325,6 +334,9 @@ impl RebuildRun {
             self_check: None,
             reset_progress_after_notes: false,
             keys: hub.keys.clone(),
+            spend: crate::budget::SpendBudget::open(cfg.spend_limits(), crate::budget::ledger_path(&hub.settings_path())),
+            spend_failure: None,
+            price,
         };
         let r2 = running.clone();
         let key_store = hub.keys.clone();
@@ -524,6 +536,14 @@ struct Worker {
     reset_progress_after_notes: bool,
     /// The backends' stored keys, for an agent CLI that asks the host to authenticate (Devin).
     keys: crate::keys::KeyStore,
+    /// This run's spending against the `[ai]` ceilings (`None`: no ceiling is set).
+    spend: Option<crate::budget::SpendBudget>,
+    /// A turn's cost that couldn't be written to the ledger: the day's ceiling can't be held
+    /// without it, so the run stops instead of spending unrecorded.
+    spend_failure: Option<ToolError>,
+    /// The model's list price, when known: an agent that reports tokens but no cost is counted at
+    /// it, so the ceiling sees the spending rather than treating it as free.
+    price: Option<crate::config::Price>,
 }
 
 /// The project a run records its usage in, and when it last did.
@@ -594,21 +614,52 @@ fn refuse_deep_session_reuse_in_clean_room(ws: &Workspace, model: &str, args: &[
 
 impl Worker {
     /// Add the time worked since the last record (and an agent turn's tokens and reported cost)
-    /// to the project's usage.json. The run is its only writer; a failure is logged and the build
-    /// carries on.
+    /// to the project's usage.json and the day's spend ledger. A turn that reports tokens but no
+    /// cost is priced at the model's list rate. The run is usage.json's only writer; a failure is
+    /// logged and the build carries on.
     fn record_usage(&mut self, turn: Option<(u64, u64, Option<f64>, bool)>) {
-        let Some(clock) = self.usage.as_mut() else { return };
-        let ms = u64::try_from(clock.since.elapsed().as_millis()).unwrap_or(u64::MAX);
-        clock.since = Instant::now();
-        let saved = ProjectUsage::update(&clock.root, |u| {
-            u.work_ms = u.work_ms.saturating_add(ms);
-            if let Some((input, output, cost, estimate)) = turn {
-                u.add_turn(input, output, cost, estimate);
-            }
+        let turn = turn.map(|(input, output, reported, estimate)| {
+            let estimated = reported.is_none();
+            let cost = reported.or_else(|| self.price.map(|p| (input as f64 * p.input_per_mtok + output as f64 * p.output_per_mtok) / 1_000_000.0));
+            (input, output, cost, estimate || estimated)
         });
-        if let Err(e) = saved {
-            log::warn!("Couldn't save the project's usage in {}: {}", clock.root.display(), e.message);
+        if let Some(clock) = self.usage.as_mut() {
+            let ms = u64::try_from(clock.since.elapsed().as_millis()).unwrap_or(u64::MAX);
+            clock.since = Instant::now();
+            let saved = ProjectUsage::update(&clock.root, |u| {
+                u.work_ms = u.work_ms.saturating_add(ms);
+                if let Some((input, output, cost, estimate)) = turn {
+                    u.add_turn(input, output, cost, estimate);
+                }
+            });
+            if let Err(e) = saved {
+                log::warn!("Couldn't save the project's usage in {}: {}", clock.root.display(), e.message);
+            }
         }
+        if let Some((_, _, Some(cost), _)) = turn
+            && let Some(budget) = self.spend.as_mut()
+            && let Err(e) = budget.add(cost)
+        {
+            log::warn!("Couldn't record this build's AI spending: {}", e.message);
+            self.spend_failure = Some(
+                ToolError::new(
+                    ErrorCode::FileError,
+                    format!("This build stopped because its AI spending couldn't be recorded: {}", e.message),
+                )
+                .with_remediation(
+                    "The day's spending ceiling can't be enforced without the ledger. Check that the folder holding config.toml is writable, then continue the build.",
+                ),
+            );
+        }
+    }
+
+    /// The ceiling this run has reached, or a ledger failure that stops it: a day's total it
+    /// can't record is a ceiling it can't hold.
+    fn spend_stop(&mut self) -> Option<ToolError> {
+        if let Some(error) = self.spend_failure.take() {
+            return Some(error);
+        }
+        self.spend.as_mut().and_then(|b| b.exceeded())
     }
 
     /// Recorded and sent under one lock, so [`RebuildRun::feed_now`] sees each event once.
@@ -912,6 +963,11 @@ impl Worker {
         // The builder finished and only the check didn't: the build is there to check.
         let mut only_check = carrying_on && !first && opts.message.is_none() && ws.manifest.awaiting_check;
         loop {
+            // A ceiling reached by this run (or by another build today) stops it before it spends
+            // again; the turn that crossed the line has already finished.
+            if let Some(error) = self.spend_stop() {
+                return Err(error);
+            }
             if !std::mem::take(&mut only_check) {
                 progress = BuildProgress::load(&ws.root)?;
                 if let Some(fingerprint) = self.progress_fingerprint(ws, &mut progress, &mut progress_available, &mut fingerprints)? {
@@ -951,6 +1007,9 @@ impl Worker {
                         return Err(error);
                     }
                 };
+                if let Some(error) = self.spend_stop() {
+                    return Err(error);
+                }
                 // Only a finished turn counts: telling the builder twice costs little, and a turn that
                 // failed may not have told it at all.
                 let told = std::mem::take(&mut asked);
@@ -1621,6 +1680,24 @@ pub fn builder_replacement(cfg: &crate::AiConfig, ws: &Workspace, explicit: Opti
 /// English for now: the wording needs a native speaker's check before it joins the catalogs.
 pub fn replaced_builder_notice(saved: &str, used: &str) -> String {
     format!("The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.")
+}
+
+/// Refuse a build when `[ai] require_confined_build` is on (the default) and this AI can't be held in.
+pub fn refuse_unconfined(cfg: &crate::AiConfig, entry: &crate::BackendEntry) -> Result<(), ToolError> {
+    if !cfg.require_confined_build {
+        return Ok(());
+    }
+    let confinement = crate::cli_agents::confinement_for(entry);
+    if !confinement.build_is_unconfined() {
+        return Ok(());
+    }
+    Err(ToolError::new(
+        ErrorCode::BadSettings,
+        format!("{} can't be held in during a build: it runs with your own access, and `[ai] require_confined_build` is on.", entry.config.name),
+    )
+    .with_remediation(
+        "Build with Claude Code (it asks us before edits and commands) or Codex (it confines its own work), or set `require_confined_build = false` under `[ai]` in config.toml to accept a build with your own access.",
+    ))
 }
 
 /// The backend that builds: the one named while it is set up and on, else the Builder role's,

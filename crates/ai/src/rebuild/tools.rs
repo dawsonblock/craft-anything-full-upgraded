@@ -306,6 +306,13 @@ fn rebuild_start(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolErr
     })?;
     let runs = runs(ctx);
     let cfg = crate::AiConfig::from_settings(&ctx.session.settings);
+    // Refuse a start that can only spend money it may not, before a project or pictures are made.
+    crate::budget::refuse_over_daily(cfg.spend_limits(), &crate::budget::ledger_path(&ctx.session.config_dir().join("config.toml")))?;
+    // A new project would leave its folder behind if the run then refused its agent; check first.
+    if p.project.is_none() {
+        let entry = super::builder_backend(&cfg, p.backend.as_deref())?;
+        super::refuse_unconfined(&cfg, &entry)?;
+    }
     // Refuse an unknown or switched-off name before opening or making a project or adding pictures:
     // a refused start must not leave anything behind.
     if let Some(name) = p.backend.as_deref() {
@@ -358,6 +365,9 @@ fn rebuild_start(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolErr
         return Err(ToolError::new(ErrorCode::BadInput, "This project is already building.")
             .with_remediation("Add to it with rebuild_note, or stop it with rebuild_stop."));
     }
+    // What the builder can be held to, as data, so a caller can decide rather than read prose.
+    let builder = super::builder_backend(&cfg, p.backend.as_deref().or_else(|| super::project_builder(&cfg, &ws)))?;
+    let confinement = crate::cli_agents::confinement_for(&builder);
     let root = ws.root.clone();
     let opts = RunOptions {
         backend: p.backend,
@@ -387,6 +397,15 @@ fn rebuild_start(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolErr
     }
     if let Some(why) = agent_outside {
         out["sandbox"] = json!({"runs": "on this computer, outside the Docker sandbox", "why": why});
+    }
+    out["agent_confinement"] = json!({
+        "build": confinement.build.as_str(),
+        "chat": confinement.chat.as_str(),
+        "question": confinement.question.as_str(),
+    });
+    if confinement.build_is_unconfined() {
+        out["agent_confinement_note"] =
+            json!(format!("{} runs with your own access during a build: it doesn't ask us before edits or commands.", builder.config.name));
     }
     Ok(ToolOutput::Value(out))
 }
@@ -657,7 +676,8 @@ mod tests {
     fn rebuild_start_carries_the_sandbox_policy_when_the_session_is_held() {
         let d = tempfile::tempdir().unwrap();
         let mut s = craft_anything_engine::testing::session();
-        let mut ai = crate::AiConfig::default();
+        // This test is about the sandbox policy, not the agent gate: let the stand-in build.
+        let mut ai = crate::AiConfig { require_confined_build: false, ..Default::default() };
         ai.upsert(crate::BackendEntry {
             config: crate::BackendConfig {
                 name: "Stand-in".into(),

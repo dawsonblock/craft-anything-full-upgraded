@@ -237,6 +237,29 @@ class SourceBundleIntegrityTests(unittest.TestCase):
             self.assertEqual(sentinel.read_text(encoding="utf-8"), "untouched")
             self.assertFalse(any(install.glob(".verified-source-*")))
 
+    def test_verified_extraction_never_replaces_a_root_that_appears_while_staging(self):
+        with tempfile.TemporaryDirectory() as temp:
+            parent = Path(temp)
+            root = self.sample(parent)
+            archive = parent / "source.zip"
+            self.package(root, archive)
+            install = parent / "install"
+            install.mkdir()
+            target = install.resolve() / root.name
+            real_mkdir = os.mkdir
+
+            def racing_mkdir(path, *args, **kwargs):
+                if Path(path) == target:
+                    real_mkdir(path, *args, **kwargs)
+                    raise FileExistsError(path)
+                return real_mkdir(path, *args, **kwargs)
+
+            with patch("os.mkdir", side_effect=racing_mkdir):
+                with self.assertRaisesRegex(IntegrityError, "appeared during staging"):
+                    extract_verified_zip(archive, install)
+            self.assertEqual(list(target.iterdir()), [], "the racing writer's empty root is left alone")
+            self.assertFalse(any(install.glob(".verified-source-*")))
+
     def test_verified_extraction_does_not_create_output_on_tampering(self):
         with tempfile.TemporaryDirectory() as temp:
             parent = Path(temp)
@@ -384,16 +407,14 @@ class SourceBundleIntegrityTests(unittest.TestCase):
             with self.assertRaises(IntegrityError):
                 verify_tree(root)
 
-    def test_root_tool_caches_are_ignored_but_nested_cache_files_are_not(self):
+    def test_python_tool_caches_are_ignored_at_any_depth(self):
         with tempfile.TemporaryDirectory() as temp:
             root = self.sample(Path(temp))
-            for cache in (".ruff_cache", ".pytest_cache"):
-                (root / cache / "v").mkdir(parents=True)
-                (root / cache / "CACHEDIR.TAG").write_text("Signature: 8a477f597d28d172789f06886806bc55", encoding="utf-8")
-                (root / cache / "v" / "cache").write_bytes(b"transient")
+            for cache in (root / ".ruff_cache" / "0.16.0", root / "scripts" / ".pytest_cache" / "v"):
+                cache.mkdir(parents=True)
+                (cache / "entry").write_bytes(b"tool cache")
             self.assertEqual(verify_tree(root)["status"], "verified")
-            (root / "src" / ".ruff_cache").mkdir()
-            (root / "src" / ".ruff_cache" / "not-a-cache.rs").write_text("fn main() {}\n", encoding="utf-8")
+            (root / "scripts" / "new_source.py").write_text("new source", encoding="utf-8")
             with self.assertRaises(IntegrityError):
                 verify_tree(root)
 
@@ -502,6 +523,41 @@ class SourceBundleIntegrityTests(unittest.TestCase):
                 )
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertEqual(json.loads(result.stdout)["status"], "verified")
+
+    def test_create_refuses_untracked_files_in_a_work_tree(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = self.sample(Path(temp))
+            subprocess.run(["git", "-C", str(root), "init", "-q"], check=True, capture_output=True)
+            subprocess.run(
+                ["git", "-C", str(root), "add", "README.md", "src/app.rs", MANIFEST_NAME],
+                check=True, capture_output=True,
+            )
+            run = lambda: subprocess.run(  # noqa: E731 - one command, two phases
+                [sys.executable, str(SCRIPTS / "source_bundle_integrity.py"), "create", "--root", str(root)],
+                capture_output=True, text=True, timeout=30, check=False,
+            )
+            self.assertEqual(run().returncode, 0, "only tracked files")
+            (root / "scratch.txt").write_text("local notes", encoding="utf-8")
+            refused = run()
+            self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
+            self.assertIn("doesn't track", refused.stdout)
+
+    def test_create_refuses_a_checkout_renamed_from_the_declared_root(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = self.sample(Path(temp))
+            renamed = root.with_name("craft-anything-full-upgraded-bugfix-sandbox-root-uid 3")
+            root.rename(renamed)
+            result = subprocess.run(
+                [sys.executable, str(SCRIPTS / "source_bundle_integrity.py"), "create", "--root", str(renamed)],
+                capture_output=True, text=True, timeout=10, check=False,
+            )
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("declares the source root", result.stdout)
+            self.assertEqual(
+                json.loads((renamed / MANIFEST_NAME).read_text(encoding="utf-8"))["root"],
+                "craft-anything-full-upgraded",
+                "the declared root is kept",
+            )
 
 
 if __name__ == "__main__":

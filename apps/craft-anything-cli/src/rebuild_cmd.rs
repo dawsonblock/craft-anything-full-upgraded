@@ -113,6 +113,13 @@ fn run(cli: &Cli, a: &RebuildArgs) -> Result<bool, ToolError> {
     if let Some(name) = a.backend.as_deref() {
         rebuild::builder_backend(&hub.config(), Some(name))?;
     }
+    // Refuse a start that can only spend money it may not, before a project folder is made.
+    craft_anything_ai::budget::refuse_over_daily(hub.config().spend_limits(), &craft_anything_ai::budget::ledger_path(&hub.settings_path()))?;
+    // A new project would leave its folder behind if the run then refused its agent; check first.
+    if a.continue_in.is_none() {
+        let entry = rebuild::builder_backend(&hub.config(), a.backend.as_deref())?;
+        rebuild::refuse_unconfined(&hub.config(), &entry)?;
+    }
     let (ws, message) = match &a.continue_in {
         Some(dir) => (Workspace::open(&std::path::absolute(dir).map_err(|e| ToolError::io(dir.display(), e))?)?, (!a.resume).then(|| a.request.clone())),
         None => {

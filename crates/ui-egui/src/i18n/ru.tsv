@@ -1478,3 +1478,18 @@ The built app, checks and conversation move to a recoverable archive beside this
 The archive can be reopened later; this action does not permanently delete its contents.	Архив можно будет открыть позже; эта операция не удаляет его содержимое безвозвратно.
 Restore an archived project	Восстановить архивный проект
 Restored project: {path}	Проект восстановлен: {path}
+Build confinement	Ограничение сборок
+Refuse unconfined builds	Отклонять незащищённые сборки
+A build whose agent declares neither its own sandbox nor our approval tool is refused before it starts. Off, it runs with your own access and the result says so.	Сборка, агент которой не заявляет ни собственную песочницу, ни наше подтверждение, отклоняется до запуска. Если выключено, она выполняется с вашим доступом, и результат это сообщает.
+Sandbox	Песочница
+Build commands	Команды сборки
+Where a build's shell commands run. Docker sees only the project folder, as a non-root user, with the network off unless you allow it.	Где выполняются shell-команды сборки. Docker видит только папку проекта, работает не от root и без сети, если вы не разрешите.
+Package installs need it. Off, a build can only use what the project already contains.	Установка пакетов требует его. Выключено — сборка может использовать только то, что уже есть в проекте.
+Unconfined routes	Неограниченные маршруты
+What happens to a route that can't run in the container (a native game, a self-test, the coding agent) while the sandbox is on.	Что происходит с маршрутом, который не может работать в контейнере (нативная игра, самотест, агент), пока песочница включена.
+Image	Образ
+The Docker image a sandboxed build runs in; it needs the project's toolchain. A sha256 digest in config.toml pins it.	Образ Docker, в котором работает изолированная сборка; в нём должен быть инструментарий проекта. sha256-дайджест в config.toml закрепляет его.
+On this computer	На этом компьютере
+Sandbox image	Образ песочницы
+debian:bookworm-slim	debian:bookworm-slim
+Docker	Docker

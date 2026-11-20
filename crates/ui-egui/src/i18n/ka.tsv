@@ -1478,3 +1478,18 @@ The built app, checks and conversation move to a recoverable archive beside this
 The archive can be reopened later; this action does not permanently delete its contents.	არქივის ხელახლა გახსნა მოგვიანებით შეგიძლიათ; ეს მოქმედება მის შიგთავსს სამუდამოდ არ წაშლის.
 Restore an archived project	დაარქივებული პროექტის აღდგენა
 Restored project: {path}	პროექტი აღდგენილია: {path}
+Build confinement	აწყობის შემოფარგვლა
+Refuse unconfined builds	არაშემოფარგლული აწყობების უარყოფა
+A build whose agent declares neither its own sandbox nor our approval tool is refused before it starts. Off, it runs with your own access and the result says so.	აწყობა, რომლის აგენტიც არ აცხადებს არც საკუთარ sandbox-ს და არც ჩვენს დადასტურებას, უარყოფილი იქნება დაწყებამდე. გამორთული: იმუშავებს თქვენი წვდომით და შედეგი ამას იტყვის.
+Sandbox	Sandbox
+Build commands	აწყობის ბრძანებები
+Where a build's shell commands run. Docker sees only the project folder, as a non-root user, with the network off unless you allow it.	სად ეშვება აწყობის shell ბრძანებები. Docker ხედავს მხოლოდ პროექტის საქაღალდეს, მუშაობს არა-root მომხმარებლად და ქსელის გარეშე, თუ არ დაუშვებ.
+Package installs need it. Off, a build can only use what the project already contains.	პაკეტების ინსტალაციას სჭირდება. გამორთული: აწყობა მხოლოდ პროექტში უკვე არსებულს გამოიყენებს.
+Unconfined routes	შეუზღუდავი მარშრუტები
+What happens to a route that can't run in the container (a native game, a self-test, the coding agent) while the sandbox is on.	რა მოუვა მარშრუტს, რომელიც კონტეინერში ვერ გაეშვება (ნატიური თამაში, თვითტესტი, კოდირების აგენტი), როცა sandbox ჩართულია.
+Image	იმიჯი
+The Docker image a sandboxed build runs in; it needs the project's toolchain. A sha256 digest in config.toml pins it.	Docker-ის იმიჯი, რომელშიც იზოლირებული აწყობა მუშაობს; მას პროექტის ხელსაწყოები სჭირდება. config.toml-ში sha256 digest ამაგრებს მას.
+On this computer	ამ კომპიუტერზე
+Sandbox image	Sandbox-ის იმიჯი
+debian:bookworm-slim	debian:bookworm-slim
+Docker	Docker

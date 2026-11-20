@@ -1478,3 +1478,18 @@ The built app, checks and conversation move to a recoverable archive beside this
 The archive can be reopened later; this action does not permanently delete its contents.	Arhiivi saab hiljem uuesti avada; see toiming ei kustuta selle sisu jäädavalt.
 Restore an archived project	Taasta arhiveeritud projekt
 Restored project: {path}	Projekt taastatud: {path}
+Build confinement	Ehituse isoleerimine
+Refuse unconfined builds	Keeldu isoleerimata ehitustest
+A build whose agent declares neither its own sandbox nor our approval tool is refused before it starts. Off, it runs with your own access and the result says so.	Ehitus, mille agent ei teata oma liivakasti ega meie kinnitust, lükatakse enne algust tagasi. Väljas: see töötab sinu õigustega ja tulemus ütleb seda.
+Sandbox	Liivakast
+Build commands	Ehituse käsud
+Where a build's shell commands run. Docker sees only the project folder, as a non-root user, with the network off unless you allow it.	Kus ehituse shell-käsud jooksevad. Docker näeb ainult projekti kausta, töötab mitte-root kasutajana ja ilma võrguta, kui sa ei luba.
+Package installs need it. Off, a build can only use what the project already contains.	Pakettide paigaldus vajab seda. Väljas: ehitus saab kasutada ainult seda, mis projektis juba on.
+Unconfined routes	Piiramata teed
+What happens to a route that can't run in the container (a native game, a self-test, the coding agent) while the sandbox is on.	Mis juhtub teega, mida ei saa konteineris käivitada (natiivne mäng, enesetest, kodeerimisagent), kui liivakast on sees.
+Image	Kujutis
+The Docker image a sandboxed build runs in; it needs the project's toolchain. A sha256 digest in config.toml pins it.	Dockeri kujutis, milles isoleeritud ehitus jookseb; see vajab projekti tööriistaketti. config.toml-is olev sha256 digest kinnitab selle.
+On this computer	Selles arvutis
+Sandbox image	Liivakasti kujutis
+debian:bookworm-slim	debian:bookworm-slim
+Docker	Docker

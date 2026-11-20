@@ -6,9 +6,10 @@
 
 use crate::android::{der, der_oid};
 use p256::ecdsa::{Signature as P256Sig, SigningKey as P256Sk, VerifyingKey as P256Vk};
+use p256::elliptic_curve::Generate as _;
 use rsa::pkcs1::EncodeRsaPublicKey;
 use rsa::signature::{SignatureEncoding, Signer};
-use rsa::{RsaPrivateKey, RsaPublicKey};
+use rsa::{PrivateKey, PublicKey};
 use sha2::{Digest, Sha256};
 use std::sync::OnceLock;
 
@@ -30,38 +31,38 @@ fn dn(cn: &str, o: &str) -> Vec<u8> {
 // ---------------------------------------------------------------------------------------------
 // Keys (generated once, reused)
 
-fn rsa_key() -> &'static RsaPrivateKey {
-    static KEY: OnceLock<RsaPrivateKey> = OnceLock::new();
+fn rsa_key() -> &'static PrivateKey {
+    static KEY: OnceLock<PrivateKey> = OnceLock::new();
     KEY.get_or_init(|| {
-        let mut rng = rand::thread_rng();
-        RsaPrivateKey::new(&mut rng, 2048).expect("rsa keygen")
+        let mut rng = rand::rng();
+        PrivateKey::new(&mut rng, 2048).expect("rsa keygen")
     })
 }
 
 fn p256_key() -> &'static P256Sk {
     static KEY: OnceLock<P256Sk> = OnceLock::new();
     KEY.get_or_init(|| {
-        let mut rng = rand::thread_rng();
-        P256Sk::random(&mut rng)
+        let mut rng = rand::rng();
+        P256Sk::generate_from_rng(&mut rng)
     })
 }
 
 /// The RSA key's `subjectPublicKeyInfo` (DER).
 pub fn rsa_spki() -> Vec<u8> {
-    let pkcs1 = RsaPublicKey::from(rsa_key()).to_pkcs1_der().expect("pkcs1").as_bytes().to_vec();
+    let pkcs1 = PublicKey::from(rsa_key()).to_pkcs1_der().expect("pkcs1").as_bytes().to_vec();
     seq(&[seq(&[der_oid("1.2.840.113549.1.1.1"), der(0x05, &[])]), bit_string(&pkcs1)])
 }
 
 /// The P-256 key's `subjectPublicKeyInfo` (DER).
 pub fn p256_spki() -> Vec<u8> {
     let vk = P256Vk::from(p256_key());
-    let point = vk.to_encoded_point(false);
+    let point = vk.to_sec1_point(false);
     seq(&[seq(&[der_oid("1.2.840.10045.2.1"), der_oid("1.2.840.10045.3.1.7")]), bit_string(point.as_bytes())])
 }
 
 /// Sign `msg` with the RSA key (PKCS#1 v1.5, SHA-256).
 pub fn rsa_sign_sha256(msg: &[u8]) -> Vec<u8> {
-    let sk = rsa::pkcs1v15::SigningKey::<Sha256>::new(rsa_key().clone());
+    let sk = rsa::pkcs1v15::SigningKey::<rsa::sha2::Sha256>::new(rsa_key().clone());
     sk.sign(msg).to_vec()
 }
 

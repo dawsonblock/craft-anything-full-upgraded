@@ -506,6 +506,18 @@ systems with `cargo check --target`, with zig as the C compiler for `ring` (a wr
 so #53 merged with a long line rustfmt rewraps. Run `cargo fmt --all --check` last, after every
 edit, right before committing.
 
+**A dependency upgrade that read the wrong digest.** `rsa` 0.10 verifies through `signature` 3,
+whose `digest` is 0.11, while the rest of the crate hashes with `sha2` 0.10: passing the workspace's
+`sha2::Sha256` to `pkcs1v15::VerifyingKey` fails with a wall of unsatisfied bounds. Use the digest
+crate the crypto crate re-exports (`rsa::sha2::*`), and add the matching `sha1` 0.11 under a second
+name (`rsa-sha1`) for the one SHA-1 key type, instead of bumping the crate's own hashing version.
+
+**A stale advisory database that said "no advisory" and a stale index that said "yanked".** A local
+RustSec checkout from weeks before hid RUSTSEC-2026-0387 (`crypto-bigint`), so `cargo audit` looked
+clean; later, an index cache flagged `async-executor` 1.14.1 as yanked while crates.io said it was
+not. Fetch the database and refresh the index (`cargo update`) before trusting either answer, and
+check the advisory's own `Solution` line rather than a remembered version.
+
 ## Design
 
 **A round of checks that nothing could stop.** The builder's own checks ran one after another on
@@ -1069,3 +1081,9 @@ before its worker exists.
 the project, but `BuildCheck`'s container, the mechanics scan and the host checks followed it. A
 path that is the project boundary belongs in `Workspace` (`app_dir_checked`/`ensure_app_dir`), not
 in one tool, and every route that runs or reads the app must use it.
+**A default flipped in one place only.** `AiConfig` derived `Default`, and serde's container
+`#[serde(default)]` builds a config from it, so a field-level `#[serde(default)]` on
+`require_confined_build` would have answered "off" for a missing key while the parsed config said
+"on". When a field's default isn't its type's default, implement `Default` by hand, drop the
+field-level attribute, and test both paths (an empty table and `AiConfig::default()`) — otherwise
+the gate silently reopens through whichever path forgot.
