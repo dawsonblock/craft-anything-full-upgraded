@@ -1481,6 +1481,13 @@ Restored project: {path}	Đã khôi phục dự án: {path}
 Build confinement	Cô lập bản dựng
 Refuse unconfined builds	Từ chối bản dựng không được cô lập
 A build whose agent declares neither its own sandbox nor our approval tool is refused before it starts. Off, it runs with your own access and the result says so.	Bản dựng mà tác nhân không khai báo hộp cát riêng hay công cụ phê duyệt của chúng tôi sẽ bị từ chối trước khi bắt đầu. Khi tắt, nó chạy với quyền của bạn và kết quả sẽ nói rõ.
+Spending limits	Giới hạn chi tiêu
+Most per build	Tối đa mỗi bản dựng
+A build stops between turns once its AI cost reaches this, in US dollars. Empty: no limit.	Một bản dựng dừng giữa các lượt khi chi phí AI của nó đạt mức này, tính bằng đô la Mỹ. Để trống: không giới hạn.
+Most per day	Tối đa mỗi ngày
+Builds stop, and new ones don't start, once today's AI cost (UTC) reaches this, in US dollars. Empty: no limit.	Các bản dựng dừng lại, và bản dựng mới không bắt đầu, khi chi phí AI hôm nay (UTC) đạt mức này, tính bằng đô la Mỹ. Để trống: không giới hạn.
+No limit	Không giới hạn
+Enter an amount in US dollars, zero or more, or leave it empty for no limit.	Nhập một số tiền bằng đô la Mỹ, từ 0 trở lên, hoặc để trống nếu không muốn giới hạn.
 Sandbox	Hộp cát
 Build commands	Lệnh dựng
 Where a build's shell commands run. Docker sees only the project folder, as a non-root user, with the network off unless you allow it.	Nơi các lệnh shell của bản dựng chạy. Docker chỉ thấy thư mục dự án, chạy với người dùng không phải root, không có mạng trừ khi bạn cho phép.

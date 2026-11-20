@@ -1481,6 +1481,13 @@ Restored project: {path}	Projekt obnoven: {path}
 Build confinement	Izolace buildů
 Refuse unconfined builds	Odmítat neizolované buildy
 A build whose agent declares neither its own sandbox nor our approval tool is refused before it starts. Off, it runs with your own access and the result says so.	Build, jehož agent nehlásí vlastní sandbox ani naše schvalování, se odmítne před spuštěním. Vypnuto: běží s tvým přístupem a výsledek to uvede.
+Spending limits	Limity útraty
+Most per build	Nejvýše za build
+A build stops between turns once its AI cost reaches this, in US dollars. Empty: no limit.	Build se zastaví mezi tahy, jakmile jeho náklady na AI dosáhnou této částky v amerických dolarech. Prázdné: bez limitu.
+Most per day	Nejvýše za den
+Builds stop, and new ones don't start, once today's AI cost (UTC) reaches this, in US dollars. Empty: no limit.	Buildy se zastaví a nové se nespustí, jakmile dnešní náklady na AI (UTC) dosáhnou této částky v amerických dolarech. Prázdné: bez limitu.
+No limit	Bez limitu
+Enter an amount in US dollars, zero or more, or leave it empty for no limit.	Zadejte částku v amerických dolarech, nula nebo více, nebo nechte pole prázdné pro žádný limit.
 Sandbox	Sandbox
 Build commands	Příkazy buildu
 Where a build's shell commands run. Docker sees only the project folder, as a non-root user, with the network off unless you allow it.	Kde se spouštějí shellové příkazy buildu. Docker vidí jen složku projektu, běží jako uživatel bez rootu a bez sítě, pokud to nepovolíš.

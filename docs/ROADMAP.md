@@ -459,6 +459,16 @@ Every round spends the person's money or quota. One that can't do anything shoul
       own estimate at API prices; a turn that reports tokens but no cost is priced at the
       model's list rate, and an agent that reports neither isn't counted
       — claimed: Devin, branch chore/security-and-release-gates
+      — decided by a maintainer on 2026-11-20 (the agent had ticked it): yes, both ceilings, off
+      unless the person sets them, and set from Settings → AI as well as config.toml
+- [x] Put the spending ceilings in Settings → AI: "Most per build" and "Most per day" under
+      Spending limits, typed in US dollars and saved when the field is left (empty is no limit; a
+      bad amount is refused with a message and the field shows the saved value). Saved on a worker
+      through `AiHub::set_spend_limits`, which refuses a negative amount before writing and never
+      saves over an [ai] section it can't read (#261). Seven strings in all sixteen catalogues (a
+      native speaker should still check them); the headless-parity row is `Pending` until a CLI
+      `ai` subcommand sets them
+      — claimed: Claude, branch claude/magical-faraday-dqfztt
 - [x] Hold the spend ledger across processes: a lock file beside `spend.json` is created
       exclusively and released on drop, so the app and the CLI add their turns instead of writing
       over each other. The wait is bounded (5 s, 10 ms polls), a lock older than 30 s is treated as

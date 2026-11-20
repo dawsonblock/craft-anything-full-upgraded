@@ -824,6 +824,7 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
         ui.add_space(6.0);
     }
     server_form(app, ui);
+    build_policy(app, ui);
 }
 
 /// An AI that "Look for AI" can't find: a server on another computer or a hosted service, added by
@@ -859,6 +860,11 @@ pub(crate) fn server_form(app: &mut CraftApp, ui: &mut Ui) {
     if add {
         app.add_server();
     }
+}
+
+/// How builds are held in: the confinement switch and the spending ceilings. Settings → AI only:
+/// the server form above is also drawn on the welcome screens, which must stay short.
+fn build_policy(app: &mut CraftApp, ui: &mut Ui) {
     ui.add_space(16.0);
     widgets::caption(ui, "Build confinement");
     // Drawn from what a worker last read; the change is saved on a worker too, through the
@@ -875,6 +881,39 @@ pub(crate) fn server_form(app: &mut CraftApp, ui: &mut Ui) {
     );
     if changed {
         app.set_require_confined_build(confined);
+    }
+    ui.add_space(16.0);
+    widgets::caption(ui, "Spending limits");
+    spend_field(
+        app,
+        ui,
+        crate::SpendLimit::PerBuild,
+        "Most per build",
+        "A build stops between turns once its AI cost reaches this, in US dollars. Empty: no limit.",
+    );
+    spend_field(
+        app,
+        ui,
+        crate::SpendLimit::PerDay,
+        "Most per day",
+        "Builds stop, and new ones don't start, once today's AI cost (UTC) reaches this, in US dollars. Empty: no limit.",
+    );
+}
+
+/// One spending ceiling: typed as an amount, saved when the field is left (Enter or a click
+/// elsewhere), so a half-typed number is never saved.
+fn spend_field(app: &mut CraftApp, ui: &mut Ui, which: crate::SpendLimit, title: &str, help: &str) {
+    let mut left = false;
+    let draft = app.spend_drafts.get_mut(which);
+    row(ui, title, help, |ui| {
+        let r = ui.add(
+            egui::TextEdit::singleline(draft).hint_text(tr("No limit")).desired_width(100.0).frame(widgets::text_field_frame_compact(&Tokens::get(ui.ctx()))),
+        );
+        widgets::named(r.clone(), &tr(title));
+        left = r.lost_focus();
+    });
+    if left {
+        app.commit_spend_limit(which);
     }
 }
 
@@ -1152,6 +1191,60 @@ mod tests {
     use super::*;
     use crate::{Done, builders::AgentModelPicker, demo, jobs::Finished};
     use craft_anything_ai::{BackendConfig, BackendKind};
+
+    /// A spending field reads amounts as people type them, and nothing else is an amount.
+    #[test]
+    fn a_spending_field_reads_dollar_amounts() {
+        assert_eq!(crate::parse_dollars(""), Ok(None), "empty is no limit");
+        assert_eq!(crate::parse_dollars("  "), Ok(None));
+        assert_eq!(crate::parse_dollars("5"), Ok(Some(5.0)));
+        assert_eq!(crate::parse_dollars("$2.50"), Ok(Some(2.5)));
+        assert_eq!(crate::parse_dollars(" $ 0 "), Ok(Some(0.0)), "zero allows no spending");
+        assert_eq!(crate::parse_dollars("1,5"), Ok(Some(1.5)), "a decimal comma");
+        for bad in ["-1", "abc", "1.2.3", "inf", "NaN", "1,000.5x"] {
+            assert_eq!(crate::parse_dollars(bad), Err(()), "{bad}");
+        }
+        let shown = crate::SpendDrafts::showing(craft_anything_ai::budget::SpendLimits { run_usd: Some(2.5), daily_usd: None });
+        assert_eq!((shown.per_build.as_str(), shown.per_day.as_str()), ("2.5", ""));
+    }
+
+    /// Runs the app's background jobs to the end, as frames would (`busy` counts only the ones
+    /// shown in the job list; these saves are hidden).
+    fn finish_jobs(app: &mut CraftApp) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while app.jobs.running().next().is_some() && std::time::Instant::now() < deadline {
+            for done in app.jobs.poll() {
+                app.handle_done(done);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        for done in app.jobs.poll() {
+            app.handle_done(done);
+        }
+    }
+
+    /// A spending field saves when it's left: a bad amount is refused with a message and nothing
+    /// is saved; a good one is saved through the hub and the fields show it once saved.
+    #[test]
+    fn a_spending_field_saves_a_good_amount_and_refuses_a_bad_one() {
+        let mut app = demo::app(demo::engine(craft_anything_engine::Mode::Experienced, true));
+        app.spend_drafts.per_day = "-3".into();
+        app.commit_spend_limit(crate::SpendLimit::PerDay);
+        assert!(app.state.toasts.iter().any(|(t, error)| *error && t.contains("US dollars")), "{:?}", app.state.toasts);
+        assert_eq!(app.spend_drafts.per_day, "", "the field shows the saved value again");
+        assert_eq!(app.jobs.running().count(), 0, "nothing was saved");
+        app.spend_drafts.per_day = "$12.5".into();
+        app.commit_spend_limit(crate::SpendLimit::PerDay);
+        finish_jobs(&mut app);
+        assert_eq!(app.hub.config().spend_limits().daily_usd, Some(12.5), "saved under [ai]");
+        assert_eq!(app.spend_limits.daily_usd, Some(12.5), "and shown once saved");
+        assert_eq!(app.spend_drafts.per_day, "12.5");
+        // Emptying the field removes the ceiling.
+        app.spend_drafts.per_day.clear();
+        app.commit_spend_limit(crate::SpendLimit::PerDay);
+        finish_jobs(&mut app);
+        assert_eq!(app.hub.config().spend_limits().daily_usd, None);
+    }
 
     #[test]
     fn identical_model_names_are_shown_once_in_the_shared_picker() {

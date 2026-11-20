@@ -1481,6 +1481,13 @@ Restored project: {path}	პროექტი აღდგენილია: {
 Build confinement	აწყობის შემოფარგვლა
 Refuse unconfined builds	არაშემოფარგლული აწყობების უარყოფა
 A build whose agent declares neither its own sandbox nor our approval tool is refused before it starts. Off, it runs with your own access and the result says so.	აწყობა, რომლის აგენტიც არ აცხადებს არც საკუთარ sandbox-ს და არც ჩვენს დადასტურებას, უარყოფილი იქნება დაწყებამდე. გამორთული: იმუშავებს თქვენი წვდომით და შედეგი ამას იტყვის.
+Spending limits	ხარჯის ლიმიტები
+Most per build	მაქსიმუმი ერთ აწყობაზე
+A build stops between turns once its AI cost reaches this, in US dollars. Empty: no limit.	აწყობა ჩერდება სვლებს შორის, როგორც კი მისი AI-ის ხარჯი ამ თანხას მიაღწევს, აშშ დოლარში. ცარიელი: ლიმიტის გარეშე.
+Most per day	მაქსიმუმი დღეში
+Builds stop, and new ones don't start, once today's AI cost (UTC) reaches this, in US dollars. Empty: no limit.	აწყობები ჩერდება და ახლები არ იწყება, როგორც კი დღევანდელი AI-ის ხარჯი (UTC) ამ თანხას მიაღწევს, აშშ დოლარში. ცარიელი: ლიმიტის გარეშე.
+No limit	ლიმიტის გარეშე
+Enter an amount in US dollars, zero or more, or leave it empty for no limit.	შეიყვანეთ თანხა აშშ დოლარში, ნული ან მეტი, ან დატოვეთ ცარიელი ლიმიტის გარეშე.
 Sandbox	Sandbox
 Build commands	აწყობის ბრძანებები
 Where a build's shell commands run. Docker sees only the project folder, as a non-root user, with the network off unless you allow it.	სად ეშვება აწყობის shell ბრძანებები. Docker ხედავს მხოლოდ პროექტის საქაღალდეს, მუშაობს არა-root მომხმარებლად და ქსელის გარეშე, თუ არ დაუშვებ.

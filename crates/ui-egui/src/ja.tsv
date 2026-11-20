@@ -919,6 +919,13 @@ Restored project: {path}	プロジェクトを復元しました: {path}
 Build confinement	ビルドの隔離
 Refuse unconfined builds	未隔離のビルドを拒否
 A build whose agent declares neither its own sandbox nor our approval tool is refused before it starts. Off, it runs with your own access and the result says so.	エージェントが自身のサンドボックスも私たちの承認も宣言していないビルドは、開始前に拒否されます。オフの場合、あなたの権限で実行され、結果にその旨が表示されます。
+Spending limits	支出の上限
+Most per build	ビルドごとの上限
+A build stops between turns once its AI cost reaches this, in US dollars. Empty: no limit.	AI の費用がこの額（米ドル）に達すると、ビルドはターンの合間に停止します。空欄：上限なし。
+Most per day	1 日の上限
+Builds stop, and new ones don't start, once today's AI cost (UTC) reaches this, in US dollars. Empty: no limit.	今日（UTC）の AI の費用がこの額（米ドル）に達すると、ビルドは停止し、新しいビルドも開始されません。空欄：上限なし。
+No limit	上限なし
+Enter an amount in US dollars, zero or more, or leave it empty for no limit.	0 以上の金額を米ドルで入力するか、上限なしにする場合は空欄のままにしてください。
 Sandbox	サンドボックス
 Build commands	ビルドコマンド
 Where a build's shell commands run. Docker sees only the project folder, as a non-root user, with the network off unless you allow it.	ビルドのシェルコマンドを実行する場所。Docker はプロジェクトフォルダだけを見え、root 以外のユーザーで、許可しない限りネットワークなしで動きます。

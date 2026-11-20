@@ -159,9 +159,9 @@ pub enum Done {
     Detected(Vec<Detected>, Vec<craft_anything_ai::detect::DetectHint>),
     /// The configured backends, the ones chosen to build with and to extract with, and each one's
     /// options.
-    /// The AIs, the Builder and Extractor choices, each AI's options, and whether unconfined builds
-    /// are refused (`[ai] require_confined_build`).
-    Backends(Vec<BackendConfig>, Option<String>, Option<String>, std::collections::BTreeMap<String, craft_anything_ai::BackendOptions>, bool),
+    /// The AIs, the Builder and Extractor choices, each AI's options, and the build policy
+    /// (`[ai] require_confined_build` and the spending ceilings).
+    Backends(Vec<BackendConfig>, Option<String>, Option<String>, std::collections::BTreeMap<String, craft_anything_ai::BackendOptions>, AiPolicy),
     /// The models an AI can be set to (Settings → AI's model picker).
     ModelChoices {
         name: String,
@@ -440,6 +440,11 @@ pub struct CraftApp {
     /// `[ai] require_confined_build` as last read on a worker, for Settings → AI's switch: drawing
     /// reads this, never config.toml.
     pub require_confined_build: bool,
+    /// The `[ai]` spending ceilings as last read on a worker, for Settings → AI.
+    pub spend_limits: craft_anything_ai::budget::SpendLimits,
+    /// What is typed in Settings → AI's two spending fields (per build, per day), saved when the
+    /// field is left; empty is no ceiling.
+    pub spend_drafts: SpendDrafts,
     /// The AI whose model is being chosen in Settings → AI, and the models it offers once they've
     /// come (`None`: still asking).
     pub model_picker: Option<(String, Option<Vec<String>>)>,
@@ -567,6 +572,8 @@ impl CraftApp {
             backends: Vec::new(),
             backend_options: Default::default(),
             require_confined_build: craft_anything_ai::AiConfig::default().require_confined_build,
+            spend_limits: Default::default(),
+            spend_drafts: Default::default(),
             model_picker: None,
             agent_model_picker: None,
             model_request: 0,
@@ -1486,7 +1493,7 @@ impl CraftApp {
                 self.log(false, format!("Found {} AI option(s) on this computer", d.len()));
                 self.detected = Some(d);
             }
-            Done::Backends(b, builder, extractor, options, require_confined_build) => {
+            Done::Backends(b, builder, extractor, options, policy) => {
                 if self.state.backend.as_ref().is_some_and(|n| !b.iter().any(|c| &c.name == n)) {
                     self.state.backend = None;
                 }
@@ -1494,7 +1501,13 @@ impl CraftApp {
                 self.builder = builder;
                 self.extractor = extractor;
                 self.backend_options = options;
-                self.require_confined_build = require_confined_build;
+                self.require_confined_build = policy.require_confined_build;
+                // The fields show what is saved, except while it is what they already say: a
+                // refresh for something else doesn't wipe what the person is typing.
+                if policy.spend != self.spend_limits {
+                    self.spend_drafts = SpendDrafts::showing(policy.spend);
+                    self.spend_limits = policy.spend;
+                }
                 self.model_tuning.retain(|name, state| {
                     self.backends.iter().any(|backend| backend.name == *name && craft_anything_ai::model_options::supported(backend))
                         && self.backend_options.get(name).and_then(|options| options.cli_model.as_ref()) == state.cli_model.as_ref()
@@ -1961,13 +1974,64 @@ pub fn app_icon(size: f32) -> egui::Image<'static> {
 /// Run an action; a panic is logged and swallowed so one bad action never takes the app down.
 /// The configured backends and the ones chosen to build and to extract (read off the UI thread).
 pub(crate) fn backends(hub: &AiHub) -> Done {
-    Done::Backends(
-        hub.backends(),
-        hub.chosen(craft_anything_ai::Role::Builder),
-        hub.chosen(craft_anything_ai::Role::Extractor),
-        hub.options(),
-        hub.config().require_confined_build,
-    )
+    Done::Backends(hub.backends(), hub.chosen(craft_anything_ai::Role::Builder), hub.chosen(craft_anything_ai::Role::Extractor), hub.options(), {
+        let cfg = hub.config();
+        AiPolicy { require_confined_build: cfg.require_confined_build, spend: cfg.spend_limits() }
+    })
+}
+
+/// What Settings → AI shows about how builds are held: the confinement gate and the spending
+/// ceilings, read on a worker.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AiPolicy {
+    pub require_confined_build: bool,
+    pub spend: craft_anything_ai::budget::SpendLimits,
+}
+
+/// Which spending ceiling a Settings field sets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpendLimit {
+    /// `[ai] max_run_cost_usd`.
+    PerBuild,
+    /// `[ai] max_daily_cost_usd`.
+    PerDay,
+}
+
+/// The text in Settings → AI's two spending fields.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SpendDrafts {
+    pub per_build: String,
+    pub per_day: String,
+}
+
+impl SpendDrafts {
+    /// The fields for saved ceilings: an amount, or empty for none.
+    pub fn showing(limits: craft_anything_ai::budget::SpendLimits) -> SpendDrafts {
+        let text = |v: Option<f64>| v.map(|v| v.to_string()).unwrap_or_default();
+        SpendDrafts { per_build: text(limits.run_usd), per_day: text(limits.daily_usd) }
+    }
+
+    pub fn get_mut(&mut self, which: SpendLimit) -> &mut String {
+        match which {
+            SpendLimit::PerBuild => &mut self.per_build,
+            SpendLimit::PerDay => &mut self.per_day,
+        }
+    }
+}
+
+/// A spending field's text as a ceiling in US dollars: empty is none, a leading `$` and a decimal
+/// comma are accepted, and anything that isn't an amount of zero or more is refused.
+pub(crate) fn parse_dollars(text: &str) -> Result<Option<f64>, ()> {
+    let text = text.trim();
+    let text = text.strip_prefix('$').unwrap_or(text).trim();
+    if text.is_empty() {
+        return Ok(None);
+    }
+    let normal = if text.contains('.') { text.to_string() } else { text.replace(',', ".") };
+    match normal.parse::<f64>() {
+        Ok(v) if v.is_finite() && v >= 0.0 => Ok(Some(v)),
+        _ => Err(()),
+    }
 }
 
 impl CraftApp {

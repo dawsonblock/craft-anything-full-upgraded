@@ -191,6 +191,31 @@ impl CraftApp {
         });
     }
 
+    /// Save what Settings → AI's spending field `which` says, once it's left. Empty is no ceiling;
+    /// text that isn't an amount of zero or more is refused with a message and the field shows the
+    /// saved value again. Saved on a worker, and the fields show the change once it's saved.
+    pub fn commit_spend_limit(&mut self, which: crate::SpendLimit) {
+        let text = self.spend_drafts.get_mut(which).clone();
+        let Ok(value) = crate::parse_dollars(&text) else {
+            self.spend_drafts = crate::SpendDrafts::showing(self.spend_limits);
+            self.toast(tr("Enter an amount in US dollars, zero or more, or leave it empty for no limit."), true);
+            return;
+        };
+        let mut limits = self.spend_limits;
+        match which {
+            crate::SpendLimit::PerBuild => limits.run_usd = value,
+            crate::SpendLimit::PerDay => limits.daily_usd = value,
+        }
+        if limits == self.spend_limits {
+            return;
+        }
+        let hub = self.hub.clone();
+        self.jobs.spawn(tr("Save settings"), false, move |_| {
+            hub.set_spend_limits(limits).map_err(|e| e.message)?;
+            Ok(crate::backends(&hub))
+        });
+    }
+
     /// Ask an AI which models it can use, for Settings → AI's model picker.
     pub fn pick_model(&mut self, name: &str) {
         let (hub, name) = (self.hub.clone(), name.to_string());

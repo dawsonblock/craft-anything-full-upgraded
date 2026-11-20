@@ -458,6 +458,31 @@ fn the_confinement_switch_never_saves_over_unreadable_ai_settings() {
     assert_eq!(std::fs::read(&file).unwrap(), before, "the settings file was changed");
 }
 
+/// Settings → AI's spending fields: both ceilings are saved under [ai] and read back; a negative
+/// one is refused before anything is written; and an [ai] section that can't be read is never
+/// saved over (#261).
+#[test]
+fn spending_limits_are_saved_only_when_they_and_the_ai_settings_can_be_read() {
+    let (h, d) = hub();
+    add(&h, "Claude Code", BackendKind::AgentCli, "http://127.0.0.1:9", None);
+    let limits = crate::budget::SpendLimits { run_usd: Some(2.5), daily_usd: Some(20.0) };
+    h.set_spend_limits(limits).unwrap();
+    assert_eq!(h.config().spend_limits(), limits);
+    assert_eq!(h.backends().len(), 1, "and nothing else changed");
+    let file = d.path().join("config.toml");
+    let before = std::fs::read(&file).unwrap();
+    let negative = crate::budget::SpendLimits { run_usd: Some(-1.0), daily_usd: None };
+    assert_eq!(h.set_spend_limits(negative).unwrap_err().code, ErrorCode::BadSettings);
+    assert_eq!(std::fs::read(&file).unwrap(), before, "a refused amount wrote nothing");
+    let mut bad = h.engine.session().settings.clone();
+    bad.ai.insert("prices".into(), toml::Value::Table(toml::from_str("[m]\ninput_per_mtok = 1.0\n").unwrap()));
+    bad.save_to(&file).unwrap();
+    h.engine.session().settings = bad;
+    let before = std::fs::read(&file).unwrap();
+    assert_eq!(h.set_spend_limits(crate::budget::SpendLimits::default()).unwrap_err().code, ErrorCode::BadSettings);
+    assert_eq!(std::fs::read(&file).unwrap(), before, "the unreadable settings were left as they were");
+}
+
 #[test]
 fn the_person_chooses_who_builds() {
     let (h, _d) = hub();

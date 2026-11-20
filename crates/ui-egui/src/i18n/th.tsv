@@ -1481,6 +1481,13 @@ Restored project: {path}	กู้คืนโปรเจกต์แล้ว:
 Build confinement	การแยกบิลด์
 Refuse unconfined builds	ปฏิเสธบิลด์ที่ไม่ถูกแยก
 A build whose agent declares neither its own sandbox nor our approval tool is refused before it starts. Off, it runs with your own access and the result says so.	บิลด์ที่เอเจนต์ไม่ได้ประกาศแซนด์บ็อกซ์ของตนเองหรือใช้การอนุมัติของเราจะถูกปฏิเสธก่อนเริ่ม หากปิดไว้ บิลด์จะทำงานด้วยสิทธิ์ของคุณและผลลัพธ์จะบอกไว้
+Spending limits	ขีดจำกัดการใช้จ่าย
+Most per build	สูงสุดต่อบิลด์
+A build stops between turns once its AI cost reaches this, in US dollars. Empty: no limit.	บิลด์จะหยุดระหว่างรอบเมื่อค่าใช้จ่าย AI ถึงจำนวนนี้ เป็นดอลลาร์สหรัฐ เว้นว่าง: ไม่จำกัด
+Most per day	สูงสุดต่อวัน
+Builds stop, and new ones don't start, once today's AI cost (UTC) reaches this, in US dollars. Empty: no limit.	บิลด์จะหยุด และไม่เริ่มบิลด์ใหม่ เมื่อค่าใช้จ่าย AI ของวันนี้ (UTC) ถึงจำนวนนี้ เป็นดอลลาร์สหรัฐ เว้นว่าง: ไม่จำกัด
+No limit	ไม่จำกัด
+Enter an amount in US dollars, zero or more, or leave it empty for no limit.	ใส่จำนวนเงินเป็นดอลลาร์สหรัฐ ตั้งแต่ศูนย์ขึ้นไป หรือเว้นว่างไว้หากไม่ต้องการจำกัด
 Sandbox	แซนด์บ็อกซ์
 Build commands	คำสั่งบิลด์
 Where a build's shell commands run. Docker sees only the project folder, as a non-root user, with the network off unless you allow it.	ที่ที่คำสั่งเชลล์ของบิลด์ทำงาน Docker เห็นเฉพาะโฟลเดอร์โปรเจกต์ ทำงานเป็นผู้ใช้ที่ไม่ใช่ root และไม่มีเครือข่ายเว้นแต่คุณจะอนุญาต

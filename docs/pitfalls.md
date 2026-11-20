@@ -219,6 +219,12 @@ download` over the network, and the other ("nothing is started for a bad identit
 checking anything. When a change replaces a call, grep the tests that patch the old one, and patch
 at the layer that starts the program.
 
+**A wait for jobs that counted only the visible ones.** `Jobs::busy()` is for the job list, so it
+ignores jobs spawned with `visible: false`, as a settings save is. A test that waited
+`while app.jobs.busy()` returned at once and read the settings before the save had run, and its
+"nothing was saved" check passed without checking anything. Wait on `jobs.running()`, and make
+a test that asserts nothing ran fail once by starting something.
+
 **Proving a refactor changed nothing.** Unit tests that check substrings can miss changed prompts.
 For a refactor that must keep output identical, dump the outputs for every combination before and
 after and compare them byte for byte (done for every brief across 162 combinations in R1.1).

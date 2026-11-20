@@ -1481,6 +1481,13 @@ Restored project: {path}	Proje geri yüklendi: {path}
 Build confinement	Derleme yalıtımı
 Refuse unconfined builds	Yalıtılmamış derlemeleri reddet
 A build whose agent declares neither its own sandbox nor our approval tool is refused before it starts. Off, it runs with your own access and the result says so.	Aracısı kendi korumalı alanını da bizim onayımızı da bildirmeyen bir derleme başlamadan reddedilir. Kapalıysa senin erişiminle çalışır ve sonuç bunu söyler.
+Spending limits	Harcama sınırları
+Most per build	Derleme başına en fazla
+A build stops between turns once its AI cost reaches this, in US dollars. Empty: no limit.	Bir derleme, yapay zekâ maliyeti bu tutara (ABD doları) ulaştığında turlar arasında durur. Boş: sınır yok.
+Most per day	Günde en fazla
+Builds stop, and new ones don't start, once today's AI cost (UTC) reaches this, in US dollars. Empty: no limit.	Bugünün (UTC) yapay zekâ maliyeti bu tutara (ABD doları) ulaştığında derlemeler durur ve yenileri başlamaz. Boş: sınır yok.
+No limit	Sınır yok
+Enter an amount in US dollars, zero or more, or leave it empty for no limit.	Sıfır veya daha fazla bir tutarı ABD doları olarak girin ya da sınır olmaması için boş bırakın.
 Sandbox	Korumalı alan
 Build commands	Derleme komutları
 Where a build's shell commands run. Docker sees only the project folder, as a non-root user, with the network off unless you allow it.	Bir derlemenin kabuk komutlarının çalıştığı yer. Docker yalnızca proje klasörünü görür, root olmayan kullanıcı olarak ve izin vermezsen ağ olmadan çalışır.

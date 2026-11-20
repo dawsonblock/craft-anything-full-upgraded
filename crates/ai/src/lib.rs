@@ -589,6 +589,18 @@ impl AiHub {
         self.save_config(&cfg)
     }
 
+    /// The `[ai]` spending ceilings (`max_run_cost_usd`, `max_daily_cost_usd`; `None` is no
+    /// ceiling). A negative or non-finite amount is refused before anything is read or written,
+    /// and like [`set_require_confined_build`](Self::set_require_confined_build) it never saves
+    /// over an `[ai]` section it can't read (#261).
+    pub fn set_spend_limits(&self, limits: budget::SpendLimits) -> Result<(), ToolError> {
+        limits.validate()?;
+        let mut cfg = self.config_to_change()?;
+        cfg.max_run_cost_usd = limits.run_usd;
+        cfg.max_daily_cost_usd = limits.daily_usd;
+        self.save_config(&cfg)
+    }
+
     /// The program an agent app runs (`None` or empty: found by its usual name, on PATH and in the
     /// usual install folders). Returns false when there was no such backend.
     pub fn set_command(&self, name: &str, command: Option<&str>) -> Result<bool, ToolError> {

@@ -1481,6 +1481,13 @@ Restored project: {path}	Projekt wiederhergestellt: {path}
 Build confinement	Build-Eingrenzung
 Refuse unconfined builds	Builds ohne Grenze ablehnen
 A build whose agent declares neither its own sandbox nor our approval tool is refused before it starts. Off, it runs with your own access and the result says so.	Ein Build, dessen Agent weder eigenen Sandbox noch unsere Freigabe angibt, wird abgelehnt, bevor er startet. Aus: Er läuft mit deinem Zugriff, und das Ergebnis sagt es.
+Spending limits	Ausgabengrenzen
+Most per build	Höchstens pro Build
+A build stops between turns once its AI cost reaches this, in US dollars. Empty: no limit.	Ein Build hält zwischen zwei Runden an, sobald seine KI-Kosten diesen Betrag in US-Dollar erreichen. Leer: keine Grenze.
+Most per day	Höchstens pro Tag
+Builds stop, and new ones don't start, once today's AI cost (UTC) reaches this, in US dollars. Empty: no limit.	Builds halten an, und neue starten nicht, sobald die KI-Kosten des heutigen Tages (UTC) diesen Betrag in US-Dollar erreichen. Leer: keine Grenze.
+No limit	Keine Grenze
+Enter an amount in US dollars, zero or more, or leave it empty for no limit.	Gib einen Betrag in US-Dollar ein, null oder mehr, oder lass das Feld leer für keine Grenze.
 Sandbox	Sandbox
 Build commands	Build-Befehle
 Where a build's shell commands run. Docker sees only the project folder, as a non-root user, with the network off unless you allow it.	Wo die Shell-Befehle eines Builds laufen. Docker sieht nur den Projektordner, als Nicht-root-Benutzer, ohne Netzwerk, sofern du es nicht erlaubst.
