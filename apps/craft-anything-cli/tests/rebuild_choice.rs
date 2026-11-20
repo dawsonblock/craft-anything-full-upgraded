@@ -279,3 +279,41 @@ fn a_replaced_saved_builder_is_named_once_the_run_starts() {
     assert!(log.contains("Off") && log.contains("Claude") && log.contains("instead"), "the saved builder and its replacement must be named:\n{log}");
     assert!(!log.contains("Using "), "a replacement is not an added agent:\n{log}");
 }
+
+/// `--reference` takes pictures and documents (a manual); one it can't add is refused before a
+/// project folder is made, since the person named it to be used.
+#[test]
+fn a_reference_it_cant_add_is_refused_before_a_project_is_made() {
+    let config = tempfile::tempdir().unwrap();
+    let home = tempfile::tempdir().unwrap();
+    let bin = tempfile::tempdir().unwrap();
+    let parent = tempfile::tempdir().unwrap();
+    fake_claude(bin.path());
+    let project = parent.path().join("new-project");
+    let word = parent.path().join("manual.docx");
+    std::fs::write(&word, "x").unwrap();
+    let missing = parent.path().join("missing.pdf");
+    for (reference, says) in [(&word, "not a picture or a document"), (&missing, "no such file")] {
+        let out = cli(
+            &[
+                "rebuild",
+                "-",
+                "make a small page",
+                "--project-folder",
+                project.to_str().unwrap(),
+                "--reference",
+                reference.to_str().unwrap(),
+                "--rounds",
+                "0",
+                "--unattended",
+            ],
+            config.path(),
+            home.path(),
+            bin.path(),
+        );
+        let log = out.stderr_text();
+        assert!(!out.success, "{reference:?} must stop the run:\n{log}");
+        assert!(log.contains(says), "the error says why ({says}):\n{log}");
+        assert!(!project.exists(), "a refused command must not leave a project folder:\n{log}");
+    }
+}

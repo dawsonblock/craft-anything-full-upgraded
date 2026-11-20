@@ -426,7 +426,7 @@ impl CraftApp {
     fn add_pictures_checked(&mut self, files: Vec<PathBuf>) {
         let d = &mut self.state.make.pictures;
         for f in files {
-            if craft_anything_engine::workspace::is_picture(&f) && !d.contains(&f) {
+            if is_reference(&f) && !d.contains(&f) {
                 d.push(f);
             }
         }
@@ -434,6 +434,10 @@ impl CraftApp {
 
     /// Show the same refusal paste uses.
     fn show_picture_refused(&mut self, name: &str) {
+        if craft_anything_engine::workspace::is_document(Path::new(name)) {
+            self.toast(trf("{name} can't be added: a document can be up to 20 MB.", &[("name", name)]), true);
+            return;
+        }
         self.toast(trf("{name} can't be attached: a message takes pictures up to 20 MB.", &[("name", name)]), true);
     }
 
@@ -457,7 +461,7 @@ impl CraftApp {
             PictureTarget::Make => {
                 if let Some(draft) = self.start_after_pictures.as_mut() {
                     for f in &files {
-                        if craft_anything_engine::workspace::is_picture(f) && !draft.pictures.contains(f) {
+                        if is_reference(f) && !draft.pictures.contains(f) {
                             draft.pictures.push(f.clone());
                         }
                     }
@@ -576,6 +580,10 @@ impl CraftApp {
     fn preview(&mut self, ctx: &egui::Context, path: &Path) -> Option<egui::TextureHandle> {
         if let Some(t) = self.previews.get(path) {
             return if let Thumb::Ready(t) = t { Some(t.clone()) } else { None };
+        }
+        // A document has no picture to show: it's shown by its name, and not read to try.
+        if !craft_anything_engine::workspace::is_picture(path) {
+            return None;
         }
         self.previews.insert(path.to_path_buf(), Thumb::Loading);
         let (p, ctx) = (path.to_path_buf(), ctx.clone());
@@ -1982,10 +1990,17 @@ pub enum PictureTarget {
 
 /// The first picture over 20 MB, by display name. Reads file sizes, so run it on a worker.
 fn oversized_picture_name(files: &[PathBuf]) -> Option<String> {
+    use craft_anything_engine::workspace::{document_too_large, picture_too_large};
     files
         .iter()
-        .find(|f| craft_anything_engine::workspace::picture_too_large(f))
+        .find(|f| picture_too_large(f) || document_too_large(f))
         .map(|f| f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| f.display().to_string()))
+}
+
+/// What Make keeps as a reference about the original: a picture of it, or a document about it (a
+/// manual, notes), by its extension.
+pub(crate) fn is_reference(p: &Path) -> bool {
+    craft_anything_engine::workspace::is_picture(p) || craft_anything_engine::workspace::is_document(p)
 }
 
 /// What was typed for a note while its project's builder worked.
@@ -2256,6 +2271,37 @@ mod tests {
         app.state.screen = Screen::Project;
         app.pictures_checked(vec![pic.clone()], None, PictureTarget::Make);
         assert_eq!(app.state.make.pictures, vec![pic]);
+    }
+
+    /// A manual added on Make joins the draft beside the pictures (shown by its name, never decoded
+    /// as a picture); one over 20 MB is refused with a document's message, not a picture's.
+    #[test]
+    fn a_manual_added_on_make_joins_the_draft_and_a_huge_one_is_refused() {
+        let d = tempfile::tempdir().unwrap();
+        let manual = d.path().join("guide.pdf");
+        std::fs::write(&manual, "x").unwrap();
+        let mut app = crate::demo::app(crate::demo::engine(craft_anything_engine::Mode::Beginner, true));
+        app.state.screen = Screen::Home;
+        let finish = |app: &mut crate::CraftApp| {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            while app.jobs.running().next().is_some() && std::time::Instant::now() < deadline {
+                app.take_finished_jobs();
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            app.take_finished_jobs();
+        };
+        app.add_pictures(vec![manual.clone()]);
+        finish(&mut app);
+        assert_eq!(app.state.make.pictures, vec![manual.clone()], "the manual is in the draft");
+        let ctx = egui::Context::default();
+        assert!(app.previews(&ctx, &[manual.clone()]).iter().all(Option::is_none), "shown by its name");
+        assert_eq!(app.jobs.running().count(), 0, "no picture decoding was started for it");
+        let huge = d.path().join("huge.pdf");
+        std::fs::File::create(&huge).unwrap().set_len(21 * 1024 * 1024).unwrap();
+        app.add_pictures(vec![huge.clone()]);
+        finish(&mut app);
+        assert!(!app.state.make.pictures.contains(&huge), "a document over 20 MB isn't added");
+        assert!(app.state.toasts.iter().any(|(t, error)| *error && t.contains("a document can be up to 20 MB")), "{:?}", app.state.toasts);
     }
 
     /// Taking a note back restores the pictures saved with it, even if they have since grown past

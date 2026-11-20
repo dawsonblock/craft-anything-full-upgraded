@@ -1114,8 +1114,21 @@ impl CraftApp {
         self.jobs.spawn("Choose a file", false, move |_| {
             let d = rfd::AsyncFileDialog::new();
             if matches!(pick, Pick::Pictures | Pick::Attach) {
-                let title = if pick == Pick::Pictures { tr("Pictures of the original") } else { tr("Attach pictures") };
-                let files = pollster::block_on(d.set_title(title).add_filter(tr("Pictures"), &["png", "jpg", "jpeg", "webp", "gif"]).pick_files());
+                const PICTURES: &[&str] = &["png", "jpg", "jpeg", "webp", "gif"];
+                let files = if pick == Pick::Pictures {
+                    // The original's pictures, and documents about it (a manual, notes).
+                    let docs = craft_anything_engine::workspace::DOCUMENT_EXTENSIONS;
+                    let both: Vec<&str> = PICTURES.iter().chain(docs).copied().collect();
+                    pollster::block_on(
+                        d.set_title(tr("Pictures of the original"))
+                            .add_filter(tr("Pictures and documents"), &both)
+                            .add_filter(tr("Pictures"), PICTURES)
+                            .add_filter(tr("Documents"), docs)
+                            .pick_files(),
+                    )
+                } else {
+                    pollster::block_on(d.set_title(tr("Attach pictures")).add_filter(tr("Pictures"), PICTURES).pick_files())
+                };
                 let files: Vec<PathBuf> = files.unwrap_or_default().iter().map(|h| h.path().to_path_buf()).collect();
                 return Ok(if pick == Pick::Pictures { Done::Pictures(files) } else { Done::ToAttach(files) });
             }
@@ -1774,7 +1787,9 @@ impl CraftApp {
         } else if self.runs.any_busy() {
             ctx.request_repaint_after(Duration::from_secs(1));
         }
-        // Dropped pictures go to the prompt box on Make or a project; anything else opens.
+        // Dropped pictures go to the prompt box on Make or a project; anything else opens. A
+        // dropped document opens too (it may be the file to study), so a manual is added with the
+        // paperclip instead.
         let dropped: Vec<PathBuf> = ctx.input(|i| i.raw.dropped_files.iter().map(|f| f.path().to_path_buf()).filter(|p| !p.as_os_str().is_empty()).collect());
         let pictures = !dropped.is_empty() && dropped.iter().all(|p| craft_anything_engine::workspace::is_picture(p));
         match self.state.screen {

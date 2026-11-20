@@ -7,6 +7,7 @@
 //!   investigation.cany/  evidence, memory and journal (a regular project)
 //!   capture/             what we recorded from the target (screenshots, blueprint)
 //!   reference/           pictures of the original the person added (the look to match)
+//!     docs/              documents about it they added: a manual, notes (what it does)
 //!   app/                 the generated project (its own git repository)
 //!   checks/              comparisons of the build against the target, one folder per round
 //!   inbox/               questions and approvals waiting for the person
@@ -1258,11 +1259,37 @@ impl Workspace {
         pictures_in(&self.reference_dir())
     }
 
-    /// Copy pictures of the original into reference/ as picture-N.ext. Returns how many were
-    /// added; files that aren't PNG, JPEG, WebP or GIF are skipped, and a picture over 20 MB
+    /// Documents about the original the person added (a manual, notes), in reference/docs/.
+    pub fn reference_documents_dir(&self) -> PathBuf {
+        self.reference_dir().join("docs")
+    }
+
+    /// The documents about the original, by name.
+    pub fn reference_documents(&self) -> Vec<PathBuf> {
+        let mut v: Vec<PathBuf> = std::fs::read_dir(self.reference_documents_dir())
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.is_file() && is_document(p))
+            .collect();
+        v.sort();
+        v
+    }
+
+    /// Copy pictures of the original into reference/ as picture-N.ext, and documents about it (a
+    /// manual, notes: [`DOCUMENT_EXTENSIONS`]) into reference/docs/ under their own name made safe.
+    /// Returns how many were added; other files are skipped, and a picture or document over 20 MB
     /// refuses the whole call before anything is copied.
     pub fn add_references(&self, files: &[PathBuf]) -> Result<usize, ToolError> {
-        copy_pictures(&self.reference_dir(), files).map(|v| v.len())
+        if let Some(f) = files.iter().find(|f| document_too_large(f)) {
+            let name = f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| f.display().to_string());
+            return Err(ToolError::new(ErrorCode::OverLimit, format!("{name} can't be added: a document can be up to 20 MB."))
+                .with_remediation("Add the chapters that describe what the program does, or save the manual as plain text."));
+        }
+        let pictures = copy_pictures(&self.reference_dir(), files)?.len();
+        let documents = copy_documents(&self.reference_documents_dir(), files)?;
+        Ok(pictures.saturating_add(documents))
     }
 
     /// Every generated asset so far, oldest first.
@@ -1618,6 +1645,70 @@ pub fn is_picture(p: &Path) -> bool {
     p.extension().and_then(|e| e.to_str()).is_some_and(|e| ["png", "jpg", "jpeg", "webp", "gif"].contains(&e.to_ascii_lowercase().as_str()))
 }
 
+/// The kinds of document a person can add about the original (a manual, notes), by extension.
+pub const DOCUMENT_EXTENSIONS: &[&str] = &["pdf", "md", "markdown", "txt", "html", "htm"];
+
+/// The largest document [`Workspace::add_references`] takes.
+const MAX_DOCUMENT_BYTES: u64 = 20 * 1024 * 1024;
+
+/// Whether `p` is a document about the original by its extension ([`DOCUMENT_EXTENSIONS`]).
+pub fn is_document(p: &Path) -> bool {
+    p.extension().and_then(|e| e.to_str()).is_some_and(|e| DOCUMENT_EXTENSIONS.contains(&e.to_ascii_lowercase().as_str()))
+}
+
+/// A document over 20 MB, which [`Workspace::add_references`] refuses. Reads its size, so not
+/// while drawing.
+pub fn document_too_large(p: &Path) -> bool {
+    is_document(p) && p.metadata().is_ok_and(|m| m.is_file() && m.len() > MAX_DOCUMENT_BYTES)
+}
+
+/// A document's own name made safe to keep: letters, digits, spaces, `-`, `_` and `.` stay, any
+/// other character becomes `-`, a leading dot goes, and the name is cut to 80 characters. The
+/// extension is kept in lower case. Never empty.
+fn safe_document_name(p: &Path) -> Option<String> {
+    let ext = p.extension().and_then(|e| e.to_str())?.to_ascii_lowercase();
+    let stem = p.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    let cleaned: String = stem.chars().map(|c| if c.is_alphanumeric() || matches!(c, ' ' | '-' | '_' | '.') { c } else { '-' }).take(80).collect();
+    let cleaned = cleaned.trim().trim_start_matches('.').trim();
+    // Windows can't create a file whose stem is a device name (`CON.pdf`, `com1.txt`).
+    let device = |s: &str| {
+        let up = s.split('.').next().unwrap_or_default().trim().to_ascii_uppercase();
+        matches!(up.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+            || ((up.starts_with("COM") || up.starts_with("LPT")) && up.len() == 4 && up.chars().last().is_some_and(|c| c.is_ascii_digit()))
+    };
+    let stem = if cleaned.is_empty() {
+        "document".to_string()
+    } else if device(cleaned) {
+        format!("doc-{cleaned}")
+    } else {
+        cleaned.to_string()
+    };
+    Some(format!("{stem}.{ext}"))
+}
+
+/// Copy documents into `dir` under their own safe names ([`safe_document_name`]), numbering a
+/// name already taken (`manual-2.pdf`). Files that aren't documents are skipped. Returns how many
+/// were copied.
+fn copy_documents(dir: &Path, files: &[PathBuf]) -> Result<usize, ToolError> {
+    let docs: Vec<&PathBuf> = files.iter().filter(|f| is_document(f) && f.is_file()).collect();
+    if docs.is_empty() {
+        return Ok(0);
+    }
+    std::fs::create_dir_all(dir).map_err(|e| ToolError::io(dir.display(), e))?;
+    let mut copied = 0usize;
+    for f in docs {
+        let Some(name) = safe_document_name(f) else { continue };
+        let (stem, ext) = name.rsplit_once('.').unwrap_or((name.as_str(), ""));
+        let free = (1..=1000u32).map(|n| if n == 1 { dir.join(&name) } else { dir.join(format!("{stem}-{n}.{ext}")) }).find(|p| !p.exists());
+        let Some(to) = free else {
+            return Err(ToolError::new(ErrorCode::OverLimit, format!("reference/docs already holds 1000 documents named like {name}.")));
+        };
+        std::fs::copy(f, &to).map_err(|e| ToolError::io(to.display(), e))?;
+        copied = copied.saturating_add(1);
+    }
+    Ok(copied)
+}
+
 /// The pictures in `dir`, in the order they were added.
 fn pictures_in(dir: &Path) -> Vec<PathBuf> {
     let mut v: Vec<PathBuf> = std::fs::read_dir(dir).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.is_file() && is_picture(p)).collect();
@@ -1923,17 +2014,63 @@ mod tests {
         let ws = Workspace::create(dir.path(), "Game", "Copy it", TargetRef::None).unwrap();
         let src = dir.path().join("src");
         std::fs::create_dir_all(&src).unwrap();
-        for f in ["a.webp", "b.PNG", "notes.txt"] {
+        for f in ["a.webp", "b.PNG", "notes.xyz"] {
             std::fs::write(src.join(f), "x").unwrap();
         }
-        assert_eq!(ws.add_references(&[src.join("a.webp"), src.join("notes.txt"), src.join("missing.png")]).unwrap(), 1);
+        assert_eq!(ws.add_references(&[src.join("a.webp"), src.join("notes.xyz"), src.join("missing.png")]).unwrap(), 1);
         assert_eq!(ws.add_references(&[src.join("b.PNG")]).unwrap(), 1);
         let names: Vec<_> = ws.references().iter().map(|p| p.file_name().unwrap().to_string_lossy().into_owned()).collect();
         assert_eq!(names, ["picture-1.webp", "picture-2.png"]);
         // A message's pictures go to attachments/, numbered on their own.
-        let got = ws.add_attachments(&[src.join("b.PNG"), src.join("notes.txt")]).unwrap();
+        let got = ws.add_attachments(&[src.join("b.PNG"), src.join("notes.xyz")]).unwrap();
         assert_eq!(got, vec![ws.attachments_dir().join("picture-1.png")]);
         assert_eq!(ws.references().len(), 2, "attachments aren't pictures of the original");
+    }
+
+    /// A manual or notes about the original go to reference/docs/ under their own name made safe,
+    /// beside the pictures; a taken name is numbered, and a document over 20 MB refuses the whole
+    /// add before anything is copied.
+    #[test]
+    fn documents_about_the_original_are_kept_under_safe_names() {
+        let dir = tempfile::tempdir().unwrap();
+        let ws = Workspace::create(dir.path(), "App", "Copy it", TargetRef::None).unwrap();
+        let src = dir.path().join("src");
+        std::fs::create_dir_all(src.join("other")).unwrap();
+        for f in ["User Guide.PDF", "notes.md", "shot.png", "other/notes.md", "..hidden.txt", "tool.exe"] {
+            std::fs::write(src.join(f), "x").unwrap();
+        }
+        let added = ws
+            .add_references(&[
+                src.join("User Guide.PDF"),
+                src.join("notes.md"),
+                src.join("shot.png"),
+                src.join("other/notes.md"),
+                src.join("..hidden.txt"),
+                src.join("tool.exe"),
+            ])
+            .unwrap();
+        assert_eq!(added, 5, "four documents and one picture; the program is skipped");
+        let names: Vec<_> = ws.reference_documents().iter().map(|p| p.file_name().unwrap().to_string_lossy().into_owned()).collect();
+        assert_eq!(names, ["User Guide.pdf", "hidden.txt", "notes-2.md", "notes.md"]);
+        // Names no system can make are tested on the name alone (Windows can't create these files).
+        let safe = |n: &str| safe_document_name(Path::new(n));
+        assert_eq!(safe("a:b*c?.html").as_deref(), Some("a-b-c-.html"));
+        assert_eq!(safe("CON.txt").as_deref(), Some("doc-CON.txt"), "a Windows device name");
+        assert_eq!(safe("com1.md").as_deref(), Some("doc-com1.md"));
+        assert_eq!(safe("console.md").as_deref(), Some("console.md"), "only the device names themselves");
+        assert_eq!(safe("....pdf").as_deref(), Some("document.pdf"));
+        assert_eq!(safe(&format!("{}.txt", "x".repeat(200))).map(|n| n.len()), Some(84), "cut to 80 characters");
+        assert_eq!(ws.references().len(), 1, "the picture is a picture of the original, not a document");
+        assert!(ws.reference_documents().iter().all(|p| p.starts_with(ws.reference_documents_dir())));
+        // Over 20 MB: nothing from the same add is copied, pictures included.
+        let big = src.join("huge.pdf");
+        std::fs::File::create(&big).unwrap().set_len(MAX_DOCUMENT_BYTES + 1).unwrap();
+        std::fs::write(src.join("new.png"), "x").unwrap();
+        let error = ws.add_references(&[src.join("new.png"), big]).unwrap_err();
+        assert_eq!(error.code, ErrorCode::OverLimit);
+        assert!(error.message.contains("huge.pdf") && error.message.contains("20 MB"), "{}", error.message);
+        assert_eq!(ws.references().len(), 1, "the picture beside it wasn't copied either");
+        assert!(is_document(Path::new("a.HTM")) && !is_document(Path::new("a.docx")));
     }
 
     #[test]

@@ -1488,6 +1488,10 @@ Most per day	Tối đa mỗi ngày
 Builds stop, and new ones don't start, once today's AI cost (UTC) reaches this, in US dollars. Empty: no limit.	Các bản dựng dừng lại, và bản dựng mới không bắt đầu, khi chi phí AI hôm nay (UTC) đạt mức này, tính bằng đô la Mỹ. Để trống: không giới hạn.
 No limit	Không giới hạn
 Enter an amount in US dollars, zero or more, or leave it empty for no limit.	Nhập một số tiền bằng đô la Mỹ, từ 0 trở lên, hoặc để trống nếu không muốn giới hạn.
+Pictures and documents	Hình ảnh và tài liệu
+Documents	Tài liệu
+Add pictures or a manual of the original (optional: screenshots help it look right, a manual helps it work right)	Thêm hình ảnh hoặc sách hướng dẫn của bản gốc (tùy chọn: ảnh chụp màn hình giúp giống về giao diện, sách hướng dẫn giúp giống về cách hoạt động)
+{name} can't be added: a document can be up to 20 MB.	Không thể thêm {name}: tài liệu có thể lớn tối đa 20 MB.
 Sandbox	Hộp cát
 Build commands	Lệnh dựng
 Where a build's shell commands run. Docker sees only the project folder, as a non-root user, with the network off unless you allow it.	Nơi các lệnh shell của bản dựng chạy. Docker chỉ thấy thư mục dự án, chạy với người dùng không phải root, không có mạng trừ khi bạn cho phép.

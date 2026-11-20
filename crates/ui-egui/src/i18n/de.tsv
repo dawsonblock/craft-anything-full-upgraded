@@ -1488,6 +1488,10 @@ Most per day	Höchstens pro Tag
 Builds stop, and new ones don't start, once today's AI cost (UTC) reaches this, in US dollars. Empty: no limit.	Builds halten an, und neue starten nicht, sobald die KI-Kosten des heutigen Tages (UTC) diesen Betrag in US-Dollar erreichen. Leer: keine Grenze.
 No limit	Keine Grenze
 Enter an amount in US dollars, zero or more, or leave it empty for no limit.	Gib einen Betrag in US-Dollar ein, null oder mehr, oder lass das Feld leer für keine Grenze.
+Pictures and documents	Bilder und Dokumente
+Documents	Dokumente
+Add pictures or a manual of the original (optional: screenshots help it look right, a manual helps it work right)	Bilder oder ein Handbuch des Originals hinzufügen (optional: Screenshots helfen beim Aussehen, ein Handbuch bei der Funktionsweise)
+{name} can't be added: a document can be up to 20 MB.	{name} kann nicht hinzugefügt werden: Ein Dokument darf höchstens 20 MB groß sein.
 Sandbox	Sandbox
 Build commands	Build-Befehle
 Where a build's shell commands run. Docker sees only the project folder, as a non-root user, with the network off unless you allow it.	Wo die Shell-Befehle eines Builds laufen. Docker sieht nur den Projektordner, als Nicht-root-Benutzer, ohne Netzwerk, sofern du es nicht erlaubst.

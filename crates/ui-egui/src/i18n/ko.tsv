@@ -1488,6 +1488,10 @@ Most per day	하루 최대
 Builds stop, and new ones don't start, once today's AI cost (UTC) reaches this, in US dollars. Empty: no limit.	오늘(UTC)의 AI 비용이 이 금액(미국 달러)에 도달하면 빌드가 멈추고 새 빌드도 시작되지 않습니다. 비워 두면 한도가 없습니다.
 No limit	한도 없음
 Enter an amount in US dollars, zero or more, or leave it empty for no limit.	0 이상의 금액을 미국 달러로 입력하거나, 한도를 두지 않으려면 비워 두세요.
+Pictures and documents	그림 및 문서
+Documents	문서
+Add pictures or a manual of the original (optional: screenshots help it look right, a manual helps it work right)	원본의 그림이나 설명서 추가 (선택 사항: 스크린샷은 모양을, 설명서는 동작을 맞추는 데 도움이 됩니다)
+{name} can't be added: a document can be up to 20 MB.	{name}을(를) 추가할 수 없습니다: 문서는 최대 20MB까지입니다.
 Sandbox	샌드박스
 Build commands	빌드 명령
 Where a build's shell commands run. Docker sees only the project folder, as a non-root user, with the network off unless you allow it.	빌드의 셸 명령이 실행되는 위치입니다. Docker는 프로젝트 폴더만 보고, root가 아닌 사용자로, 허용하지 않으면 네트워크 없이 실행됩니다.

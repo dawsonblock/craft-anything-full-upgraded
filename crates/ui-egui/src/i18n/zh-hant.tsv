@@ -1488,6 +1488,10 @@ Most per day	每天最多
 Builds stop, and new ones don't start, once today's AI cost (UTC) reaches this, in US dollars. Empty: no limit.	今天（UTC）的 AI 費用達到此金額（美元）後，建置會停止，新的建置也不會開始。留空：不設上限。
 No limit	不設上限
 Enter an amount in US dollars, zero or more, or leave it empty for no limit.	請輸入不小於 0 的美元金額，或留空表示不設上限。
+Pictures and documents	圖片和文件
+Documents	文件
+Add pictures or a manual of the original (optional: screenshots help it look right, a manual helps it work right)	加入原軟體的圖片或使用手冊（選填：螢幕截圖有助於還原外觀，手冊有助於還原功能）
+{name} can't be added: a document can be up to 20 MB.	無法加入 {name}：文件最大為 20 MB。
 Sandbox	沙箱
 Build commands	建置命令
 Where a build's shell commands run. Docker sees only the project folder, as a non-root user, with the network off unless you allow it.	建置的 shell 命令在哪裡執行。Docker 只看得到專案資料夾，以非 root 使用者執行，除非你允許，否則沒有網路。

@@ -160,6 +160,11 @@ pub struct StartParams {
     /// into the project's reference/ folder for the builder.
     #[serde(default)]
     pub pictures: Vec<PathBuf>,
+    /// Documents about the original (absolute paths): a manual or notes on what it does and how
+    /// it behaves (.pdf, .md, .markdown, .txt, .html, .htm, up to 20 MB each). They're copied into
+    /// the project's reference/docs/ folder, and the builder reads them before it plans.
+    #[serde(default)]
+    pub documents: Vec<PathBuf>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -305,6 +310,18 @@ fn rebuild_start(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolErr
         ToolError::new(ErrorCode::FeatureMissing, "Building isn't available in this engine.").with_remediation("Use the app or `craft-anything-cli rebuild`.")
     })?;
     let runs = runs(ctx);
+    // A named document that can't be added is an error, not a silent skip (the person asked for it
+    // to be read), and it's refused before a project folder is made.
+    if let Some(d) = p.documents.iter().find(|d| !craft_anything_engine::workspace::is_document(d)) {
+        return Err(ToolError::invalid(format!("{} isn't a document Craft Anything can add.", d.display())).with_remediation(format!(
+            "Add a manual or notes as {}.",
+            craft_anything_engine::workspace::DOCUMENT_EXTENSIONS.iter().map(|e| format!(".{e}")).collect::<Vec<_>>().join(", ")
+        )));
+    }
+    if let Some(d) = p.documents.iter().find(|d| craft_anything_engine::workspace::document_too_large(d)) {
+        return Err(ToolError::new(ErrorCode::OverLimit, format!("{} can't be added: a document can be up to 20 MB.", d.display()))
+            .with_remediation("Add the chapters that describe what the program does, or save the manual as plain text."));
+    }
     let cfg = crate::AiConfig::from_settings(&ctx.session.settings);
     // Refuse a start that can only spend money it may not, before a project or pictures are made.
     crate::budget::refuse_over_daily(cfg.spend_limits(), &crate::budget::ledger_path(&ctx.session.config_dir().join("config.toml")))?;
@@ -346,8 +363,9 @@ fn rebuild_start(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolErr
             (ws, None)
         }
     };
-    if !p.pictures.is_empty() {
-        ws.add_references(&p.pictures)?;
+    if !p.pictures.is_empty() || !p.documents.is_empty() {
+        let files: Vec<PathBuf> = p.pictures.iter().chain(&p.documents).cloned().collect();
+        ws.add_references(&files)?;
     }
     // A headless start can't show the app's toast: say which AI builds when the saved one is gone.
     let builder_notice =
@@ -672,6 +690,27 @@ mod tests {
     /// A tool holds the session while it starts a run, so `try_session` fails and the run must
     /// take the build policy the tool passes, not the copy saved to disk. A `refuse` set in the
     /// session but not yet written must still stop an agent build.
+    #[test]
+    fn rebuild_start_refuses_a_document_it_cant_add_before_making_a_project() {
+        let d = tempfile::tempdir().unwrap();
+        let s = craft_anything_engine::testing::session();
+        let projects = s.settings.projects_dir();
+        let e = Engine::shared(s, specs());
+        let ok = || CallOptions::new(Caller::Cli).with_consent(Consent::Granted);
+        let word = d.path().join("manual.docx");
+        std::fs::write(&word, "x").unwrap();
+        let err = e.call("rebuild_start", json!({"target": "-", "request": "Recreate this app", "documents": [word]}), ok()).unwrap_err();
+        assert_eq!(err.code, ErrorCode::BadInput, "{}", err.message);
+        assert!(err.message.contains("isn't a document"), "{}", err.message);
+        assert!(err.remediation.as_deref().is_some_and(|r| r.contains(".pdf") && r.contains(".md")), "{:?}", err.remediation);
+        let big = d.path().join("manual.pdf");
+        std::fs::File::create(&big).unwrap().set_len(21 * 1024 * 1024).unwrap();
+        let err = e.call("rebuild_start", json!({"target": "-", "request": "Recreate this app", "documents": [big]}), ok()).unwrap_err();
+        assert_eq!(err.code, ErrorCode::OverLimit, "{}", err.message);
+        let made = std::fs::read_dir(&projects).map(|r| r.count()).unwrap_or(0);
+        assert_eq!(made, 0, "no project folder was left behind");
+    }
+
     #[test]
     fn rebuild_start_carries_the_sandbox_policy_when_the_session_is_held() {
         let d = tempfile::tempdir().unwrap();

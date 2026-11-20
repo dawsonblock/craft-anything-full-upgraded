@@ -329,6 +329,7 @@ craft-anything-cli rebuild https://example.com "Recreate this website"
 craft-anything-cli rebuild - "A snake game in Rust" --rounds 1
 craft-anything-cli rebuild https://example.com "Make the header blue" --continue-in "<project folder>"
 craft-anything-cli rebuild - "Add a contact form" --project-folder "<your folder>" --existing edit
+craft-anything-cli rebuild - "Recreate this app" --reference manual.pdf --reference screenshot.png
 ```
 
 New projects go in `Documents/Craft Anything` (change it in Settings → General). Each project

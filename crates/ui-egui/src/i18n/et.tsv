@@ -1488,6 +1488,10 @@ Most per day	Päevas kõige rohkem
 Builds stop, and new ones don't start, once today's AI cost (UTC) reaches this, in US dollars. Empty: no limit.	Ehitused peatuvad ja uusi ei alustata, kui tänane tehisaru kulu (UTC) jõuab selle summani USA dollarites. Tühi: piiranguta.
 No limit	Piiranguta
 Enter an amount in US dollars, zero or more, or leave it empty for no limit.	Sisesta summa USA dollarites, null või rohkem, või jäta väli tühjaks, kui piirangut pole vaja.
+Pictures and documents	Pildid ja dokumendid
+Documents	Dokumendid
+Add pictures or a manual of the original (optional: screenshots help it look right, a manual helps it work right)	Lisa originaali pilte või kasutusjuhend (valikuline: kuvatõmmised aitavad välimusega, kasutusjuhend toimimisega)
+{name} can't be added: a document can be up to 20 MB.	Faili {name} ei saa lisada: dokument võib olla kuni 20 MB.
 Sandbox	Liivakast
 Build commands	Ehituse käsud
 Where a build's shell commands run. Docker sees only the project folder, as a non-root user, with the network off unless you allow it.	Kus ehituse shell-käsud jooksevad. Docker näeb ainult projekti kausta, töötab mitte-root kasutajana ja ilma võrguta, kui sa ei luba.

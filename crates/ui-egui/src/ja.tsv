@@ -926,6 +926,10 @@ Most per day	1 日の上限
 Builds stop, and new ones don't start, once today's AI cost (UTC) reaches this, in US dollars. Empty: no limit.	今日（UTC）の AI の費用がこの額（米ドル）に達すると、ビルドは停止し、新しいビルドも開始されません。空欄：上限なし。
 No limit	上限なし
 Enter an amount in US dollars, zero or more, or leave it empty for no limit.	0 以上の金額を米ドルで入力するか、上限なしにする場合は空欄のままにしてください。
+Pictures and documents	画像と文書
+Documents	文書
+Add pictures or a manual of the original (optional: screenshots help it look right, a manual helps it work right)	元のソフトの画像やマニュアルを追加（任意：スクリーンショットは見た目を、マニュアルは動作を正しく再現する助けになります）
+{name} can't be added: a document can be up to 20 MB.	{name} は追加できません：文書は 20 MB までです。
 Sandbox	サンドボックス
 Build commands	ビルドコマンド
 Where a build's shell commands run. Docker sees only the project folder, as a non-root user, with the network off unless you allow it.	ビルドのシェルコマンドを実行する場所。Docker はプロジェクトフォルダだけを見え、root 以外のユーザーで、許可しない限りネットワークなしで動きます。

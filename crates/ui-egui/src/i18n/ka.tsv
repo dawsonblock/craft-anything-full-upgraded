@@ -1488,6 +1488,10 @@ Most per day	მაქსიმუმი დღეში
 Builds stop, and new ones don't start, once today's AI cost (UTC) reaches this, in US dollars. Empty: no limit.	აწყობები ჩერდება და ახლები არ იწყება, როგორც კი დღევანდელი AI-ის ხარჯი (UTC) ამ თანხას მიაღწევს, აშშ დოლარში. ცარიელი: ლიმიტის გარეშე.
 No limit	ლიმიტის გარეშე
 Enter an amount in US dollars, zero or more, or leave it empty for no limit.	შეიყვანეთ თანხა აშშ დოლარში, ნული ან მეტი, ან დატოვეთ ცარიელი ლიმიტის გარეშე.
+Pictures and documents	სურათები და დოკუმენტები
+Documents	დოკუმენტები
+Add pictures or a manual of the original (optional: screenshots help it look right, a manual helps it work right)	დაამატეთ ორიგინალის სურათები ან სახელმძღვანელო (არასავალდებულო: ეკრანის სურათები ეხმარება იერსახეს, სახელმძღვანელო — მუშაობას)
+{name} can't be added: a document can be up to 20 MB.	{name} ვერ დაემატება: დოკუმენტი შეიძლება იყოს მაქსიმუმ 20 MB.
 Sandbox	Sandbox
 Build commands	აწყობის ბრძანებები
 Where a build's shell commands run. Docker sees only the project folder, as a non-root user, with the network off unless you allow it.	სად ეშვება აწყობის shell ბრძანებები. Docker ხედავს მხოლოდ პროექტის საქაღალდეს, მუშაობს არა-root მომხმარებლად და ქსელის გარეშე, თუ არ დაუშვებ.

@@ -657,6 +657,29 @@ fn pictures_of_the_original_reach_the_builder() {
     assert!(pictures_reminder(&ws, true).contains("1 picture(s)"));
 }
 
+/// A manual or notes about the original reach the builder: named in the first brief with what to
+/// do with them, and in later rounds' reminders; nothing is said when there are none.
+#[test]
+fn documents_about_the_original_reach_the_builder() {
+    let d = tempfile::tempdir().unwrap();
+    let ws = Workspace::create(d.path(), "App", "Copy this app", TargetRef::None).unwrap();
+    assert!(!brief(&ws, "app", false, false, None, false, None).contains("reference/docs"));
+    assert!(documents_reminder(&ws).is_empty());
+    let manual = d.path().join("User Guide.pdf");
+    std::fs::write(&manual, "x").unwrap();
+    ws.add_references(&[manual]).unwrap();
+    // Read like any file, so a builder that can't look at pictures gets them too.
+    for sees in [true, false] {
+        let cx = BriefCx { ws: &ws, deep: false, ghidra: false, editor: None, assets: false, image_model: None, sees_pictures: sees };
+        let b = super::brief(kind("app").as_ref(), &cx, None);
+        assert!(b.contains("reference/docs/User Guide.pdf"), "the document is named (sees pictures: {sees}): {b}");
+        assert!(b.contains("Read every one before you plan"), "and read before planning");
+        assert!(b.contains("in your own words") && b.contains("don't copy passages"), "its text isn't copied into the app");
+    }
+    let reminder = documents_reminder(&ws);
+    assert!(reminder.contains("1 document(s)") && reminder.contains("reference/docs/"), "{reminder}");
+}
+
 /// What a builder that can't look at pictures (the API loop) is told to open or look at a
 /// picture with. A sighted builder's prompts say these; a blind one's never do (R5.4).
 const LOOK_AT_A_PICTURE: &[&str] = &[

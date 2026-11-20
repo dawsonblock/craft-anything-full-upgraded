@@ -1322,6 +1322,24 @@ Owner: open · Status: in progress
 - [x] Keep the probe's script inside the engine crate (or a resources folder) so a packaged
       `craft-anything-engine` doesn't need `scripts/`; it now lives at
       `crates/engine/src/tools/independent_game_probe.py` and the Python tests point at it
+- [x] Take a manual or notes about the original as a reference: pictures show how it looks, but
+      only a document says what it does. `Workspace::add_references` also takes .pdf, .md,
+      .markdown, .txt, .html and .htm (up to 20 MB each, refused before anything is copied) into
+      `reference/docs/` under their own names made safe (other characters become `-`, Windows device
+      names get `doc-`, a taken name is numbered). The first brief names them and tells the builder
+      to read them before planning and to put every word the app shows in its own words, and later
+      rounds' reminders keep them in view; a builder that can't see pictures gets them too. Added from
+      Make's paperclip ("Add pictures or a manual of the original"), `rebuild_start`'s new
+      `documents` and the CLI's `--reference <FILE>`, which refuse a file they can't add before a
+      project folder is made
+      — claimed: Claude, branch claude/magical-faraday-dqfztt
+- [ ] Check a build against its documents: have the builder list the features the manual
+      describes in a checklist kept with the project (like `mechanics.json` for games), and keep the
+      build from Ready while any stays unaccounted for. **decision**: how strict, and whether a
+      feature the builder marks "left out on purpose" counts
+- [ ] Documents with a message: a chat attachment is pictures only, and a dropped document opens
+      as a target (it may be the file to study), so a manual added after the start goes through
+      Make or `--reference` only. Decide how a dropped document says which it is
 
 ### R2.7 The request decides how to build
 Owner: open · Status: in progress

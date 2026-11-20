@@ -1488,6 +1488,10 @@ Most per day	สูงสุดต่อวัน
 Builds stop, and new ones don't start, once today's AI cost (UTC) reaches this, in US dollars. Empty: no limit.	บิลด์จะหยุด และไม่เริ่มบิลด์ใหม่ เมื่อค่าใช้จ่าย AI ของวันนี้ (UTC) ถึงจำนวนนี้ เป็นดอลลาร์สหรัฐ เว้นว่าง: ไม่จำกัด
 No limit	ไม่จำกัด
 Enter an amount in US dollars, zero or more, or leave it empty for no limit.	ใส่จำนวนเงินเป็นดอลลาร์สหรัฐ ตั้งแต่ศูนย์ขึ้นไป หรือเว้นว่างไว้หากไม่ต้องการจำกัด
+Pictures and documents	รูปและเอกสาร
+Documents	เอกสาร
+Add pictures or a manual of the original (optional: screenshots help it look right, a manual helps it work right)	เพิ่มรูปหรือคู่มือของต้นฉบับ (ไม่บังคับ: ภาพหน้าจอช่วยให้หน้าตาเหมือน คู่มือช่วยให้ทำงานเหมือน)
+{name} can't be added: a document can be up to 20 MB.	เพิ่ม {name} ไม่ได้: เอกสารมีขนาดได้สูงสุด 20 MB
 Sandbox	แซนด์บ็อกซ์
 Build commands	คำสั่งบิลด์
 Where a build's shell commands run. Docker sees only the project folder, as a non-root user, with the network off unless you allow it.	ที่ที่คำสั่งเชลล์ของบิลด์ทำงาน Docker เห็นเฉพาะโฟลเดอร์โปรเจกต์ ทำงานเป็นผู้ใช้ที่ไม่ใช่ root และไม่มีเครือข่ายเว้นแต่คุณจะอนุญาต

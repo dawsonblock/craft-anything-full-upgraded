@@ -145,6 +145,9 @@ pub(super) fn brief(kind: &dyn TargetKind, cx: &BriefCx, extra: Option<&str>) ->
     if let Some(note) = pictures_note(ws, kind, sees) {
         s.push_str(&format!("\n\n{note}"));
     }
+    if let Some(note) = documents_note(ws) {
+        s.push_str(&format!("\n\n{note}"));
+    }
     if let Some(note) = start_files_note(m) {
         s.push_str(&format!("\n\n{note}"));
     }
@@ -331,6 +334,29 @@ pub(super) fn pictures_note(ws: &Workspace, kind: &dyn TargetKind, sees: bool) -
         s.push_str(" After each build, run the program with --screenshot to a file inside app/ (for example app/shots/now.png), open that picture with Read, compare it with each picture of the original, and fix the biggest differences first.");
     }
     Some(s)
+}
+
+/// The documents about the original the person added (a manual, notes): what it does and how it
+/// behaves, which pictures can't show. Read like any file, so they don't depend on seeing pictures.
+pub(super) fn documents_note(ws: &Workspace) -> Option<String> {
+    let docs = ws.reference_documents();
+    if docs.is_empty() {
+        return None;
+    }
+    let names = docs.iter().filter_map(|p| p.file_name()).map(|n| format!("reference/docs/{}", n.to_string_lossy())).collect::<Vec<_>>().join(", ");
+    Some(format!(
+        "The person added {} document(s) about the original: {names}. A manual or notes says what the original does and how it behaves, which pictures can't show. Read every one before you plan (a long manual: its contents first, then the chapters on features, screens and settings), and build what they describe: its features, its screens and what each control does, its settings and their effects. Write every word the app shows in your own words: don't copy passages, help text or examples from them into the app. If one can't be read (a PDF your tools can't open), say so with core_person_ask and ask the person what it covers.",
+        docs.len()
+    ))
+}
+
+/// A short reminder for later rounds, so documents added after the first build count too.
+pub(super) fn documents_reminder(ws: &Workspace) -> String {
+    let n = ws.reference_documents().len();
+    if n == 0 {
+        return String::new();
+    }
+    format!("\n\nKeep to what the {n} document(s) about the original in reference/docs/ describe (read any you haven't yet), in your own words.")
 }
 
 /// A short reminder for later rounds, so pictures added after the first build count too.

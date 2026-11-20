@@ -1488,6 +1488,10 @@ Most per day	Günde en fazla
 Builds stop, and new ones don't start, once today's AI cost (UTC) reaches this, in US dollars. Empty: no limit.	Bugünün (UTC) yapay zekâ maliyeti bu tutara (ABD doları) ulaştığında derlemeler durur ve yenileri başlamaz. Boş: sınır yok.
 No limit	Sınır yok
 Enter an amount in US dollars, zero or more, or leave it empty for no limit.	Sıfır veya daha fazla bir tutarı ABD doları olarak girin ya da sınır olmaması için boş bırakın.
+Pictures and documents	Resimler ve belgeler
+Documents	Belgeler
+Add pictures or a manual of the original (optional: screenshots help it look right, a manual helps it work right)	Orijinalin resimlerini veya kılavuzunu ekle (isteğe bağlı: ekran görüntüleri görünüşe, kılavuz çalışmaya yardımcı olur)
+{name} can't be added: a document can be up to 20 MB.	{name} eklenemiyor: bir belge en fazla 20 MB olabilir.
 Sandbox	Korumalı alan
 Build commands	Derleme komutları
 Where a build's shell commands run. Docker sees only the project folder, as a non-root user, with the network off unless you allow it.	Bir derlemenin kabuk komutlarının çalıştığı yer. Docker yalnızca proje klasörünü görür, root olmayan kullanıcı olarak ve izin vermezsen ağ olmadan çalışır.

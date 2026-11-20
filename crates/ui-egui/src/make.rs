@@ -134,7 +134,12 @@ pub fn hero(app: &mut CraftApp, ui: &mut Ui, w: f32) {
         };
         // Websites are photographed for the builder; anything else looks right from pictures.
         let website = matches!(resolve_target(d), TargetRef::Website { .. }) || d.editing_url;
-        let submit = request_box(app, ui, hint, (!website).then_some("Add pictures of the original (optional: screenshots help it look right)"));
+        let submit = request_box(
+            app,
+            ui,
+            hint,
+            (!website).then_some("Add pictures or a manual of the original (optional: screenshots help it look right, a manual helps it work right)"),
+        );
         if app.state.make.request.trim().is_empty() {
             ui.add_space(10.0);
             suggestions(app, ui);

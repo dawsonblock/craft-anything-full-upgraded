@@ -1488,6 +1488,10 @@ Most per day	Не больше за день
 Builds stop, and new ones don't start, once today's AI cost (UTC) reaches this, in US dollars. Empty: no limit.	Сборки останавливаются, а новые не запускаются, как только сегодняшние расходы на ИИ (UTC) достигают этой суммы в долларах США. Пусто — без лимита.
 No limit	Без лимита
 Enter an amount in US dollars, zero or more, or leave it empty for no limit.	Введите сумму в долларах США, ноль или больше, или оставьте поле пустым, чтобы не задавать лимит.
+Pictures and documents	Изображения и документы
+Documents	Документы
+Add pictures or a manual of the original (optional: screenshots help it look right, a manual helps it work right)	Добавить изображения или руководство оригинала (необязательно: снимки экрана помогают с внешним видом, руководство — с работой)
+{name} can't be added: a document can be up to 20 MB.	Не удаётся добавить {name}: документ может быть не больше 20 МБ.
 Sandbox	Песочница
 Build commands	Команды сборки
 Where a build's shell commands run. Docker sees only the project folder, as a non-root user, with the network off unless you allow it.	Где выполняются shell-команды сборки. Docker видит только папку проекта, работает не от root и без сети, если вы не разрешите.

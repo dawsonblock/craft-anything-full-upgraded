@@ -1488,6 +1488,10 @@ Most per day	Nejvýše za den
 Builds stop, and new ones don't start, once today's AI cost (UTC) reaches this, in US dollars. Empty: no limit.	Buildy se zastaví a nové se nespustí, jakmile dnešní náklady na AI (UTC) dosáhnou této částky v amerických dolarech. Prázdné: bez limitu.
 No limit	Bez limitu
 Enter an amount in US dollars, zero or more, or leave it empty for no limit.	Zadejte částku v amerických dolarech, nula nebo více, nebo nechte pole prázdné pro žádný limit.
+Pictures and documents	Obrázky a dokumenty
+Documents	Dokumenty
+Add pictures or a manual of the original (optional: screenshots help it look right, a manual helps it work right)	Přidat obrázky nebo příručku originálu (volitelné: snímky obrazovky pomáhají se vzhledem, příručka s fungováním)
+{name} can't be added: a document can be up to 20 MB.	{name} nelze přidat: dokument může mít nejvýše 20 MB.
 Sandbox	Sandbox
 Build commands	Příkazy buildu
 Where a build's shell commands run. Docker sees only the project folder, as a non-root user, with the network off unless you allow it.	Kde se spouštějí shellové příkazy buildu. Docker vidí jen složku projektu, běží jako uživatel bez rootu a bez sítě, pokud to nepovolíš.

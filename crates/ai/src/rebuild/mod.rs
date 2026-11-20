@@ -766,7 +766,7 @@ impl Worker {
         questions.extend(extra);
         let context = just_asked(&questions);
         let texts: Vec<String> = notes.into_iter().map(|n| n.text).collect();
-        Some((context + &added_prompt(&texts) + &pictures_reminder(ws, sees_pictures), questions))
+        Some((context + &added_prompt(&texts) + &pictures_reminder(ws, sees_pictures) + &documents_reminder(ws), questions))
     }
 
     /// Decides an ACP builder's permission requests with the same policy Claude Code's approval
@@ -947,7 +947,11 @@ impl Worker {
         drop(s);
         let cx = BriefCx { ws, deep, ghidra, editor: self.editor.as_deref(), assets: self.assets, image_model: image_model.as_deref(), sees_pictures };
         // The project's settings as they are now, for an agent that carries on its session.
-        let now = || kind.follow_up_sections(&cx).iter().map(|s| format!("\n\n{s}")).collect::<String>() + &pictures_reminder(ws, sees_pictures);
+        let now = || {
+            kind.follow_up_sections(&cx).iter().map(|s| format!("\n\n{s}")).collect::<String>()
+                + &pictures_reminder(ws, sees_pictures)
+                + &documents_reminder(ws)
+        };
         let mut prompt = match &opts.message {
             // An agent with a saved session gets the follow-up; one without (an API loop) starts
             // from the brief with the request added.
@@ -1131,7 +1135,7 @@ impl Worker {
             // Nothing written yet: a fix for a build that doesn't exist sends the builder looking for one.
             // It is asked to write the project and to show its build output (#736).
             let refined = if app_is_empty(ws) { NO_PROJECT_PROMPT.to_string() } else { kind.refine(check, sees_pictures) };
-            prompt = refined + &pictures_reminder(ws, sees_pictures);
+            prompt = refined + &pictures_reminder(ws, sees_pictures) + &documents_reminder(ws);
             if !api_loop {
                 prompt.push_str(CHECK_BEFORE_REPLYING);
             }
