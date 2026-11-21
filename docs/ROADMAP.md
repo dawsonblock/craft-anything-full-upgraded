@@ -1161,6 +1161,7 @@ Owner: open · Status: in progress
 - [ ] Give the "Refuse unconfined builds" switch a headless counterpart: `settings_set` reaches
       `ai.require_confined_build` only once the [ai] section has been saved with it, so add a CLI
       `ai` subcommand (its row in `headless_parity.rs` is `Pending` until then)
+      — claimed: Claude, branch claude/magical-faraday-dqfztt
 - [x] Count the confinement declaration from what holds, not from a list of flags that break it:
       only `--dangerously-skip-permissions` (Claude Code) and a Codex `--sandbox` were counted, so
       `--permission-mode bypassPermissions`, `--allowedTools Bash`, `--permission-prompt-tool`,
@@ -1173,6 +1174,7 @@ Owner: open · Status: in progress
       person's own `~/.claude/settings.json` allow rules (and `defaultMode`) may decide before our
       approval tool is asked, which no argument check can see. If they do, pass `--setting-sources`
       or say so in the declaration
+      — claimed: Claude, branch claude/magical-faraday-dqfztt
 - [x] Close the spend ledger's gaps. The cross-process lock is an OS lock (`File::try_lock`) on
       `spend.json.lock`, which the system releases when its process ends, instead of an exclusive
       file that a 30-second staleness guess deleted (two processes could both clear it and both
@@ -1337,11 +1339,18 @@ Owner: open · Status: in progress
       — claimed: Claude, branch claude/magical-faraday-dqfztt
 - [ ] Check a build against its documents: have the builder list the features the manual
       describes in a checklist kept with the project (like `mechanics.json` for games), and keep the
-      build from Ready while any stays unaccounted for. **decision**: how strict, and whether a
-      feature the builder marks "left out on purpose" counts
+      build from Ready while any stays unaccounted for
+      — decided by a maintainer on 2026-11-21: each feature is marked built (saying where) or
+      "left out on purpose" with a reason; left out counts as accounted for, and the reasons are
+      shown on the project
+      — claimed: Claude, branch claude/magical-faraday-dqfztt
 - [ ] Documents with a message: a chat attachment is pictures only, and a dropped document opens
       as a target (it may be the file to study), so a manual added after the start goes through
-      Make or `--reference` only. Decide how a dropped document says which it is
+      Make or `--reference` only
+      — decided by a maintainer on 2026-11-21: on Make or a project, a dropped document asks "Use
+      as the manual" or "Study this file"; elsewhere it opens as a target; the chat's paperclip
+      takes documents too
+      — claimed: Claude, branch claude/magical-faraday-dqfztt
 
 ### R2.7 The request decides how to build
 Owner: open · Status: in progress
