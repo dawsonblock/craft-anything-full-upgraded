@@ -196,8 +196,50 @@ cheapest help we can give anyone, so nothing below should hold it up for long.
       the manifest: `package-zip` already does, but the external reusable workflow can attach a ZIP
       made outside it, so the draft check needs to compare the attached archive with the preflight
       receipt before publishing
+- [x] Stop hashing the two living records: `docs/ROADMAP.md` and `docs/STATUS.md` are excluded
+      from the inventory (`LIVING_RECORDS`), because the contribution rules require editing the
+      roadmap in almost every pull request — so following the rules invalidated the manifest, and
+      two concurrent PRs would both rewrite a 158 KB generated file. They are now absent from the
+      source ZIP as well; the archive's bytes stay bound to the commit by the release attestation,
+      and every other `docs/` page is still inventoried. One regression covers the exclusion
+      — claimed: Devin, branch feature/r3.0-project-disk-ceiling
+- [x] Generate the source manifest when packaging instead of committing it: `package-zip` now
+      inventories the checkout, writes the manifest at the canonical root (`--root-name` to
+      override) and refuses a checkout whose tracked files differ from their commit, so the archive
+      is the commit the attestation names. `SOURCE_INTEGRITY.json` is deleted from Git and ignored;
+      `verify-tree` still checks an extracted ZIP against the manifest it was packaged with, and
+      `native_validation`/`native_cli_matrix` compare a checkout with its commit instead. The
+      earlier items above that re-baseline or verify a committed manifest describe the previous
+      model. Two regressions cover the dirty-checkout refusal and an untracked file not blocking
+      packaging
+      — claimed: Devin, branch feature/r3.0-project-disk-ceiling
 - [ ] Run the release source check against the first published release that attaches a
       manifest-bearing source ZIP
+- [x] Re-baseline `SOURCE_INTEGRITY.json` against a pristine `git archive` export of `HEAD`: the
+      committed manifest still described `b7ea333`, so four later commits (the sandbox disk
+      ceiling, the terminal policy, the settings strings) made a clean export fail
+      `verify-tree --require-declared-root`, and the release preflight with it, while all 203
+      Python tests passed. Regenerating from the export passes strict tree verification and
+      `package-zip`
+      — claimed: Devin, branch feature/r3.0-project-disk-ceiling
+- [x] Require a GitHub artifact attestation on the published release, not only on the draft:
+      `fork-release-source-check.yml` runs on `release: published` and now passes
+      `--verify-attestation` with `attestations: read`, so the attestation must cover the verified
+      bytes and the commit the tag resolves to. The draft check in `release.yml` already did this
+      — claimed: Devin, branch feature/r3.0-project-disk-ceiling
+- [x] Stop buffering `gh` output before refusing it: `run_gh` read every reply into memory and
+      checked the 5 MB cap afterwards, so a large or endless reply was captured in full first. It
+      now reads both pipes on threads, stops at the cap, kills the child and reports
+      `produced too much output`; the deadline is enforced the same way. Three regressions cover
+      the streams, an endless reply (which fails fast instead of waiting for the deadline) and the
+      timeout
+      — claimed: Devin, branch feature/r3.0-project-disk-ceiling
+- [x] Pin every versioned GitHub Action to the commit it names: `checkout@v4`,
+      `setup-python@v5`, `upload-artifact@v4`, `download-artifact@v4`,
+      `attest-build-provenance@v2` and `cargo-deny-action@v2` are now `@<sha> # vX.Y.Z`, resolved
+      from the tag itself. The secretless shared workflows keep tracking `@main` as documented, and
+      a regression test refuses a new `@vN` tag
+      — claimed: Devin, branch feature/r3.0-project-disk-ceiling
 - [x] Verify the final source ZIP before a release is published, not only after, and bind it to the
       intended commit with a signed provenance record: `fork-release-source-preflight.yml` verifies,
       packages, extracts and attests the source at the release commit, `release.yml` gates the
@@ -219,6 +261,15 @@ cheapest help we can give anyone, so nothing below should hold it up for long.
       sonarcloud, freebsd, windows-arm64) keep tracking `@main`; bumping the pin is a reviewed,
       one-line change (`docs/releasing.md`)
       — claimed: Devin, branch chore/security-and-release-gates
+- [x] Pin SonarCloud too: it was listed as secretless, but `sonarcloud.yml` passes
+      `secrets: inherit`, which hands the shared workflow every repository secret (the signing ones
+      included) while it tracked `@main`. It is pinned to `ecb64b2` (the commit its last green runs
+      used), bumped with the release pin, and `docs/releasing.md` lists only the truly secretless four
+      — claimed: Claude, branch claude/magical-faraday-dqfztt
+- [ ] Pin the shared release workflow's own actions: inside craft-common-actions, `release.yml`
+      still calls some actions at `@main` (`draft-release` among them, with the signing secrets), so
+      our SHA pin fixes which revision of that workflow runs but not what it calls. Pin them there,
+      then bump this repository's pin to the commit that does it (it can't be done from here)
 - [x] Stop recording Python tool caches in the source manifest and re-baseline it: `main`'s
       manifest named three `.ruff_cache` files a clean checkout lacks, so `verify-tree` failed on
       `main` and the release preflight with it. `create` now ignores `.ruff_cache`,
@@ -408,6 +459,16 @@ Every round spends the person's money or quota. One that can't do anything shoul
       own estimate at API prices; a turn that reports tokens but no cost is priced at the
       model's list rate, and an agent that reports neither isn't counted
       — claimed: Devin, branch chore/security-and-release-gates
+      — decided by a maintainer on 2026-11-20 (the agent had ticked it): yes, both ceilings, off
+      unless the person sets them, and set from Settings → AI as well as config.toml
+- [x] Put the spending ceilings in Settings → AI: "Most per build" and "Most per day" under
+      Spending limits, typed in US dollars and saved when the field is left (empty is no limit; a
+      bad amount is refused with a message and the field shows the saved value). Saved on a worker
+      through `AiHub::set_spend_limits`, which refuses a negative amount before writing and never
+      saves over an [ai] section it can't read (#261). Seven strings in all sixteen catalogues (a
+      native speaker should still check them); the headless-parity row is `Pending` until a CLI
+      `ai` subcommand sets them
+      — claimed: Claude, branch claude/magical-faraday-dqfztt
 - [x] Hold the spend ledger across processes: a lock file beside `spend.json` is created
       exclusively and released on drop, so the app and the CLI add their turns instead of writing
       over each other. The wait is bounded (5 s, 10 ms polls), a lock older than 30 s is treated as
@@ -975,6 +1036,10 @@ Owner: open · Status: in progress
       `runtime_walkthrough_record` and `project_play` are refused, and `TOOL_ROUTES` is gone
       (R3.0 PR 2)
       — claimed: Devin, branch feature/r3.0-execution-inventory
+- [x] A pseudo-terminal launch is held to the same policy: `capture` and `console_text` called
+      `portable_pty`'s `spawn_command` directly, so a program the policy refuses at
+      `Process::spawn` could still start through a terminal (found in an external audit)
+      — claimed: Devin, branch bugfix/r3.0-pty-policy
 - [x] Harden Docker and project files: the project folder is resolved and must stay inside the
       project (a symlinked app/ that leads outside is refused); the container never runs as root
       (a root host falls back to 1000:1000); the image can be pinned by `sha256` digest; an
@@ -1012,9 +1077,28 @@ Owner: open · Status: in progress
 - [x] Run `cargo deny check advisories` in CI once the `crypto-bigint` upgrade lands; the yanked
       crates (`clipboard-win` 5.4.3, `async-executor` 1.14.1) are fixed — the `advisories` job in
       `ci.yml`
-- [ ] Bound the project folder's own disk use: `sandbox_disk_mb` limits the container's writable
+- [x] Bound the project folder's own disk use: `sandbox_disk_mb` limits the container's writable
       layer, not the `/work` bind mount, so a build can still fill the host's disk inside its
-      project
+      project. `[build] sandbox_project_mb` measures the folder (a folder already past it is
+      refused before Docker starts) and every 250 ms while the build runs, cancelling the run and
+      removing the container when it grows past the ceiling; links are not followed (a tree too
+      large to walk was first reported unknown and let through; the next item replaced that with
+      a refusal) — claimed: Devin, branch feature/r3.0-project-disk-ceiling
+- [x] Hold the project-folder ceiling when the folder can't be measured: a tree with more entries
+      than one walk takes (now 1,000,000) used to switch the ceiling off silently, so a build could
+      make many small files and then write without limit, and a large `node_modules` left it
+      unenforced. Such a folder is now refused before Docker starts, or the build stopped, with an
+      error that says it couldn't be measured; a large tree is measured less often (at least four
+      times the last walk's duration apart). The ceiling is checked before the sandbox user's
+      write check, so the refusal doesn't depend on who runs the host (the test failed as root).
+      A folder that can't be read (a subfolder without list permission) is refused the same way
+      rather than counted as empty, and a watcher that can't start stops the build before Docker
+      runs — claimed: Claude, branch claude/magical-faraday-dqfztt
+- [ ] Put `sandbox_project_mb` in Settings → Builds → Sandbox, with its string in all sixteen
+      catalogues: it is `config.toml`-only today, like the digest and the writable-layer limit
+- [ ] Live-check the project-folder ceiling against a running Docker daemon: a build that writes
+      past `sandbox_project_mb` is stopped mid-run and leaves no container behind (only the
+      measurement, the watcher and the pre-run refusal are unit-tested)
 - [ ] **decision** Whether `sandbox_unconfined` should default to `"refuse"`: today turning the
       sandbox on still runs the check's own build, the runs comparison, a person's own project's
       build or tests, the probe, a self-test and a coding agent outside it (each says so), because
@@ -1028,6 +1112,10 @@ Owner: open · Status: in progress
       other adapter says nothing), `rebuild_start`'s result carries all three, and
       `[ai] require_confined_build` (on by default) refuses a build whose agent declares nothing
       — claimed: Devin, branch chore/security-and-release-gates
+- [x] **decision** Whether `require_confined_build` is on by default, which refuses Gemini CLI,
+      OpenCode, Copilot, Aider and the other agents that declare no boundary until the person turns
+      it off in Settings → AI: yes, on. The default was first chosen by the agent that built the
+      gate; a maintainer confirmed it on 2026-11-20
 - [ ] Hold a chat or a question with a coding agent to the same policy: this change covers a
       build's agent, not the agent's own tools in a chat (their own approvals are R2.2's decision)
 - [ ] Sweep containers carrying the sandbox label at startup, for one left behind by a crash
@@ -1063,6 +1151,58 @@ Owner: open · Status: in progress
       default, saved through `AiHub::save_config`, with the help text saying what Off means; the
       strings are in every catalogue (a native speaker should still check the security wording)
       — claimed: Devin, branch chore/security-and-release-gates
+- [x] Save the "Refuse unconfined builds" switch without risking the [ai] section: it read the
+      settings with `AiHub::config()`, which answers the empty default for an [ai] section it can't
+      read (a negative `max_daily_cost_usd` is one), and saved that back over every backend, role
+      and price (#261), on the UI thread under a blocking session lock. `AiHub::set_require_confined_build`
+      goes through `config_to_change`, the app saves on a worker, and the switch draws a value a
+      worker last read
+      — claimed: Claude, branch claude/magical-faraday-dqfztt
+- [x] Give the "Refuse unconfined builds" switch and the spending ceilings a headless
+      counterpart: `settings_set` reaches them only once the [ai] section has been saved with them.
+      `craft-anything-cli ai policy` shows them and sets any of `--refuse-unconfined on|off`,
+      `--max-per-build <USD|none>` and `--max-per-day <USD|none>` in one save
+      (`AiHub::set_build_policy`, which refuses a bad amount or an unreadable [ai] section before
+      writing). The amount parser moved to `budget::parse_dollars`, shared with Settings. Both
+      rows in `headless_parity.rs` name the command
+      — claimed: Claude, branch claude/magical-faraday-dqfztt
+- [x] Count the confinement declaration from what holds, not from a list of flags that break it:
+      only `--dangerously-skip-permissions` (Claude Code) and a Codex `--sandbox` were counted, so
+      `--permission-mode bypassPermissions`, `--allowedTools Bash`, `--permission-prompt-tool`,
+      `--settings`, Codex's `-s danger-full-access`, `--yolo` and a `-c` sandbox override kept the
+      claimed boundary. Each adapter that claims one now lists the extra arguments it has checked
+      (`CLAUDE_CODE_SAFE_ARGS`, `CODEX_SAFE_ARGS`); any other argument, a flag that swallows a flag as
+      its value, or a `-c` key outside the list reports nothing, and the refusal names the argument
+      — claimed: Claude, branch claude/magical-faraday-dqfztt
+- [x] Check live which settings Claude Code consults before `--permission-prompt-tool`. Run with
+      Claude Code 2.1.330 and a stand-in approval tool that logs and denies: a `Bash(touch:*)` allow
+      rule in the person's `settings.json` ran the command without asking it, and so did one in a
+      `.claude/settings.local.json` in the build's own folder, which the builder can write; one in
+      `.claude/settings.json` there was ignored only because the folder wasn't trusted;
+      `defaultMode: "bypassPermissions"` in `settings.json` did not skip it. With
+      `--setting-sources ""` every case asked, and `--settings` (our notes hook) still applied, so a
+      Claude Code build now reads no settings files
+      — claimed: Claude, branch claude/magical-faraday-dqfztt
+- [ ] A Claude Code build no longer reads the person's `settings.json`, so its `env` (a proxy's
+      `ANTHROPIC_BASE_URL`) and `apiKeyHelper` don't reach a build either; its sign-in is a separate
+      file and is unaffected. Carry those two keys over in our `--settings` if anyone relies on them
+- [x] Close the spend ledger's gaps. The cross-process lock is an OS lock (`File::try_lock`) on
+      `spend.json.lock`, which the system releases when its process ends, instead of an exclusive
+      file that a 30-second staleness guess deleted (two processes could both clear it and both
+      write); a run that crosses midnight UTC adds what it spends after it to the new day; and
+      `TurnDone` carries `cached_input_tokens` (Codex and Claude Code report it, the built-in loop
+      too), so an estimated turn prices cached prompt tokens at the cache-read rate instead of the
+      full input rate, which stopped a long Codex build early. The module comment says what holds
+      — claimed: Claude, branch claude/magical-faraday-dqfztt
+- [x] Hold every paid request to the ceilings, and keep the turn that reached one. The extractor's
+      first request and each retry of a failed turn (which can still be billed) now check the ceiling
+      first; a turn that crosses it saves its reply, `awaiting_check` and progress before the run
+      stops, so continuing after raising the ceiling checks that work instead of asking for it
+      again. The confinement gate reads the run's own adapter registry (`refuse_unconfined_in`), so
+      an adapter registered over a built-in id is the one whose boundary counts. And a Git checkout
+      Git can't list is refused by the source manifest instead of walked, which would have put
+      untracked files in it
+      — claimed: Claude, branch claude/magical-faraday-dqfztt
 - [ ] Enforce the chat and question declarations: they are recorded now but no run acts on them,
       and Codex's, Gemini CLI's, OpenCode's, Antigravity's, Hermes's and Maki's own sandboxes in a
       chat are still not established. The decision above covers builds only, so a chat still runs
@@ -1197,6 +1337,58 @@ Owner: open · Status: in progress
 - [x] Keep the probe's script inside the engine crate (or a resources folder) so a packaged
       `craft-anything-engine` doesn't need `scripts/`; it now lives at
       `crates/engine/src/tools/independent_game_probe.py` and the Python tests point at it
+- [x] Take a manual or notes about the original as a reference: pictures show how it looks, but
+      only a document says what it does. `Workspace::add_references` also takes .pdf, .md,
+      .markdown, .txt, .html and .htm (up to 20 MB each, refused before anything is copied) into
+      `reference/docs/` under their own names made safe (other characters become `-`, Windows device
+      names get `doc-`, a taken name is numbered). The first brief names them and tells the builder
+      to read them before planning and to put every word the app shows in its own words, and later
+      rounds' reminders keep them in view; a builder that can't see pictures gets them too. Added from
+      Make's paperclip ("Add pictures or a manual of the original"), `rebuild_start`'s new
+      `documents` and the CLI's `--reference <FILE>`, which refuse a file they can't add before a
+      project folder is made
+      — claimed: Claude, branch claude/magical-faraday-dqfztt
+- [x] Check a build against its documents: have the builder list the features the manual
+      describes in a checklist kept with the project (like `mechanics.json` for games), and keep the
+      build from Ready while any stays unaccounted for. Done: `app/features.json`
+      (`engine::features`, schema in `docs/schemas/features.schema.json`) and `FeaturesCheck`, which
+      joins every kind's round when the project has documents and is required; the first brief
+      gives the format and later rounds' reminders ask to keep it up to date
+      — decided by a maintainer on 2026-11-21: each feature is marked built (saying where) or
+      "left out on purpose" with a reason; left out counts as accounted for, and the reasons are
+      shown on the project
+      — claimed: Claude, branch claude/magical-faraday-dqfztt
+- [x] The features check trusted the checklist: a feature marked built counted when it named a
+      place, without looking there. A `where` that names a path (`src/export.rs`, `src/export.rs:42`,
+      `app/src/ui.rs, the Export menu`) must now be in `app/`, and one leaving it (`..`, absolute)
+      never is; the brief asks for a path
+- [ ] A `where` in words ("the Export menu") is still taken as said, and a file that exists isn't
+      read for the feature: have the Check step's screenshots or a walkthrough look for it
+- [x] Documents with a message: a chat attachment was pictures only, and a dropped document opened
+      as a target (it may be the file to study), so a manual added after the start went through
+      Make or `--reference` only
+      — decided by a maintainer on 2026-11-21: on Make or a project, a dropped document asks "Use
+      as the manual" or "Study this file"; elsewhere it opens as a target; the chat's paperclip
+      takes documents too
+      — claimed: Claude, branch claude/magical-faraday-dqfztt
+      Done: the project's paperclip takes pictures and documents; `Workspace::add_attachments`
+      copies a message's documents into reference/docs/ (refusing one over 20 MB before anything
+      is copied), the message names them and says to read them first, and the feed says "(2 files
+      attached)". A document dropped on Make or a project shows "A manual, or the file to study?"
+      (pictures dropped with it go to the message at once). Nine strings in all sixteen catalogues
+      (a native speaker should still check them)
+- [x] `rebuild_note` took text only, so a headless client couldn't send a manual with a note. It
+      now takes `attachments` (pictures and documents, refused by name before anything is copied
+      when one is missing, of another kind or over 20 MB), copied as the app's are, and the message
+      is built by the same `rebuild::notes::with_attachments`; the `attach` parity row names it.
+      The copying with a running build is tested only through the app's path
+- [x] Keep `rebuild_note`'s attachments to the person: a security review found that an agent or
+      MCP client could have named any `.txt`, `.md` or `.html` file on the computer (in Clean room,
+      the original's own) and had it copied into the project the builder reads, and that the
+      file checks ran before the running-build lookup, so any caller could learn whether a path
+      existed. Agent and MCP callers now get `NoPermission` before any path is looked at, and the
+      checks run only once a build is found
+      — claimed: Claude, branch claude/magical-faraday-dqfztt
 
 ### R2.7 The request decides how to build
 Owner: open · Status: in progress

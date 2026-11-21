@@ -22,7 +22,9 @@ enum Headless {
     Tool(&'static [&'static str]),
     /// A built-in CLI command; `<…>` are arguments, `--flags` must exist.
     Cli(&'static str),
-    /// No counterpart yet. `tool` is the id it waits for (if one is planned).
+    /// No counterpart yet. `tool` is the id it waits for (if one is planned). No row waits today;
+    /// this is how a new app action without a headless way to do it is recorded.
+    #[allow(dead_code)]
     Pending { tool: Option<&'static str>, why: &'static str },
     /// A view action with no product logic behind it.
     UiOnly(&'static str),
@@ -48,6 +50,8 @@ const ACTIONS: &[Action] = &[
     a("New project › Work on my project", "edit a project the person already has, in place", Cli("rebuild <target> <request> --project-folder --existing")),
     a("set_backend_enabled", "turn an AI on or off",                           Cli("ai on <name> / ai off <name>")),
     a("remove_backend",      "remove an AI and its key",                       Cli("ai remove <name>")),
+    a("commit_spend_limit",  "set the most a build, or a day of builds, may spend", Cli("ai policy --max-per-build <USD|none> --max-per-day <USD|none>")),
+    a("set_require_confined_build", "refuse builds whose agent declares no boundary", Cli("ai policy --refuse-unconfined <on|off>")),
     a("set_agent_program",   "run an agent app from a program it isn't found as", Cli("ai program <name> <path>")),
     a("set_agent_folder",    "keep Claude Code's sign-in in another folder (another account)", Cli("ai folder <name> <path>")),
     a("refresh_projects",    "list the projects",                              Tool(&["project_list"])),
@@ -75,7 +79,7 @@ const ACTIONS: &[Action] = &[
     a("open_pin",            "open a pinned build (or another copy)",          Tool(&["project_pin_open"])),
     a("stop_pin",            "close what a pin opened",                        Tool(&["project_pin_stop"])),
     a("add_pictures",        "pictures of the original for the builder",       Tool(&["rebuild_start"])),
-    a("attach",              "attach pictures to the next message",            Pending { tool: None, why: "rebuild_note and rebuild_start take text; attachments with a message come next" }),
+    a("attach",              "attach pictures to the next message",            Tool(&["rebuild_note"])),
     a("paste_pictures",      "attach pictures from the clipboard (Ctrl+V)",    UiOnly("the clipboard belongs to the app; headless callers name picture files")),
     a("raise_asset_budget",  "give a project another default budget for generated assets", Tool(&["project_assets_budget"])),
     a("set_generate_assets", "let a game's builder generate pictures and 3D models, or not", Tool(&["project_assets_allow"])),

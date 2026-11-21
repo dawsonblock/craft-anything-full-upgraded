@@ -241,7 +241,8 @@ impl RebuildRun {
     pub fn start(hub: &AiHub, ws: Workspace, opts: RunOptions) -> Result<RebuildRun, ToolError> {
         let cfg = hub.config();
         let entry = builder_backend(&cfg, opts.backend.as_deref().or_else(|| project_builder(&cfg, &ws)))?;
-        refuse_unconfined(&cfg, &entry)?;
+        // The registry the run builds with, so a replaced adapter is the one whose boundary counts.
+        refuse_unconfined_in(&cfg, &entry, &opts.adapters)?;
         // A day's builds share one ledger, so a spent day refuses the start here as well: every
         // caller (the app, the CLI, a tool) is held to it, not only the ones that check early.
         crate::budget::refuse_over_daily(cfg.spend_limits(), &crate::budget::ledger_path(&hub.settings_path()))?;
@@ -612,16 +613,40 @@ fn refuse_deep_session_reuse_in_clean_room(ws: &Workspace, model: &str, args: &[
     Ok(())
 }
 
+/// One finished agent turn's usage, as its `TurnDone` reported it.
+#[derive(Debug, Clone, Copy, Default)]
+struct TurnUsage {
+    /// Every prompt token, cached ones included.
+    input: u64,
+    /// The part of `input` read from the prompt cache.
+    cached: u64,
+    output: u64,
+    /// The agent's own figure, if it gave one.
+    cost: Option<f64>,
+    /// `cost` is the agent's estimate at API prices.
+    estimate: bool,
+}
+
+impl TurnUsage {
+    /// The turn's cost at a list price: cached prompt tokens at the cache-read rate (10% of the
+    /// input rate unless the price names one), the rest of the prompt at the input rate.
+    fn priced(self, price: crate::config::Price) -> f64 {
+        let cached = self.cached.min(self.input);
+        let fresh = self.input.saturating_sub(cached);
+        let read = price.cache_read_per_mtok.unwrap_or(price.input_per_mtok * 0.1);
+        (fresh as f64 * price.input_per_mtok + cached as f64 * read + self.output as f64 * price.output_per_mtok) / 1_000_000.0
+    }
+}
+
 impl Worker {
     /// Add the time worked since the last record (and an agent turn's tokens and reported cost)
     /// to the project's usage.json and the day's spend ledger. A turn that reports tokens but no
     /// cost is priced at the model's list rate. The run is usage.json's only writer; a failure is
     /// logged and the build carries on.
-    fn record_usage(&mut self, turn: Option<(u64, u64, Option<f64>, bool)>) {
-        let turn = turn.map(|(input, output, reported, estimate)| {
-            let estimated = reported.is_none();
-            let cost = reported.or_else(|| self.price.map(|p| (input as f64 * p.input_per_mtok + output as f64 * p.output_per_mtok) / 1_000_000.0));
-            (input, output, cost, estimate || estimated)
+    fn record_usage(&mut self, turn: Option<TurnUsage>) {
+        let turn = turn.map(|t| {
+            let cost = t.cost.or_else(|| self.price.map(|p| t.priced(p)));
+            (t.input, t.output, cost, t.estimate || t.cost.is_none())
         });
         if let Some(clock) = self.usage.as_mut() {
             let ms = u64::try_from(clock.since.elapsed().as_millis()).unwrap_or(u64::MAX);
@@ -741,7 +766,7 @@ impl Worker {
         questions.extend(extra);
         let context = just_asked(&questions);
         let texts: Vec<String> = notes.into_iter().map(|n| n.text).collect();
-        Some((context + &added_prompt(&texts) + &pictures_reminder(ws, sees_pictures), questions))
+        Some((context + &added_prompt(&texts) + &pictures_reminder(ws, sees_pictures) + &documents_reminder(ws), questions))
     }
 
     /// Decides an ACP builder's permission requests with the same policy Claude Code's approval
@@ -873,6 +898,11 @@ impl Worker {
         if first {
             self.study(ws, kind)?;
             if let Some((name, ex)) = extractor {
+                // The extractor is a paid model too: a day spent by other builds, or a zero run
+                // ceiling, stops the run before its first request rather than after it.
+                if let Some(error) = self.spend_stop() {
+                    return Err(error);
+                }
                 self.extract(ws, kind, &name, ex)?;
             }
         }
@@ -917,7 +947,11 @@ impl Worker {
         drop(s);
         let cx = BriefCx { ws, deep, ghidra, editor: self.editor.as_deref(), assets: self.assets, image_model: image_model.as_deref(), sees_pictures };
         // The project's settings as they are now, for an agent that carries on its session.
-        let now = || kind.follow_up_sections(&cx).iter().map(|s| format!("\n\n{s}")).collect::<String>() + &pictures_reminder(ws, sees_pictures);
+        let now = || {
+            kind.follow_up_sections(&cx).iter().map(|s| format!("\n\n{s}")).collect::<String>()
+                + &pictures_reminder(ws, sees_pictures)
+                + &documents_reminder(ws)
+        };
         let mut prompt = match &opts.message {
             // An agent with a saved session gets the follow-up; one without (an API loop) starts
             // from the brief with the request added.
@@ -1007,9 +1041,6 @@ impl Worker {
                         return Err(error);
                     }
                 };
-                if let Some(error) = self.spend_stop() {
-                    return Err(error);
-                }
                 // Only a finished turn counts: telling the builder twice costs little, and a turn that
                 // failed may not have told it at all.
                 let told = std::mem::take(&mut asked);
@@ -1039,6 +1070,12 @@ impl Worker {
                 if let Some(fingerprint) = self.progress_fingerprint(ws, &mut progress, &mut progress_available, &mut fingerprints)? {
                     progress.after_turn(fingerprint);
                     progress.save(&ws.root)?;
+                }
+                // A ceiling this turn reached stops the run only now, with its reply, `awaiting_check`
+                // and progress saved, so continuing (after raising the ceiling) checks the work the
+                // turn did instead of asking for it again. No further turn starts.
+                if let Some(error) = self.spend_stop() {
+                    return Err(error);
                 }
                 // What the person added while the agent worked goes in before anything else.
                 if let Some((p, more)) = self.added(ws, deep, sees_pictures) {
@@ -1098,7 +1135,7 @@ impl Worker {
             // Nothing written yet: a fix for a build that doesn't exist sends the builder looking for one.
             // It is asked to write the project and to show its build output (#736).
             let refined = if app_is_empty(ws) { NO_PROJECT_PROMPT.to_string() } else { kind.refine(check, sees_pictures) };
-            prompt = refined + &pictures_reminder(ws, sees_pictures);
+            prompt = refined + &pictures_reminder(ws, sees_pictures) + &documents_reminder(ws);
             if !api_loop {
                 prompt.push_str(CHECK_BEFORE_REPLYING);
             }
@@ -1294,6 +1331,11 @@ impl Worker {
                 // Error events become ProgramFailed here; a simultaneous backend failure must
                 // not make an inbox or workspace write failure retryable.
                 Err(e) if !lost && e.code == ErrorCode::ProgramFailed && tries < 3 && agent.last_failure().is_some_and(crate::TurnFailure::retryable) => {
+                    // A failed try can still have been billed: a ceiling it reached stops the
+                    // retries, before waiting, rather than letting each one spend again.
+                    if let Some(error) = self.spend_stop() {
+                        return Err(error);
+                    }
                     tries += 1;
                     let why = e.message.chars().take(160).collect::<String>();
                     // Typed status decides whether to retry. A display-only wait remains a
@@ -1364,8 +1406,14 @@ impl Worker {
                     AgentEvent::Error { message, remediation, .. } => failed = Some((message.clone(), remediation.clone())),
                     _ => {}
                 }
-                if let AgentEvent::TurnDone { input_tokens, output_tokens, cost_usd, cost_is_estimate, .. } = &e {
-                    self.record_usage(Some((*input_tokens, *output_tokens, *cost_usd, *cost_is_estimate)));
+                if let AgentEvent::TurnDone { input_tokens, cached_input_tokens, output_tokens, cost_usd, cost_is_estimate, .. } = &e {
+                    self.record_usage(Some(TurnUsage {
+                        input: *input_tokens,
+                        cached: *cached_input_tokens,
+                        output: *output_tokens,
+                        cost: *cost_usd,
+                        estimate: *cost_is_estimate,
+                    }));
                 }
                 let done = matches!(e, AgentEvent::TurnDone { .. });
                 // A saved session that isn't on this computer isn't the build failing: the turn
@@ -1684,12 +1732,32 @@ pub fn replaced_builder_notice(saved: &str, used: &str) -> String {
 
 /// Refuse a build when `[ai] require_confined_build` is on (the default) and this AI can't be held in.
 pub fn refuse_unconfined(cfg: &crate::AiConfig, entry: &crate::BackendEntry) -> Result<(), ToolError> {
+    refuse_unconfined_in(cfg, entry, &crate::cli_agents::AgentAdapters::built_in())
+}
+
+/// [`refuse_unconfined`] with the adapter registry the run builds with, so the boundary checked is
+/// the one of the adapter that will actually drive the agent.
+pub fn refuse_unconfined_in(cfg: &crate::AiConfig, entry: &crate::BackendEntry, adapters: &crate::cli_agents::AgentAdapters) -> Result<(), ToolError> {
     if !cfg.require_confined_build {
         return Ok(());
     }
-    let confinement = crate::cli_agents::confinement_for(entry);
+    let confinement = crate::cli_agents::confinement_in(adapters, entry);
     if !confinement.build_is_unconfined() {
         return Ok(());
+    }
+    // An agent that has a boundary but an extra argument that may turn it off: name the argument,
+    // since removing it is the fix.
+    if let Some(arg) = crate::cli_agents::boundary_breaker_in(adapters, entry) {
+        return Err(ToolError::new(
+            ErrorCode::BadSettings,
+            format!(
+                "{} can't be held in during a build: its extra argument `{arg}` isn't one known to keep its approvals or sandbox in place, and `[ai] require_confined_build` is on.",
+                entry.config.name
+            ),
+        )
+        .with_remediation(format!(
+            "Remove `{arg}` from this AI's `args` in config.toml, or set `require_confined_build = false` under `[ai]` to accept a build with your own access."
+        )));
     }
     Err(ToolError::new(
         ErrorCode::BadSettings,

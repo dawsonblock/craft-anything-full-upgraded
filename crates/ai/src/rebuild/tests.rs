@@ -510,7 +510,7 @@ fn a_ledger_that_cannot_be_written_stops_the_run() {
         spend_failure: None,
         price: None,
     };
-    w.record_usage(Some((10, 5, Some(0.25), false)));
+    w.record_usage(Some(TurnUsage { input: 10, output: 5, cost: Some(0.25), ..Default::default() }));
     let error = w.spend_stop().expect("the run stops when its spending can't be recorded");
     assert_eq!(error.code, ErrorCode::FileError);
     assert!(error.message.contains("couldn't be recorded"), "{}", error.message);
@@ -546,13 +546,29 @@ fn a_turn_with_tokens_but_no_cost_is_priced() {
         price: Some(crate::config::Price { input_per_mtok: 2.0, output_per_mtok: 10.0, cache_read_per_mtok: None, cache_write_per_mtok: None }),
     };
     // A million prompt tokens and half a million completion tokens at those rates: $2 + $5.
-    w.record_usage(Some((1_000_000, 500_000, None, false)));
+    w.record_usage(Some(TurnUsage { input: 1_000_000, output: 500_000, ..Default::default() }));
     let saved = std::fs::read_to_string(&ledger).unwrap();
     assert!(saved.contains("7.0"), "{saved}");
     // A reported cost is the agent's own figure and is not replaced by ours.
-    w.record_usage(Some((1_000_000, 0, Some(0.5), false)));
+    w.record_usage(Some(TurnUsage { input: 1_000_000, cost: Some(0.5), ..Default::default() }));
     let saved = std::fs::read_to_string(&ledger).unwrap();
     assert!(saved.contains("7.5"), "{saved}");
+}
+
+/// Codex counts cached prompt tokens inside `input_tokens`. Priced at the full input rate, a long
+/// session's turn cost several times what it did and stopped at its ceiling early; the cached part
+/// is priced at the cache-read rate (10% of input unless the price names one).
+#[test]
+fn cached_prompt_tokens_are_priced_at_the_cache_read_rate() {
+    let price = crate::config::Price { input_per_mtok: 2.0, output_per_mtok: 10.0, cache_read_per_mtok: None, cache_write_per_mtok: None };
+    // 1M prompt tokens, 900k of them cached: 100k at $2 + 900k at $0.20 = $0.38 (not $2).
+    let turn = TurnUsage { input: 1_000_000, cached: 900_000, ..Default::default() };
+    assert!((turn.priced(price) - 0.38).abs() < 1e-9, "{}", turn.priced(price));
+    let named = crate::config::Price { cache_read_per_mtok: Some(0.5), ..price };
+    assert!((turn.priced(named) - (0.2 + 0.45)).abs() < 1e-9, "a price's own cache-read rate wins");
+    // A cached count larger than the total (a malformed report) can't price below zero input.
+    let odd = TurnUsage { input: 100, cached: 1_000, ..Default::default() };
+    assert!((odd.priced(price) - 100.0 * 0.2 / 1_000_000.0).abs() < 1e-12);
 }
 
 /// #857: a note handed over by a coding agent's tool hook never sees the after-turn message, so
@@ -639,6 +655,123 @@ fn pictures_of_the_original_reach_the_builder() {
     assert!(b.contains("reference/picture-1.webp") && b.contains("--screenshot"), "{b}");
     assert!(!brief(&ws, "website", false, false, None, false, None).contains("--screenshot"), "websites are photographed for it");
     assert!(pictures_reminder(&ws, true).contains("1 picture(s)"));
+}
+
+/// A manual or notes about the original reach the builder: named in the first brief with what to
+/// do with them, and in later rounds' reminders; nothing is said when there are none.
+#[test]
+fn documents_about_the_original_reach_the_builder() {
+    let d = tempfile::tempdir().unwrap();
+    let ws = Workspace::create(d.path(), "App", "Copy this app", TargetRef::None).unwrap();
+    assert!(!brief(&ws, "app", false, false, None, false, None).contains("reference/docs"));
+    assert!(documents_reminder(&ws).is_empty());
+    let manual = d.path().join("User Guide.pdf");
+    std::fs::write(&manual, "x").unwrap();
+    ws.add_references(&[manual]).unwrap();
+    // Read like any file, so a builder that can't look at pictures gets them too.
+    for sees in [true, false] {
+        let cx = BriefCx { ws: &ws, deep: false, ghidra: false, editor: None, assets: false, image_model: None, sees_pictures: sees };
+        let b = super::brief(kind("app").as_ref(), &cx, None);
+        assert!(b.contains("reference/docs/User Guide.pdf"), "the document is named (sees pictures: {sees}): {b}");
+        assert!(b.contains("Read every one before you plan"), "and read before planning");
+        assert!(b.contains("in your own words") && b.contains("don't copy passages"), "its text isn't copied into the app");
+    }
+    let reminder = documents_reminder(&ws);
+    assert!(reminder.contains("1 document(s)") && reminder.contains("reference/docs/"), "{reminder}");
+    assert!(reminder.contains("app/features.json"), "the checklist is kept up to date: {reminder}");
+    let b = brief(&ws, "app", false, false, None, false, None);
+    assert!(b.contains(super::kinds::features::FEATURES_CONTRACT), "the first brief asks for the checklist");
+}
+
+/// No kind's own checks, so only what joins every round (the features check) runs.
+struct NoChecksKind;
+
+impl TargetKind for NoChecksKind {
+    fn id(&self) -> &'static str {
+        "none"
+    }
+    fn words(&self) -> KindWords {
+        KindWords { button: "Open", icon: "play", ready: "Ready", change_hint: "Ask for a change" }
+    }
+    fn detect(&self, _cx: &DetectCx) -> Option<u32> {
+        None
+    }
+    fn default_stack(&self, _cx: &DetectCx) -> &'static str {
+        "Rust"
+    }
+    fn goal(&self) -> &'static str {
+        "an app"
+    }
+    fn checks(&self, _ws: &Workspace) -> Vec<Box<dyn Check>> {
+        Vec::new()
+    }
+}
+
+/// A project with a manual is held to a checklist of what it describes, whatever its kind: no
+/// checklist, or a feature still to do, keeps it from Ready; built (where) and left out (why)
+/// pass. Without documents the check doesn't run.
+#[test]
+fn a_build_with_a_manual_is_held_to_its_features() {
+    let d = tempfile::tempdir().unwrap();
+    let ws = Workspace::create(d.path(), "Notes", "Recreate this app", TargetRef::None).unwrap();
+    let (tx, _rx) = std::sync::mpsc::channel();
+    let w = Worker {
+        wake: Default::default(),
+        engine: Arc::new(Engine::new(craft_anything_engine::testing::session())),
+        tx,
+        stop: CancelToken::default(),
+        preview: Arc::default(),
+        seen: HashSet::new(),
+        inbox: Inbox::new(ws.inbox_dir()),
+        editor: None,
+        notes: Arc::default(),
+        feed: Arc::new(Mutex::new(feed::FeedLog::open(&ws))),
+        keys: crate::KeyStore::file_only(ws.root.join("keys.toml")),
+        assets: false,
+        decompiled: false,
+        usage: None,
+        self_check: None,
+        reset_progress_after_notes: false,
+        spend: None,
+        spend_failure: None,
+        price: None,
+    };
+    assert!(w.run_checks(&ws, &NoChecksKind, 1).unwrap().is_empty(), "no documents, no checklist");
+    let manual = d.path().join("Manual.md");
+    std::fs::write(&manual, "# Notes\nExport to PDF. Cloud sync.").unwrap();
+    ws.add_references(&[manual]).unwrap();
+    let check = |round| {
+        let mut all = w.run_checks(&ws, &NoChecksKind, round).unwrap();
+        assert_eq!(all.len(), 1);
+        all.remove(0)
+    };
+    let none = check(2);
+    assert!(none.failed() && none.required && none.note.contains("no app/features.json"), "{}", none.note);
+    std::fs::create_dir_all(ws.app_dir()).unwrap();
+    std::fs::write(
+        ws.features_path(),
+        r#"{"version": 1, "features": [
+            {"name": "Export to PDF", "status": "built", "where": "src/export.rs"},
+            {"name": "Cloud sync", "status": "todo"}
+        ]}"#,
+    )
+    .unwrap();
+    let todo = check(3);
+    assert!(todo.failed() && todo.note.contains("Cloud sync (todo)"), "{}", todo.note);
+    assert!(todo.note.contains("Export to PDF (built, but there's no src/export.rs in app/)"), "a place that isn't there: {}", todo.note);
+    std::fs::create_dir_all(ws.app_dir().join("src")).unwrap();
+    std::fs::write(ws.app_dir().join("src/export.rs"), "pub fn export() {}").unwrap();
+    std::fs::write(
+        ws.features_path(),
+        r#"{"version": 1, "features": [
+            {"name": "Export to PDF", "status": "built", "where": "src/export.rs"},
+            {"name": "Cloud sync", "status": "left_out", "reason": "it needs the vendor's servers"}
+        ]}"#,
+    )
+    .unwrap();
+    let ok = check(4);
+    assert!(ok.passed(), "{}", ok.note);
+    assert!(ok.note.contains("Left out: Cloud sync: it needs the vendor's servers."), "{}", ok.note);
 }
 
 /// What a builder that can't look at pictures (the API loop) is told to open or look at a
@@ -767,7 +900,14 @@ mod typed_retries {
             } else {
                 AgentEvent::TextDelta { text: "Done".into() }
             });
-            self.queued.push(AgentEvent::TurnDone { backend: "scripted".into(), input_tokens: 0, output_tokens: 0, cost_usd: None, cost_is_estimate: false });
+            self.queued.push(AgentEvent::TurnDone {
+                backend: "scripted".into(),
+                input_tokens: 0,
+                cached_input_tokens: 0,
+                output_tokens: 0,
+                cost_usd: None,
+                cost_is_estimate: false,
+            });
         }
         fn session_id(&self) -> Option<String> {
             self.session.clone()
@@ -911,7 +1051,14 @@ mod typed_retries {
                 vec![if std::mem::take(&mut self.first_poll) {
                     AgentEvent::Error { message: "The provider is rate limited.".into(), remediation: None, log: None }
                 } else {
-                    AgentEvent::TurnDone { backend: "scripted".into(), input_tokens: 0, output_tokens: 0, cost_usd: None, cost_is_estimate: false }
+                    AgentEvent::TurnDone {
+                        backend: "scripted".into(),
+                        input_tokens: 0,
+                        cached_input_tokens: 0,
+                        output_tokens: 0,
+                        cost_usd: None,
+                        cost_is_estimate: false,
+                    }
                 }]
             }
             fn last_failure(&self) -> Option<TurnFailure> {
@@ -1852,9 +1999,30 @@ mod picking_up_a_build {
         let mut weakened = entry("codex");
         weakened.options.args = vec!["--sandbox".into(), "danger-full-access".into()];
         assert!(refuse_unconfined(&cfg, &weakened).is_err(), "a configured sandbox override is not the boundary the adapter names");
+        // The refusal names the argument, since removing it is the fix.
+        let mut bypassed = entry("claude-code");
+        bypassed.options.args = vec!["--permission-mode".into(), "bypassPermissions".into()];
+        let error = refuse_unconfined(&cfg, &bypassed).unwrap_err();
+        assert!(error.message.contains("`--permission-mode`"), "{}", error.message);
+        assert!(error.remediation.as_deref().is_some_and(|r| r.contains("Remove `--permission-mode`")), "{:?}", error.remediation);
         let mut allowed = cfg.clone();
         allowed.require_confined_build = false;
         assert!(refuse_unconfined(&allowed, &entry("gemini-cli")).is_ok(), "the person allowed a build with their own access");
+        // The run's own registry decides: an adapter a fork registers under "codex" that claims
+        // nothing is refused, though the built-in Codex adapter would pass.
+        struct Unchecked;
+        impl crate::cli_agents::AgentAdapter for Unchecked {
+            fn ids(&self) -> &'static [&'static str] {
+                &["codex"]
+            }
+            fn args(&self, _cx: &crate::cli_agents::ArgsCx) -> Vec<String> {
+                Vec::new()
+            }
+        }
+        let mut adapters = crate::cli_agents::AgentAdapters::built_in();
+        adapters.register(Arc::new(Unchecked));
+        assert!(refuse_unconfined(&cfg, &entry("codex")).is_ok(), "the built-in Codex adapter declares its sandbox");
+        assert!(refuse_unconfined_in(&cfg, &entry("codex"), &adapters).is_err(), "the replacement the run would use declares nothing");
     }
 
     /// A run ceiling stops a build before its first turn; the limits come from the config, not from
@@ -1880,6 +2048,47 @@ mod picking_up_a_build {
         };
         assert!(message.contains("AI spending limit"), "{message}");
         assert_eq!(prompts_given(&b), 0, "it stopped before the first turn");
+    }
+
+    /// A ceiling reached during a turn (here another build spends the day while this one's turn
+    /// runs) stops the run after the turn is kept: its reply and `awaiting_check` are saved, so
+    /// continuing after raising the ceiling checks that work instead of asking for it again, and no
+    /// second turn starts.
+    #[test]
+    fn a_ceiling_reached_during_a_turn_keeps_the_turn() {
+        let b = bench();
+        let ledger = crate::budget::ledger_path(&b.hub.settings_path());
+        let agent = b._dir.path().join("agent.sh");
+        std::fs::write(
+            &agent,
+            format!(
+                "#!/bin/sh\nfor last; do :; done\nprintf '%s\\n===\\n' \"$last\" >> '{}'\nprintf '{{\"version\":1,\"days\":{{\"%s\":5.0}}}}' \"$(date -u +%F)\" > '{}'\necho Done.\n",
+                b.prompts.display(),
+                ledger.display()
+            ),
+        )
+        .unwrap();
+        let mut cfg = b.hub.config();
+        cfg.max_daily_cost_usd = Some(1.0);
+        b.hub.engine.session().settings.ai = cfg.to_table().unwrap();
+        let ws = Workspace::create(&b.projects, "x", "A website for a bakery", TargetRef::None).unwrap();
+        let opts = RunOptions { backend: Some("Stand-in".into()), ..RunOptions::default() };
+        let run = RebuildRun::start(&b.hub, Workspace::open(&ws.root).unwrap(), opts).unwrap();
+        let message = loop {
+            match run.rx.recv_timeout(Duration::from_secs(60)) {
+                Ok(RunEvent::Finished { ok, message, .. }) => {
+                    assert!(!ok, "the run claimed success past the day's ceiling");
+                    break message;
+                }
+                Ok(_) => {}
+                Err(e) => panic!("the run went away: {e}"),
+            }
+        };
+        assert!(message.contains("AI spending limit"), "{message}");
+        assert_eq!(prompts_given(&b), 1, "the turn that crossed the line ran, and no other started");
+        let kept = Workspace::open(&ws.root).unwrap();
+        assert_eq!(kept.manifest.last_reply, "Done.", "the turn's reply is kept");
+        assert!(kept.manifest.awaiting_check, "the turn's work waits for its checks");
     }
 
     /// A day already spent refuses the start itself, whichever caller asked for the run.
@@ -3342,7 +3551,14 @@ impl Conversation for ChecksItsWork {
             Some(text) => {
                 vec![
                     AgentEvent::TextDelta { text },
-                    AgentEvent::TurnDone { backend: "test".into(), input_tokens: 0, output_tokens: 0, cost_usd: None, cost_is_estimate: false },
+                    AgentEvent::TurnDone {
+                        backend: "test".into(),
+                        input_tokens: 0,
+                        cached_input_tokens: 0,
+                        output_tokens: 0,
+                        cost_usd: None,
+                        cost_is_estimate: false,
+                    },
                 ]
             }
             None => Vec::new(),

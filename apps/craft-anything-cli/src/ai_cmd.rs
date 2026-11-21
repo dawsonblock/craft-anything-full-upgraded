@@ -1,4 +1,4 @@
-//! `chat` and `ai list|detect|add|test`.
+//! `chat` and the `ai` commands (backends, roles, the build policy).
 
 use crate::output::Format;
 use crate::{Cli, INTERRUPTED, emit, fail, make_engine, out};
@@ -88,6 +88,28 @@ pub enum AiCommand {
     /// Choose the backend that takes a game's own files out after the study, in Deep mode (an API
     /// backend such as Kimi K3 through OpenRouter; leave the name out to turn it off).
     Extractor { name: Option<String> },
+    /// Show or change how builds are held (Settings → AI): whether a coding agent that declares
+    /// no boundary is refused, and the most a build, or a day of builds, may spend. With no
+    /// options it shows what is set.
+    Policy {
+        /// Refuse builds whose coding agent declares no boundary (`on`, the default) or allow them.
+        #[arg(long, value_parser = ["on", "off"])]
+        refuse_unconfined: Option<String>,
+        /// The most one build may spend, in US dollars, or `none` for no limit.
+        #[arg(long, value_name = "USD|none", allow_hyphen_values = true)]
+        max_per_build: Option<String>,
+        /// The most a day's builds (UTC) may spend together, in US dollars, or `none`.
+        #[arg(long, value_name = "USD|none", allow_hyphen_values = true)]
+        max_per_day: Option<String>,
+    },
+}
+
+/// A ceiling given on the command line: an amount in US dollars, or `none` (or empty) for none.
+fn ceiling(text: &str) -> Result<Option<f64>, ToolError> {
+    if text.trim().eq_ignore_ascii_case("none") {
+        return Ok(None);
+    }
+    craft_anything_ai::budget::parse_dollars(text).map_err(|e| e.with_remediation("Give an amount of zero or more, such as 5 or 2.50, or `none` for no limit."))
 }
 
 fn hub(cli: &Cli) -> Result<AiHub, ToolError> {
@@ -174,7 +196,7 @@ pub fn chat(cli: &Cli, a: &ChatArgs) -> u8 {
                         }
                     }
                 }
-                AgentEvent::TurnDone { backend, input_tokens, output_tokens, cost_usd, cost_is_estimate } => {
+                AgentEvent::TurnDone { backend, input_tokens, output_tokens, cost_usd, cost_is_estimate, .. } => {
                     if !jsonl {
                         let cost = cost_usd
                             .map(|c| if *cost_is_estimate { format!(", about ${c:.4} at API prices (an estimate, not a bill)") } else { format!(", ${c:.4}") })
@@ -388,6 +410,22 @@ pub fn ai(cli: &Cli, c: &AiCommand, f: Format) -> u8 {
             }
             Err(e) => fail(&e, f),
         },
+        AiCommand::Policy { refuse_unconfined, max_per_build, max_per_day } => {
+            let read = |v: &Option<String>| v.as_deref().map(ceiling).transpose();
+            let change = match (read(max_per_build), read(max_per_day)) {
+                (Ok(run_usd), Ok(daily_usd)) => {
+                    craft_anything_ai::budget::PolicyChange { require_confined_build: refuse_unconfined.as_deref().map(|v| v == "on"), run_usd, daily_usd }
+                }
+                (Err(e), _) | (_, Err(e)) => return fail(&e, f),
+            };
+            match hub.set_build_policy(change) {
+                Ok(policy) => {
+                    emit(&policy.to_json(), f);
+                    0
+                }
+                Err(e) => fail(&e, f),
+            }
+        }
         AiCommand::Test { name } => match hub.test_backend(name) {
             Ok(r) => {
                 emit(&serde_json::to_value(r).unwrap_or(Value::Null), f);

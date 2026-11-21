@@ -181,6 +181,54 @@ impl CraftApp {
         });
     }
 
+    /// Settings → AI's "Refuse unconfined builds" switch. Saved on a worker (the session may be
+    /// held by a running tool), and shown as changed only once the save worked.
+    pub fn set_require_confined_build(&mut self, on: bool) {
+        let hub = self.hub.clone();
+        self.jobs.spawn(tr("Save settings"), false, move |_| {
+            hub.set_require_confined_build(on).map_err(|e| e.message)?;
+            Ok(crate::backends(&hub))
+        });
+    }
+
+    /// Save what Settings → AI's spending field `which` says, once it's left. Empty is no ceiling;
+    /// text that isn't an amount of zero or more is refused with a message and that field shows
+    /// the saved value again. Saved on a worker, and the fields show the change once it's saved.
+    pub fn commit_spend_limit(&mut self, which: crate::SpendLimit) {
+        if crate::parse_dollars(self.spend_drafts.get_mut(which)).is_err() {
+            let saved = crate::SpendDrafts::showing(self.spend_limits).get_mut(which).clone();
+            *self.spend_drafts.get_mut(which) = saved;
+            self.toast(tr("Enter an amount in US dollars, zero or more, or leave it empty for no limit."), true);
+            return;
+        }
+        self.save_spend_limits();
+    }
+
+    /// Save both spending fields as they now read (a field whose text isn't an amount keeps its
+    /// saved value). One save runs at a time: a field left while one runs is saved when it ends,
+    /// so a save never carries a stale value of the other field.
+    pub(crate) fn save_spend_limits(&mut self) {
+        if self.spend_saving {
+            self.spend_resave = true;
+            return;
+        }
+        let saved = self.spend_limits;
+        let read = |text: &str, kept: Option<f64>| crate::parse_dollars(text).unwrap_or(kept);
+        let limits = craft_anything_ai::budget::SpendLimits {
+            run_usd: read(&self.spend_drafts.per_build, saved.run_usd),
+            daily_usd: read(&self.spend_drafts.per_day, saved.daily_usd),
+        };
+        if limits == saved {
+            return;
+        }
+        self.spend_saving = true;
+        let hub = self.hub.clone();
+        self.jobs.spawn(tr("Save settings"), false, move |_| {
+            let result = hub.set_spend_limits(limits).map_err(|e| e.message);
+            Ok(crate::Done::SpendSaved { result, sent: limits, saved: hub.config().spend_limits() })
+        });
+    }
+
     /// Ask an AI which models it can use, for Settings → AI's model picker.
     pub fn pick_model(&mut self, name: &str) {
         let (hub, name) = (self.hub.clone(), name.to_string());

@@ -19,9 +19,10 @@ release: `gh workflow run ci.yml --ref main`. The other workflows (`freebsd.yml`
    `Cargo.toml` is the single source; `cargo xtask version` prints it).
 2. Fast-forward `release` to `main`. The push runs `.github/workflows/release.yml`, which builds every
    platform and creates or updates the draft GitHub Release **Craft Anything vX.Y.Z**.
-   The workflow first runs the **Release Source Preflight** job: it verifies the source tree,
-   packages the canonical source ZIP, verifies and extracts it, writes a receipt bound to the
-   release commit, and attests the ZIP. A failure stops the platform jobs. After they finish, the
+   The workflow first runs the **Release Source Preflight** job: it packages the canonical source
+   ZIP (generating its manifest from the checkout, which must match its commit), verifies and
+   extracts it, writes a receipt bound to the release commit, and attests the ZIP. A failure stops
+   the platform jobs. After they finish, the
    **source-verify** job checks the source ZIP attached to the draft against that receipt; a
    failure means the draft must not be published. It names the tag the release should carry
    (`v` plus the workspace version, or the dispatch's version) and checks that exactly one draft
@@ -56,9 +57,17 @@ A dry run of the unsigned platforms from any branch: `gh workflow run release.ym
 not `@main`, because that workflow receives the Apple, Windows and Azure signing secrets: an
 unreviewed push to the shared repository must not be able to reach them. Bumping the pin is a
 deliberate, reviewed change — look over the commits between the pinned SHA and the one you want,
-change the `uses:` line, and record the new SHA and date in the comment beside it. The workflows
-that take no secrets (`ci.yml`, `packaging-lint.yml`, `sonarcloud.yml`, `freebsd.yml`,
-`windows-arm64.yml`) still track `@main`, so org-wide improvements there arrive without churn.
+change the `uses:` line, and record the new SHA and date in the comment beside it.
+
+`sonarcloud.yml` is pinned the same way: it passes `secrets: inherit`, which hands the shared
+workflow every repository secret, the signing ones included. Bump it with the release pin. The
+workflows that take no secrets (`ci.yml`, `packaging-lint.yml`, `freebsd.yml`, `windows-arm64.yml`)
+still track `@main`, so org-wide improvements there arrive without churn.
+
+The shared release workflow still calls some of its own actions at `@main` (`draft-release` among
+them, which runs with the signing secrets). Pinning our `uses:` line fixes which revision of that
+workflow runs, not what it calls: those inner references have to be pinned in craft-common-actions
+itself, then this pin bumped to the commit that does it.
 
 ## Before publishing: a Deep build from the packages
 

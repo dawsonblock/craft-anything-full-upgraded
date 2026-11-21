@@ -350,6 +350,8 @@ pub fn console_text(program: &std::path::Path, args: &[OsString], timeout: Durat
 
     const ROWS: u16 = 50;
     const COLS: u16 = 200;
+    // A terminal is a launch mechanism: ask the policy here as `Process::spawn` does.
+    crate::execution::check()?;
     let failed = |e: &dyn std::fmt::Display| ToolError::new(ErrorCode::ProgramFailed, format!("{}: {e}", program.display()));
     let (master, mut child) = {
         // A program another thread started while the console opened would hold it open.
@@ -514,6 +516,8 @@ mod piped {
     pub const NO_TERMINAL: &str = "There's no terminal capture on Windows: the output was read through pipes, so a program that draws a full-screen terminal interface or colours its output looks different, and its error output follows its normal output instead of being interleaved.";
 
     pub fn capture(spec: Spec, cancel: Cancel) -> Result<Capture, ToolError> {
+        // A launch mechanism: ask the policy before anything starts, as `Process::spawn` does.
+        crate::execution::check()?;
         if !spec.events.is_empty() || !spec.observation_paths.is_empty() {
             return Err(ToolError::new(
                 ErrorCode::FeatureMissing,
@@ -844,6 +848,8 @@ mod unix {
     }
 
     pub fn capture(spec: Spec, cancel: Cancel) -> Result<Capture, ToolError> {
+        // A terminal is a launch mechanism: ask the policy here as `Process::spawn` does.
+        crate::execution::check()?;
         spec.terminal.validate()?;
         for w in spec.events.windows(2) {
             if let [a, b] = w
@@ -1176,9 +1182,61 @@ mod unix {
         }
     }
 
-    /// Whether any process of the group led by `pid` is left (signal 0 probes without delivering).
-    fn group_alive(pid: i32) -> bool {
-        killpg(Pid::from_raw(pid), None).is_ok()
+    /// Whether any live process of the group led by `pid` is left. Signal 0 alone counts zombies
+    /// too: an orphan that init hasn't reaped yet keeps a killed group answering for as long as it
+    /// stays, which is forever in a container whose first process doesn't reap (seen in a cloud
+    /// container here, and Docker without `--init` does the same). On Linux the group's members
+    /// are read from /proc and zombies are left out; where /proc can't be read, signal 0 decides.
+    pub(super) fn group_alive(pid: i32) -> bool {
+        if killpg(Pid::from_raw(pid), None).is_err() {
+            return false;
+        }
+        #[cfg(target_os = "linux")]
+        if let Some(live) = live_member_of(pid) {
+            return live;
+        }
+        true
+    }
+
+    /// At most this many /proc entries are read for one probe; a longer list answers "don't know".
+    #[cfg(target_os = "linux")]
+    const MAX_PROC_ENTRIES: usize = 1_000_000;
+
+    /// Whether a process in group `pgid` is alive and not a zombie, from /proc; `None` when that
+    /// can't be told (no /proc, or more entries than one probe reads).
+    #[cfg(target_os = "linux")]
+    fn live_member_of(pgid: i32) -> Option<bool> {
+        let entries = std::fs::read_dir("/proc").ok()?;
+        for (seen, entry) in entries.flatten().enumerate() {
+            if seen >= MAX_PROC_ENTRIES {
+                return None;
+            }
+            let name = entry.file_name();
+            if !name.to_str().is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit())) {
+                continue;
+            }
+            // A process that ended since the listing has no stat to read: it isn't a member.
+            let Ok(stat) = std::fs::read_to_string(entry.path().join("stat")) else { continue };
+            if let Some((state, group)) = state_and_group(&stat)
+                && group == pgid
+                && !matches!(state, 'Z' | 'X')
+            {
+                return Some(true);
+            }
+        }
+        Some(false)
+    }
+
+    /// A /proc/<pid>/stat line's state and process group. The command name is in parentheses and
+    /// may hold spaces or parentheses itself, so the fields are read after the last `)`.
+    #[cfg(target_os = "linux")]
+    pub(super) fn state_and_group(stat: &str) -> Option<(char, i32)> {
+        let (_, rest) = stat.rsplit_once(')')?;
+        let mut fields = rest.split_whitespace();
+        let state = fields.next()?.chars().next()?;
+        let _ppid = fields.next()?;
+        let group = fields.next()?.parse().ok()?;
+        Some((state, group))
     }
 
     /// Poll the process group until it is empty or the settle deadline passes.
@@ -1238,6 +1296,37 @@ mod tests {
         assert!(cap.terminal.lines.iter().any(|l| l.contains("hello world")), "{} bytes: {:?}", cap.terminal.output_bytes, cap.terminal.lines);
         assert_eq!(cap.manifest.run_id.len(), 32);
         assert!(!cap.manifest.run_id.is_empty());
+    }
+
+    /// A policy that refuses a launch holds for a terminal too: `capture` used to spawn through
+    /// `portable_pty` without asking, so a route the sandbox refuses could still start there.
+    #[test]
+    fn a_refused_launch_never_opens_a_terminal() {
+        struct Refuse;
+        impl crate::execution::Policy for Refuse {
+            fn check(&self, _class: crate::execution::Class) -> Result<(), ToolError> {
+                Err(ToolError::invalid("the policy refuses this launch"))
+            }
+        }
+        let spec = Spec {
+            executable: "/bin/sh".into(),
+            args: vec!["-c".into(), "echo hello".into()],
+            cwd: None,
+            env: Vec::new(),
+            terminal: Terminal::default(),
+            events: Vec::new(),
+            timeout: Duration::from_secs(5),
+            idle_timeout: Duration::from_secs(5),
+            settle: Duration::ZERO,
+            finalization: Duration::ZERO,
+            observation_paths: Vec::new(),
+            limits: Limits::default(),
+            sandbox: SandboxRequest::Off,
+        };
+        let refused =
+            crate::execution::with_policy(std::sync::Arc::new(Refuse), crate::execution::Class::Generated("game_probe"), || capture(spec, no_cancel()));
+        let error = refused.expect_err("a refused launch never starts");
+        assert!(error.message.contains("refuses this launch"), "{}", error.message);
     }
 
     #[test]
@@ -1328,7 +1417,22 @@ mod tests {
         assert_eq!(cap.exit.code, Some(0));
         assert_eq!(cap.settlement.status, "settled");
         assert_eq!(cap.cleanup.process_group, "verified");
-        assert!(nix::sys::signal::killpg(nix::unistd::Pid::from_raw(group), None).is_err());
+        // Its members may linger as zombies where init doesn't reap; none may be alive.
+        assert!(!unix::group_alive(group));
+    }
+
+    /// The state and group are read after the command name, which may hold spaces and `)`.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_proc_stat_line_gives_its_state_and_group() {
+        assert_eq!(unix::state_and_group("1046 (sleep) Z 1 1045 1045 0 -1"), Some(('Z', 1045)));
+        assert_eq!(unix::state_and_group("7 (a b) c)) S 1 42 42 0"), Some(('S', 42)));
+        assert_eq!(unix::state_and_group("7 (sleep"), None, "no end to the name");
+        assert_eq!(unix::state_and_group("7 (x) R 1 notanumber"), None);
+        // This process is alive, and is read as alive.
+        let own = std::fs::read_to_string("/proc/self/stat").unwrap();
+        let (state, _) = unix::state_and_group(&own).unwrap();
+        assert!(!matches!(state, 'Z' | 'X'), "{own}");
     }
 
     #[test]

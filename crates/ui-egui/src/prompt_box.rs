@@ -367,11 +367,19 @@ fn send_button(ui: &mut Ui, ready: bool) -> egui::Response {
 }
 
 /// "2 pictures attached" for the feed, or nothing.
-pub fn attached_line(n: usize) -> String {
-    match n {
-        0 => String::new(),
-        1 => tr("(1 picture attached)"),
-        n => trf("({n} pictures attached)", &[("n", &n.to_string())]),
+pub fn attached_line(files: &[PathBuf]) -> String {
+    let documents = files.iter().any(|f| craft_anything_engine::workspace::is_document(f));
+    counted_line(files.len(), documents)
+}
+
+/// [`attached_line`] by count: "pictures" when they all are, else "files".
+fn counted_line(n: usize, documents: bool) -> String {
+    match (n, documents) {
+        (0, _) => String::new(),
+        (1, false) => tr("(1 picture attached)"),
+        (n, false) => trf("({n} pictures attached)", &[("n", &n.to_string())]),
+        (1, true) => tr("(1 file attached)"),
+        (n, true) => trf("({n} files attached)", &[("n", &n.to_string())]),
     }
 }
 
@@ -379,16 +387,13 @@ pub fn attached_line(n: usize) -> String {
 pub fn as_typed(shown: &str) -> &str {
     let Some((text, last)) = shown.rsplit_once('\n') else { return shown };
     let n: Option<usize> = last.chars().filter(char::is_ascii_digit).collect::<String>().parse().ok();
-    if n.is_some_and(|n| attached_line(n) == last) { text } else { shown }
+    if n.is_some_and(|n| [false, true].iter().any(|d| counted_line(n, *d) == last)) { text } else { shown }
 }
 
-/// The text the agent gets: the message, then where its pictures are so it opens them.
+/// The text the agent gets: the message, then its pictures and documents
+/// ([`craft_anything_ai::rebuild::notes::with_attachments`]).
 pub fn with_attachments(text: &str, files: &[PathBuf], root: &std::path::Path) -> String {
-    if files.is_empty() {
-        return text.to_string();
-    }
-    let list = files.iter().map(|p| p.strip_prefix(root).unwrap_or(p).display().to_string().replace('\\', "/")).collect::<Vec<_>>().join(", ");
-    format!("{text}\n\nAttached pictures: {list}. Open each one with the Read tool; they show what the person means.")
+    craft_anything_ai::rebuild::notes::with_attachments(text, files, root)
 }
 
 #[cfg(test)]
@@ -482,6 +487,14 @@ mod tests {
     fn a_prompt_comes_back_without_its_pictures_line() {
         assert_eq!(as_typed("Add tags\n(2 pictures attached)"), "Add tags");
         assert_eq!(as_typed("Add tags\n(1 picture attached)"), "Add tags");
+        assert_eq!(as_typed("Read this\n(2 files attached)"), "Read this");
+        let root = std::path::Path::new("/p");
+        let files = [root.join("attachments/picture-1.png"), root.join("reference/docs/Manual.pdf")];
+        let message = with_attachments("Follow it", &files, root);
+        assert!(message.contains("Attached pictures: attachments/picture-1.png."), "{message}");
+        assert!(message.contains("documents about the original, now in the project's references: reference/docs/Manual.pdf. Read each one"), "{message}");
+        assert_eq!(attached_line(&files), "(2 files attached)");
+        assert_eq!(attached_line(&files[..1]), "(1 picture attached)");
         assert_eq!(as_typed("First\nsecond line"), "First\nsecond line");
         assert_eq!(as_typed("Use 3\ncolours"), "Use 3\ncolours");
     }

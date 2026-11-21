@@ -375,6 +375,8 @@ pub enum Modal {
     DeepMode,
     /// The folder picked for a new project has files: the app itself, or material to start from?
     ExistingFiles,
+    /// Documents dropped on Make or a project: a manual of the original, or the file to study?
+    DroppedDocuments(Vec<PathBuf>),
     /// Nothing can build yet: set something up (`start`: then start the project on Make).
     NeedBuilder {
         start: bool,

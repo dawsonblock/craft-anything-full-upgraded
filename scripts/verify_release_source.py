@@ -24,6 +24,8 @@ import stat
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 from typing import BinaryIO
 import urllib.parse
 
@@ -89,19 +91,90 @@ def normalized_commit(value: str, what: str) -> str:
     return commit
 
 
-def run_gh(command: list[str], *, timeout: int, what: str) -> subprocess.CompletedProcess:
-    """Run the GitHub CLI without a shell, with a deadline and bounded output."""
+# How long, in seconds, the output readers may take to finish once `gh` has ended.
+READER_GRACE = 5
+
+
+def read_capped(stream, buffer: bytearray, overflow: threading.Event) -> None:
+    """Read one pipe, stopping at the cap instead of buffering past it."""
+    while not overflow.is_set():
+        chunk = stream.read(65536)
+        if not chunk:
+            return
+        if len(buffer) + len(chunk) > MAX_GH_OUTPUT:
+            overflow.set()
+            return
+        buffer.extend(chunk)
+
+
+def stop_process(process: subprocess.Popen) -> None:
+    """Kill a process that outlived its deadline or its output cap, and reap it."""
     try:
-        completed = subprocess.run(
-            command, capture_output=True, text=True, encoding="utf-8",
-            errors="replace", timeout=timeout, check=False,
+        process.kill()
+    except OSError:
+        pass
+    try:
+        process.wait(timeout=5)
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+
+
+def run_gh(command: list[str], *, timeout: int, what: str) -> subprocess.CompletedProcess:
+    """Run the GitHub CLI without a shell, with a deadline and bounded output.
+
+    Output is read while `gh` runs and reading stops at the cap, so a reply that
+    is too large is killed rather than captured in full before being refused.
+    """
+    try:
+        process = subprocess.Popen(
+            command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
         )
     except FileNotFoundError as exc:
         raise IntegrityError("The GitHub CLI (gh) is not installed") from exc
-    except subprocess.TimeoutExpired as exc:
-        raise IntegrityError(f"{what} timed out") from exc
-    if len(completed.stdout) > MAX_GH_OUTPUT or len(completed.stderr) > MAX_GH_OUTPUT:
+    overflow = threading.Event()
+    sink: dict[str, bytearray] = {"stdout": bytearray(), "stderr": bytearray()}
+    readers = [
+        threading.Thread(target=read_capped, args=(stream, sink[name], overflow), daemon=True)
+        for name, stream in (("stdout", process.stdout), ("stderr", process.stderr))
+    ]
+    for reader in readers:
+        reader.start()
+    deadline = time.monotonic() + timeout
+    timed_out = False
+    while process.poll() is None:
+        if overflow.is_set():
+            stop_process(process)
+            break
+        if time.monotonic() > deadline:
+            timed_out = True
+            stop_process(process)
+            break
+        time.sleep(0.05)
+    for reader in readers:
+        reader.join(READER_GRACE)
+    # A reader still running means something `gh` started holds its output open: what was read
+    # may be cut short, so it's refused rather than parsed.
+    unfinished = any(reader.is_alive() for reader in readers)
+    if not unfinished:
+        # Closing a pipe a reader is still blocked on would wait for that read to end; those
+        # are left to their daemon threads.
+        for stream in (process.stdout, process.stderr):
+            try:
+                stream.close()
+            except (OSError, ValueError):
+                pass
+    if overflow.is_set():
         raise IntegrityError(f"{what} produced too much output")
+    if timed_out:
+        raise IntegrityError(f"{what} timed out")
+    if unfinished:
+        raise IntegrityError(f"{what} left its output open after it ended")
+    completed = subprocess.CompletedProcess(
+        command, process.returncode,
+        bytes(sink["stdout"]).decode("utf-8", "replace"),
+        bytes(sink["stderr"]).decode("utf-8", "replace"),
+    )
     if completed.returncode != 0:
         detail = (completed.stderr or completed.stdout or "").strip()[:ERROR_EXCERPT]
         raise IntegrityError(f"{what} failed: {detail or 'gh failed'}")

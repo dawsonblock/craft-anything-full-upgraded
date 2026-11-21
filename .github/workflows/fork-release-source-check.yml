@@ -3,6 +3,8 @@ name: Release Source Artifact Check
 # Verifies the source ZIP attached to a published release, not a fresh one
 # built in CI. A manual run may name another repository, tag and asset.
 # The archive is never executed; its inventory and extracted tree are hashed.
+# The release's GitHub artifact attestation must cover the same bytes and name
+# the commit the tag resolves to, so a replaced asset fails here.
 on:
   release:
     types: [published]
@@ -23,14 +25,15 @@ on:
 
 permissions:
   contents: read
+  attestations: read
 
 jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
       - name: Resolve the release identity
@@ -71,6 +74,7 @@ jobs:
             --repo "$RELEASE_REPO" \
             --tag "$RELEASE_TAG" \
             --asset "$RELEASE_ASSET" \
+            --verify-attestation "$RELEASE_REPO" \
             --report "$RUNNER_TEMP/release-source-receipt.json"
       - name: Show the receipt
         if: always()
@@ -80,7 +84,7 @@ jobs:
           fi
       - name: Upload the receipt
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: release-source-receipt
           path: ${{ runner.temp }}/release-source-receipt.json

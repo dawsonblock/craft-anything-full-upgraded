@@ -63,7 +63,8 @@ def passed_target(binary_evidence: dict | None = None) -> dict:
 class NativeCliMatrixTests(unittest.TestCase):
     def test_toolchain_missing_blocks_build_and_artifact(self) -> None:
         with tempfile.TemporaryDirectory() as temp, \
-                patch.object(matrix, "verify_tree", return_value={"file_count": 1}), \
+                patch.object(matrix, "tree_integrity", return_value={"basis": "manifest", "manifest": {"file_count": 1, "files": []}}), \
+                patch.object(matrix, "make_manifest", return_value={"file_count": 1, "files": []}), \
                 patch.object(matrix, "check_toolchain", return_value=(None, "no Rust")), \
                 patch.object(matrix, "execute") as execute:
             result = matrix.run_matrix(ROOT, Path(temp) / "artifact", 5, cargo="cargo", rustc="rustc")
@@ -74,7 +75,7 @@ class NativeCliMatrixTests(unittest.TestCase):
 
     def test_integrity_failure_blocks_all_execution(self) -> None:
         with tempfile.TemporaryDirectory() as temp, \
-                patch.object(matrix, "verify_tree", side_effect=matrix.IntegrityError("changed file")), \
+                patch.object(matrix, "tree_integrity", side_effect=matrix.IntegrityError("changed file")), \
                 patch.object(matrix, "check_toolchain") as check_toolchain, \
                 patch.object(matrix, "execute") as execute:
             result = matrix.run_matrix(ROOT, Path(temp) / "artifact", 5)
@@ -89,7 +90,8 @@ class NativeCliMatrixTests(unittest.TestCase):
             return {"name": name, "status": "fail", "reason": "nonzero_exit", "command": command}
 
         with tempfile.TemporaryDirectory() as temp, \
-                patch.object(matrix, "verify_tree", return_value={"file_count": 1}), \
+                patch.object(matrix, "tree_integrity", return_value={"basis": "manifest", "manifest": {"file_count": 1, "files": []}}), \
+                patch.object(matrix, "make_manifest", return_value={"file_count": 1, "files": []}), \
                 patch.object(matrix, "check_toolchain", return_value=("rustc 1.97.0", "")), \
                 patch.object(matrix, "execute", side_effect=broken_build), \
                 patch.object(matrix, "smoke_cli") as smoke:
@@ -104,7 +106,8 @@ class NativeCliMatrixTests(unittest.TestCase):
         binary_evidence = matrix.hash_binary(binary)
         smoke = {"name": "cli_smoke", "status": "pass", **binary_evidence}
         with tempfile.TemporaryDirectory() as temp, \
-                patch.object(matrix, "verify_tree", return_value={"file_count": 1}) as integrity, \
+                patch.object(matrix, "tree_integrity", return_value={"basis": "manifest", "manifest": {"file_count": 1, "files": []}}) as integrity, \
+                patch.object(matrix, "make_manifest", return_value={"file_count": 1, "files": []}) as manifest_calls, \
                 patch.object(matrix, "check_toolchain", return_value=("rustc 1.97.0", "")), \
                 patch.object(matrix, "execute", side_effect=passed_build) as execute, \
                 patch.object(matrix, "smoke_cli", return_value=smoke), \
@@ -142,25 +145,30 @@ class NativeCliMatrixTests(unittest.TestCase):
         self.assertEqual(payload["mcp_target_operations"], len(matrix.OPERATIONS))
         self.assertEqual(copied_hash, binary_evidence)
         self.assertIn("UNSIGNED", payload["label"])
-        self.assertEqual(integrity.call_count, 3)
+        self.assertEqual(integrity.call_count, 1)
+        self.assertEqual(manifest_calls.call_count, 2)
         self.assertEqual(execute.call_args.args[1], ["cargo", *matrix.BUILD_ARGS])
 
     def test_post_build_source_change_blocks_smoke(self) -> None:
         with tempfile.TemporaryDirectory() as temp, \
-                patch.object(matrix, "verify_tree", side_effect=[
-                    {"file_count": 1}, matrix.IntegrityError("build modified source"),
+                patch.object(matrix, "tree_integrity", return_value={
+                    "basis": "manifest", "manifest": {"file_count": 1, "files": []},
+                }), \
+                patch.object(matrix, "make_manifest", side_effect=[
+                    {"files": [{"path": "changed"}]},
                 ]), \
                 patch.object(matrix, "check_toolchain", return_value=("rustc 1.97.0", "")), \
                 patch.object(matrix, "execute", side_effect=passed_build), \
                 patch.object(matrix, "smoke_cli") as smoke:
             result = matrix.run_matrix(ROOT, Path(temp) / "cli", 5, cargo="cargo", rustc="rustc")
         self.assertEqual(result["status"], "fail")
-        self.assertIn("build modified source", result["checks"][-7]["reason"])
+        self.assertIn("changed during the build", result["checks"][-7]["reason"])
         smoke.assert_not_called()
 
     def test_failed_smoke_never_exports_executable(self) -> None:
         with tempfile.TemporaryDirectory() as temp, \
-                patch.object(matrix, "verify_tree", return_value={"file_count": 1}), \
+                patch.object(matrix, "tree_integrity", return_value={"basis": "manifest", "manifest": {"file_count": 1, "files": []}}), \
+                patch.object(matrix, "make_manifest", return_value={"file_count": 1, "files": []}), \
                 patch.object(matrix, "check_toolchain", return_value=("rustc 1.97.0", "")), \
                 patch.object(matrix, "execute", side_effect=passed_build), \
                 patch.object(matrix, "smoke_cli", return_value={"name": "cli_smoke", "status": "fail"}):
@@ -172,8 +180,11 @@ class NativeCliMatrixTests(unittest.TestCase):
 
     def test_post_smoke_source_change_prevents_export(self) -> None:
         with tempfile.TemporaryDirectory() as temp, \
-                patch.object(matrix, "verify_tree", side_effect=[
-                    {"file_count": 1}, {"file_count": 1}, matrix.IntegrityError("changed"),
+                patch.object(matrix, "tree_integrity", return_value={
+                    "basis": "manifest", "manifest": {"file_count": 1, "files": []},
+                }), \
+                patch.object(matrix, "make_manifest", side_effect=[
+                    {"files": []}, {"files": [{"path": "changed"}]},
                 ]), \
                 patch.object(matrix, "check_toolchain", return_value=("rustc 1.97.0", "")), \
                 patch.object(matrix, "execute", side_effect=passed_build), \
@@ -202,7 +213,7 @@ class NativeCliMatrixTests(unittest.TestCase):
                     passed_mcp(matrix.hash_binary(binary)),
                     passed_triage(matrix.hash_binary(binary)),
                     passed_target(matrix.hash_binary(binary)),
-                )
+                 "a" * 64)
             self.assertFalse(target.exists())
 
     def test_export_does_not_overwrite_a_previous_directory(self) -> None:
@@ -220,12 +231,13 @@ class NativeCliMatrixTests(unittest.TestCase):
                     passed_mcp(matrix.hash_binary(binary)),
                     passed_triage(matrix.hash_binary(binary)),
                     passed_target(matrix.hash_binary(binary)),
-                )
+                 "a" * 64)
             self.assertEqual(marker.read_text(encoding="utf-8"), "keep")
 
     def test_registry_smoke_failure_blocks_export(self) -> None:
         with tempfile.TemporaryDirectory() as temp, \
-                patch.object(matrix, "verify_tree", return_value={"file_count": 1}), \
+                patch.object(matrix, "tree_integrity", return_value={"basis": "manifest", "manifest": {"file_count": 1, "files": []}}), \
+                patch.object(matrix, "make_manifest", return_value={"file_count": 1, "files": []}), \
                 patch.object(matrix, "check_toolchain", return_value=("rustc 1.97.0", "")), \
                 patch.object(matrix, "execute", side_effect=passed_build), \
                 patch.object(matrix, "smoke_cli", return_value={"name": "cli_smoke", "status": "pass"}), \
@@ -246,7 +258,7 @@ class NativeCliMatrixTests(unittest.TestCase):
                 patch.object(matrix, "cli_binary_path", return_value=binary):
             target = Path(temp) / "cli"
             with self.assertRaisesRegex(ValueError, "All native smoke"):
-                matrix.export_binary(ROOT, target, {"status": "pass", **matrix.hash_binary(binary)}, {}, {}, {}, {})
+                matrix.export_binary(ROOT, target, {"status": "pass", **matrix.hash_binary(binary)}, {}, {}, {}, {}, "a" * 64)
             self.assertFalse(target.exists())
 
     def test_export_rejects_missing_or_invalid_capabilities_digest(self) -> None:
@@ -260,7 +272,7 @@ class NativeCliMatrixTests(unittest.TestCase):
                 target = Path(temp) / "cli"
                 with self.subTest(value=value), self.assertRaisesRegex(ValueError, "capabilities_sha256"):
                     matrix.export_binary(ROOT, target, {"status": "pass", **evidence}, registry,
-                                         passed_mcp(evidence), passed_triage(evidence), passed_target(evidence))
+                                         passed_mcp(evidence), passed_triage(evidence), passed_target(evidence), "a" * 64)
                 self.assertFalse(target.exists())
 
     def test_export_rejects_inconsistent_capability_toolset_count(self) -> None:
@@ -273,11 +285,12 @@ class NativeCliMatrixTests(unittest.TestCase):
             target = Path(temp) / "cli"
             with self.assertRaisesRegex(ValueError, "fewer toolsets"):
                 matrix.export_binary(ROOT, target, {"status": "pass", **evidence}, registry,
-                                     passed_mcp(evidence), passed_triage(evidence), passed_target(evidence))
+                                     passed_mcp(evidence), passed_triage(evidence), passed_target(evidence), "a" * 64)
 
     def test_mcp_failure_blocks_artifact_even_when_metadata_passes(self) -> None:
         with tempfile.TemporaryDirectory() as temp, \
-                patch.object(matrix, "verify_tree", return_value={"file_count": 1}), \
+                patch.object(matrix, "tree_integrity", return_value={"basis": "manifest", "manifest": {"file_count": 1, "files": []}}), \
+                patch.object(matrix, "make_manifest", return_value={"file_count": 1, "files": []}), \
                 patch.object(matrix, "check_toolchain", return_value=("rustc 1.97.0", "")), \
                 patch.object(matrix, "execute", side_effect=passed_build), \
                 patch.object(matrix, "smoke_cli", return_value={"name": "cli_smoke", "status": "pass"}), \
@@ -299,7 +312,8 @@ class NativeCliMatrixTests(unittest.TestCase):
 
     def test_triage_failure_blocks_export_even_when_mcp_passes(self) -> None:
         with tempfile.TemporaryDirectory() as temp, \
-                patch.object(matrix, "verify_tree", return_value={"file_count": 1}), \
+                patch.object(matrix, "tree_integrity", return_value={"basis": "manifest", "manifest": {"file_count": 1, "files": []}}), \
+                patch.object(matrix, "make_manifest", return_value={"file_count": 1, "files": []}), \
                 patch.object(matrix, "check_toolchain", return_value=("rustc 1.97.0", "")), \
                 patch.object(matrix, "execute", side_effect=passed_build), \
                 patch.object(matrix, "smoke_cli", return_value={"name": "cli_smoke", "status": "pass"}), \
@@ -318,7 +332,8 @@ class NativeCliMatrixTests(unittest.TestCase):
 
     def test_mcp_target_failure_prevents_unsigned_artifact(self) -> None:
         with tempfile.TemporaryDirectory() as temp, \
-                patch.object(matrix, "verify_tree", return_value={"file_count": 1}), \
+                patch.object(matrix, "tree_integrity", return_value={"basis": "manifest", "manifest": {"file_count": 1, "files": []}}), \
+                patch.object(matrix, "make_manifest", return_value={"file_count": 1, "files": []}), \
                 patch.object(matrix, "check_toolchain", return_value=("rustc 1.97.0", "")), \
                 patch.object(matrix, "execute", side_effect=passed_build), \
                 patch.object(matrix, "smoke_cli", return_value={"name": "cli_smoke", "status": "pass"}), \
@@ -359,7 +374,7 @@ class NativeCliMatrixTests(unittest.TestCase):
                 with self.subTest(mutation=mutation), self.assertRaisesRegex(ValueError, "MCP target"):
                     matrix.export_binary(ROOT, output, {"status": "pass", **evidence},
                                          passed_registry(evidence), passed_mcp(evidence),
-                                         passed_triage(evidence), target)
+                                         passed_triage(evidence), target, "a" * 64)
                 self.assertFalse(output.exists())
 
     def test_export_rejects_missing_or_forged_triage_evidence(self) -> None:
@@ -382,7 +397,7 @@ class NativeCliMatrixTests(unittest.TestCase):
                     triage["binary_sha256"] = "0" * 64
                 with self.subTest(mutation=mutation), self.assertRaisesRegex(ValueError, "triage"):
                     matrix.export_binary(ROOT, target, {"status": "pass", **evidence},
-                                         passed_registry(evidence), passed_mcp(evidence), triage, passed_target(evidence))
+                                         passed_registry(evidence), passed_mcp(evidence), triage, passed_target(evidence), "a" * 64)
                 self.assertFalse(target.exists())
 
     def test_export_requires_real_mcp_evidence_and_matching_hash(self) -> None:
@@ -393,12 +408,12 @@ class NativeCliMatrixTests(unittest.TestCase):
             target = Path(temp) / "cli"
             with self.assertRaisesRegex(ValueError, "All native smoke"):
                 matrix.export_binary(ROOT, target, {"status": "pass", **evidence},
-                                     passed_registry(evidence), {}, passed_triage(evidence), passed_target(evidence))
+                                     passed_registry(evidence), {}, passed_triage(evidence), passed_target(evidence), "a" * 64)
             forged = passed_mcp(evidence)
             forged["binary_sha256"] = "0" * 64
             with self.assertRaisesRegex(ValueError, "MCP smoke receipt"):
                 matrix.export_binary(ROOT, target, {"status": "pass", **evidence},
-                                     passed_registry(evidence), forged, passed_triage(evidence), passed_target(evidence))
+                                     passed_registry(evidence), forged, passed_triage(evidence), passed_target(evidence), "a" * 64)
             self.assertFalse(target.exists())
 
     def test_export_requires_mcp_registry_contract_consistency(self) -> None:
@@ -411,7 +426,7 @@ class NativeCliMatrixTests(unittest.TestCase):
             forged["mcp_contract_sha256"] = "e" * 64
             with self.assertRaisesRegex(ValueError, "MCP tools differ"):
                 matrix.export_binary(ROOT, target, {"status": "pass", **evidence},
-                                     passed_registry(evidence), forged, passed_triage(evidence), passed_target(evidence))
+                                     passed_registry(evidence), forged, passed_triage(evidence), passed_target(evidence), "a" * 64)
             self.assertFalse(target.exists())
 
     def test_export_requires_readonly_mcp_tool_receipt(self) -> None:
@@ -430,7 +445,7 @@ class NativeCliMatrixTests(unittest.TestCase):
                     forged.pop("mcp_readonly_tool")
                 with self.subTest(mutation=mutation), self.assertRaisesRegex(ValueError, "read-only session query"):
                     matrix.export_binary(ROOT, target, {"status": "pass", **evidence},
-                                         passed_registry(evidence), forged, passed_triage(evidence), passed_target(evidence))
+                                         passed_registry(evidence), forged, passed_triage(evidence), passed_target(evidence), "a" * 64)
                 self.assertFalse(target.exists())
 
     def test_export_requires_readonly_metadata_and_unknown_tool_refusal(self) -> None:
@@ -451,7 +466,7 @@ class NativeCliMatrixTests(unittest.TestCase):
                         forged[field] = mutation
                     with self.subTest(field=field, mutation=mutation), self.assertRaisesRegex(ValueError, reason):
                         matrix.export_binary(ROOT, target, {"status": "pass", **evidence},
-                                             passed_registry(evidence), forged, passed_triage(evidence), passed_target(evidence))
+                                             passed_registry(evidence), forged, passed_triage(evidence), passed_target(evidence), "a" * 64)
                     self.assertFalse(target.exists())
 
     def test_timeout_and_inside_source_artifacts_are_rejected(self) -> None:
@@ -486,7 +501,7 @@ class NativeCliMatrixTests(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/fork-native-cli-matrix.yml").read_text(encoding="utf-8")
         for requirement in (
             "workflow_dispatch", "ubuntu-latest", "macos-latest", "windows-latest",
-            "scripts/native_cli_matrix.py", "actions/upload-artifact@v4", "--artifact-dir",
+            "scripts/native_cli_matrix.py", "actions/upload-artifact@", "--artifact-dir",
         ):
             self.assertIn(requirement, workflow)
         for forbidden in ("secrets.", "release: publish", "cargo install --git"):

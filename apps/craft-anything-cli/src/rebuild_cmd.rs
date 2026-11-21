@@ -8,7 +8,7 @@ use craft_anything_ai::rebuild::{self, RebuildRun, RunEvent, RunOptions};
 use craft_anything_ai::{AgentEvent, AiHub, BackendKind};
 use craft_anything_engine::inbox::{Answer, Request, RequestKind};
 use craft_anything_engine::workspace::Workspace;
-use craft_anything_evidence::ToolError;
+use craft_anything_evidence::{ErrorCode, ToolError};
 use std::io::{BufRead as _, Write as _};
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
@@ -56,6 +56,11 @@ pub struct RebuildArgs {
     /// within the project's asset budget). Change it later with `project-assets-allow`.
     #[arg(long)]
     pub generate_assets: bool,
+    /// A picture of the original (.png, .jpg, .webp, .gif) or a document about it, such as its
+    /// manual or your notes (.pdf, .md, .txt, .html), up to 20 MB. Repeat for more. Pictures show
+    /// the look to match; the builder reads documents for what it does and how it behaves.
+    #[arg(long = "reference", value_name = "FILE")]
+    pub references: Vec<PathBuf>,
 }
 
 pub fn rebuild(cli: &Cli, a: &RebuildArgs) -> u8 {
@@ -113,6 +118,22 @@ fn run(cli: &Cli, a: &RebuildArgs) -> Result<bool, ToolError> {
     if let Some(name) = a.backend.as_deref() {
         rebuild::builder_backend(&hub.config(), Some(name))?;
     }
+    // A reference that can't be added is refused before a project folder is made: the person
+    // named it to be used, so it isn't silently skipped.
+    for r in &a.references {
+        use craft_anything_engine::workspace::{document_too_large, is_document, is_picture, picture_too_large};
+        if !r.is_file() {
+            return Err(ToolError::invalid(format!("--reference {}: there's no such file.", r.display())));
+        }
+        if !is_picture(r) && !is_document(r) {
+            return Err(ToolError::invalid(format!("--reference {}: not a picture or a document Craft Anything can add.", r.display()))
+                .with_remediation("Use a picture (.png, .jpg, .webp, .gif) or a document (.pdf, .md, .markdown, .txt, .html, .htm)."));
+        }
+        if picture_too_large(r) || document_too_large(r) {
+            return Err(ToolError::new(ErrorCode::OverLimit, format!("--reference {}: larger than 20 MB.", r.display()))
+                .with_remediation("Use a smaller picture, or only the chapters of the manual that describe what the program does."));
+        }
+    }
     // Refuse a start that can only spend money it may not, before a project folder is made.
     craft_anything_ai::budget::refuse_over_daily(hub.config().spend_limits(), &craft_anything_ai::budget::ledger_path(&hub.settings_path()))?;
     // A new project would leave its folder behind if the run then refused its agent; check first.
@@ -141,6 +162,10 @@ fn run(cli: &Cli, a: &RebuildArgs) -> Result<bool, ToolError> {
         }
     };
     println!("Project: {}", ws.root.display());
+    if !a.references.is_empty() {
+        let added = ws.add_references(&a.references)?;
+        println!("Added {added} reference file(s).");
+    }
     // The saved builder may be off or gone; say who builds once the run has started, so a failed
     // start doesn't claim an AI that never ran.
     let replacement = rebuild::builder_replacement(&hub.config(), &ws, a.backend.as_deref());

@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
 import stat
 import subprocess
 import sys
@@ -17,7 +18,7 @@ SCRIPTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS))
 from source_bundle_integrity import (
     IntegrityError, MANIFEST_NAME, extract_verified_zip, make_manifest,
-    package_zip, parse_manifest, permitted_path, verify_tree, verify_zip,
+    package_zip, parse_manifest, permitted_path, tracked_files, verify_tree, verify_zip,
 )
 
 
@@ -37,6 +38,29 @@ class SourceBundleIntegrityTests(unittest.TestCase):
             for path in sorted(root.rglob("*")):
                 if path.is_file() and path.name != skip:
                     zf.write(path, arcname=f"{root.name}/{path.relative_to(root).as_posix()}")
+
+    def test_living_records_are_neither_inventoried_nor_packaged(self):
+        with tempfile.TemporaryDirectory() as temp:
+            parent = Path(temp)
+            root = self.sample(parent)
+            (root / "docs").mkdir()
+            (root / "docs" / "ROADMAP.md").write_text("plan\n", encoding="utf-8")
+            (root / "docs" / "STATUS.md").write_text("status\n", encoding="utf-8")
+            (root / "docs" / "releasing.md").write_text("release\n", encoding="utf-8")
+            manifest = make_manifest(root)
+            (root / MANIFEST_NAME).write_text(json.dumps(manifest), encoding="utf-8")
+            self.assertEqual(
+                [row["path"] for row in manifest["files"]],
+                ["README.md", "docs/releasing.md", "src/app.rs"],
+            )
+            self.assertEqual(verify_tree(root)["status"], "verified")
+            archive = parent / "source.zip"
+            package_zip(root, archive)
+            with zipfile.ZipFile(archive) as zf:
+                names = zf.namelist()
+            self.assertNotIn(f"{root.name}/docs/ROADMAP.md", names)
+            self.assertNotIn(f"{root.name}/docs/STATUS.md", names)
+            self.assertIn(f"{root.name}/docs/releasing.md", names)
 
     def test_tree_and_zip_roundtrip_passes(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -139,12 +163,35 @@ class SourceBundleIntegrityTests(unittest.TestCase):
             self.assertFalse(any(parent.glob(".source-zip-*")))
             with self.assertRaisesRegex(IntegrityError, "Refusing to overwrite"):
                 package_zip(root, archive)
+            # Without a `.git` there is no commit to compare against: the manifest is generated
+            # from whatever the tree holds, so a new file simply joins the archive.
             (root / "extra.txt").write_text("unexpected", encoding="utf-8")
-            with self.assertRaisesRegex(IntegrityError, "missing, changed or extra"):
-                package_zip(root, parent / "stale.zip")
+            self.assertEqual(package_zip(root, parent / "grown.zip")["file_count"], 3)
             self.assertFalse(any(parent.glob(".source-zip-*")))
             with self.assertRaisesRegex(IntegrityError, "outside the source root"):
                 package_zip(root, root / "artifact.zip")
+
+    @unittest.skipUnless(shutil.which("git"), "git is needed to detect a dirty checkout")
+    def test_package_zip_refuses_a_checkout_that_differs_from_its_commit(self):
+        with tempfile.TemporaryDirectory() as temp:
+            parent = Path(temp)
+            root = parent / "craft-anything-full-upgraded"
+            root.mkdir()
+            (root / "README.md").write_text("one\n", encoding="utf-8")
+
+            def git(*args):
+                subprocess.run(["git", "-C", str(root), *args], capture_output=True, check=True)
+
+            git("init")
+            git("add", "README.md")
+            git("-c", "user.name=Test", "-c", "user.email=test@example.invalid",
+                "commit", "-m", "one")
+            self.assertEqual(package_zip(root, parent / "clean.zip")["file_count"], 1)
+            (root / "scratch.txt").write_text("not source\n", encoding="utf-8")
+            self.assertEqual(package_zip(root, parent / "untracked.zip")["file_count"], 1)
+            (root / "README.md").write_text("two\n", encoding="utf-8")
+            with self.assertRaisesRegex(IntegrityError, "uncommitted changes"):
+                package_zip(root, parent / "dirty.zip")
 
     def test_package_zip_normalizes_metadata(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -541,6 +588,16 @@ class SourceBundleIntegrityTests(unittest.TestCase):
             refused = run()
             self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
             self.assertIn("doesn't track", refused.stdout)
+
+    def test_a_checkout_git_cannot_list_is_refused_not_walked(self):
+        # A `.git` Git can't read (here an empty gitfile) used to fall back to walking the folder,
+        # which would put untracked files in the manifest without a word.
+        with tempfile.TemporaryDirectory() as temp:
+            root = self.sample(Path(temp))
+            (root / ".git").write_text("", encoding="utf-8")
+            (root / "scratch.txt").write_text("local notes", encoding="utf-8")
+            with self.assertRaisesRegex(IntegrityError, "Git could not list its tracked files"):
+                tracked_files(root)
 
     def test_create_refuses_a_checkout_renamed_from_the_declared_root(self):
         with tempfile.TemporaryDirectory() as temp:

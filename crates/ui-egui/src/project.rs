@@ -401,11 +401,11 @@ impl CraftApp {
         });
     }
 
-    /// Add pictures that already passed the worker check to the project prompt box.
+    /// Add pictures and documents that already passed the worker check to the project prompt box.
     fn attach_checked(&mut self, files: Vec<PathBuf>) {
         let list = &mut self.state.project_attachments;
         for f in files {
-            if craft_anything_engine::workspace::is_picture(&f) && !list.contains(&f) {
+            if is_reference(&f) && !list.contains(&f) {
                 list.push(f);
             }
         }
@@ -426,7 +426,7 @@ impl CraftApp {
     fn add_pictures_checked(&mut self, files: Vec<PathBuf>) {
         let d = &mut self.state.make.pictures;
         for f in files {
-            if craft_anything_engine::workspace::is_picture(&f) && !d.contains(&f) {
+            if is_reference(&f) && !d.contains(&f) {
                 d.push(f);
             }
         }
@@ -434,6 +434,10 @@ impl CraftApp {
 
     /// Show the same refusal paste uses.
     fn show_picture_refused(&mut self, name: &str) {
+        if craft_anything_engine::workspace::is_document(Path::new(name)) {
+            self.toast(trf("{name} can't be added: a document can be up to 20 MB.", &[("name", name)]), true);
+            return;
+        }
         self.toast(trf("{name} can't be attached: a message takes pictures up to 20 MB.", &[("name", name)]), true);
     }
 
@@ -457,7 +461,7 @@ impl CraftApp {
             PictureTarget::Make => {
                 if let Some(draft) = self.start_after_pictures.as_mut() {
                     for f in &files {
-                        if craft_anything_engine::workspace::is_picture(f) && !draft.pictures.contains(f) {
+                        if is_reference(f) && !draft.pictures.contains(f) {
                             draft.pictures.push(f.clone());
                         }
                     }
@@ -576,6 +580,10 @@ impl CraftApp {
     fn preview(&mut self, ctx: &egui::Context, path: &Path) -> Option<egui::TextureHandle> {
         if let Some(t) = self.previews.get(path) {
             return if let Thumb::Ready(t) = t { Some(t.clone()) } else { None };
+        }
+        // A document has no picture to show: it's shown by its name, and not read to try.
+        if !craft_anything_engine::workspace::is_picture(path) {
+            return None;
         }
         self.previews.insert(path.to_path_buf(), Thumb::Loading);
         let (p, ctx) = (path.to_path_buf(), ctx.clone());
@@ -1836,7 +1844,7 @@ fn composer(app: &mut CraftApp, ui: &mut Ui, width: f32, t: &Tokens) {
                 name: "Ask for a change",
                 hint,
                 rows: (1, 8),
-                attach: Some("Attach pictures (or drop or paste them here)"),
+                attach: Some("Attach pictures or a manual (or drop or paste them here)"),
                 previews: &previews,
                 // The one way to pause (Continue picks up where it stopped).
                 stop_button: running.then_some("Pause"),
@@ -1982,10 +1990,58 @@ pub enum PictureTarget {
 
 /// The first picture over 20 MB, by display name. Reads file sizes, so run it on a worker.
 fn oversized_picture_name(files: &[PathBuf]) -> Option<String> {
+    use craft_anything_engine::workspace::{document_too_large, picture_too_large};
     files
         .iter()
-        .find(|f| craft_anything_engine::workspace::picture_too_large(f))
+        .find(|f| picture_too_large(f) || document_too_large(f))
         .map(|f| f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| f.display().to_string()))
+}
+
+/// What Make keeps as a reference about the original: a picture of it, or a document about it (a
+/// manual, notes), by its extension.
+/// A document dropped on Make or a project could be a manual of the original or the file to
+/// study (a program's own README, a saved web page), so the person says which.
+pub fn dropped_documents_modal(app: &mut CraftApp, ui: &mut Ui, files: &[PathBuf], close: &mut bool) {
+    let t = Tokens::get(ui.ctx());
+    ui.set_width(560.0);
+    ui.label(theme::heading(tr("A manual, or the file to study?"), theme::SECTION));
+    ui.add_space(4.0);
+    let names: Vec<String> = files.iter().map(|f| f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()).collect();
+    ui.add(egui::Label::new(RichText::new(names.join(", ")).color(t.text_dim)).wrap());
+    ui.add_space(12.0);
+    let size = Vec2::new(268.0, 150.0);
+    let mut manual = false;
+    let mut study = false;
+    ui.horizontal(|ui| {
+        manual = widgets::choice_tile(
+            ui,
+            size,
+            "book-open",
+            "Use as the manual",
+            "The builder reads it to learn what the original does. It's kept with the project's references.",
+            false,
+        )
+        .clicked();
+        study = widgets::choice_tile(ui, size, "microscope", "Study this file", "Open it as the thing to look inside, as if you'd opened it from Home.", false)
+            .clicked();
+    });
+    ui.add_space(12.0);
+    if widgets::secondary(ui, None, "Cancel").clicked() {
+        *close = true;
+    }
+    if manual {
+        app.add_dropped_references(files.to_vec());
+        *close = true;
+    } else if study {
+        if let Some(f) = files.first() {
+            app.open_path(f.clone());
+        }
+        *close = true;
+    }
+}
+
+pub(crate) fn is_reference(p: &Path) -> bool {
+    craft_anything_engine::workspace::is_picture(p) || craft_anything_engine::workspace::is_document(p)
 }
 
 /// What was typed for a note while its project's builder worked.
@@ -1996,8 +2052,8 @@ pub struct Draft {
 }
 
 impl CraftApp {
-    /// Pictures for the next message on the open project (pictures only, once each). The size
-    /// check runs on a worker.
+    /// Pictures for the next message on the open project, and documents about the original (a
+    /// manual, notes), each once. The size check runs on a worker.
     pub fn attach(&mut self, files: Vec<PathBuf>) {
         if !files.is_empty() {
             let root = self.workspace.as_ref().map(|w| w.root.clone());
@@ -2151,7 +2207,7 @@ impl CraftApp {
             }
         };
         let message = prompt_box::with_attachments(&text, &files, &ws.root);
-        let shown = [text.clone(), prompt_box::attached_line(files.len())].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join("\n");
+        let shown = [text.clone(), prompt_box::attached_line(&files)].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join("\n");
         match self.open_run() {
             Some(run) if run.is_running() => {
                 // It joins the feed when the builder reads it; until then it can be taken back.
@@ -2247,6 +2303,48 @@ mod tests {
         assert!(app.pasting().is_none(), "a next paste can start");
     }
 
+    /// A document dropped on a project asks whether it's the manual or the file to study, while a
+    /// picture dropped with it goes straight to the message. "Use as the manual" attaches it, and
+    /// the message copies it into reference/docs/ and says so. Elsewhere a document still opens.
+    #[test]
+    fn a_dropped_manual_is_asked_about_and_goes_with_the_message() {
+        let d = tempfile::tempdir().unwrap();
+        let ws = Workspace::create(d.path(), "Notes", "A notes app", TargetRef::None).unwrap();
+        let mut app = crate::demo::app(crate::demo::engine(craft_anything_engine::Mode::Beginner, true));
+        app.open_workspace(ws.clone());
+        app.state.screen = Screen::Project;
+        let (manual, shot) = (d.path().join("Manual.pdf"), d.path().join("shot.png"));
+        std::fs::write(&manual, "How it works").unwrap();
+        std::fs::write(&shot, b"\x89PNG\r\n\x1a\n").unwrap();
+        let finish = |app: &mut CraftApp| {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            while app.jobs.running().next().is_some() && std::time::Instant::now() < deadline {
+                app.take_finished_jobs();
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            app.take_finished_jobs();
+        };
+        app.drop_files(vec![manual.clone(), shot.clone()]);
+        assert_eq!(app.state.modal, Some(Modal::DroppedDocuments(vec![manual.clone()])), "the document is asked about");
+        finish(&mut app);
+        assert_eq!(app.state.project_attachments, vec![shot.clone()], "the picture didn't wait");
+        // What "Use as the manual" does.
+        app.state.modal = None;
+        app.add_dropped_references(vec![manual.clone()]);
+        finish(&mut app);
+        assert_eq!(app.state.project_attachments, vec![shot.clone(), manual.clone()]);
+        app.state.project_input = "Follow the manual".into();
+        app.send_message();
+        finish(&mut app);
+        assert_eq!(ws.reference_documents(), vec![ws.reference_documents_dir().join("Manual.pdf")], "kept with the references");
+        let sent = app.state.feed.iter().rev().find_map(|i| if let FeedItem::User(u) = i { Some(u.text().to_string()) } else { None }).unwrap_or_default();
+        assert!(sent.ends_with("(2 files attached)"), "{sent}");
+        // Away from Make and the projects, a dropped document opens as before.
+        app.state.screen = Screen::Workbench;
+        app.drop_files(vec![manual]);
+        assert_eq!(app.state.modal, None);
+    }
+
     /// Checking a Make picture finishes after the person opened a project: it still belongs to the
     /// Make draft, not the project.
     #[test]
@@ -2256,6 +2354,37 @@ mod tests {
         app.state.screen = Screen::Project;
         app.pictures_checked(vec![pic.clone()], None, PictureTarget::Make);
         assert_eq!(app.state.make.pictures, vec![pic]);
+    }
+
+    /// A manual added on Make joins the draft beside the pictures (shown by its name, never decoded
+    /// as a picture); one over 20 MB is refused with a document's message, not a picture's.
+    #[test]
+    fn a_manual_added_on_make_joins_the_draft_and_a_huge_one_is_refused() {
+        let d = tempfile::tempdir().unwrap();
+        let manual = d.path().join("guide.pdf");
+        std::fs::write(&manual, "x").unwrap();
+        let mut app = crate::demo::app(crate::demo::engine(craft_anything_engine::Mode::Beginner, true));
+        app.state.screen = Screen::Home;
+        let finish = |app: &mut crate::CraftApp| {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            while app.jobs.running().next().is_some() && std::time::Instant::now() < deadline {
+                app.take_finished_jobs();
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            app.take_finished_jobs();
+        };
+        app.add_pictures(vec![manual.clone()]);
+        finish(&mut app);
+        assert_eq!(app.state.make.pictures, vec![manual.clone()], "the manual is in the draft");
+        let ctx = egui::Context::default();
+        assert!(app.previews(&ctx, std::slice::from_ref(&manual)).iter().all(Option::is_none), "shown by its name");
+        assert_eq!(app.jobs.running().count(), 0, "no picture decoding was started for it");
+        let huge = d.path().join("huge.pdf");
+        std::fs::File::create(&huge).unwrap().set_len(21 * 1024 * 1024).unwrap();
+        app.add_pictures(vec![huge.clone()]);
+        finish(&mut app);
+        assert!(!app.state.make.pictures.contains(&huge), "a document over 20 MB isn't added");
+        assert!(app.state.toasts.iter().any(|(t, error)| *error && t.contains("a document can be up to 20 MB")), "{:?}", app.state.toasts);
     }
 
     /// Taking a note back restores the pictures saved with it, even if they have since grown past

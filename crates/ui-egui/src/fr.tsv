@@ -1480,6 +1480,17 @@ Restored project: {path}	Projet restauré : {path}
 Build confinement	Confinement des builds
 Refuse unconfined builds	Refuser les builds non confinés
 A build whose agent declares neither its own sandbox nor our approval tool is refused before it starts. Off, it runs with your own access and the result says so.	Un build dont l'agent ne déclare ni son propre bac à sable ni notre outil d'approbation est refusé avant de démarrer. Désactivé, il s'exécute avec votre accès et le résultat le dit.
+Spending limits	Limites de dépenses
+Most per build	Maximum par build
+A build stops between turns once its AI cost reaches this, in US dollars. Empty: no limit.	Un build s'arrête entre deux tours dès que son coût d'IA atteint ce montant, en dollars US. Vide : aucune limite.
+Most per day	Maximum par jour
+Builds stop, and new ones don't start, once today's AI cost (UTC) reaches this, in US dollars. Empty: no limit.	Les builds s'arrêtent, et les nouveaux ne démarrent pas, dès que le coût d'IA du jour (UTC) atteint ce montant, en dollars US. Vide : aucune limite.
+No limit	Aucune limite
+Enter an amount in US dollars, zero or more, or leave it empty for no limit.	Saisissez un montant en dollars US, zéro ou plus, ou laissez vide pour aucune limite.
+Pictures and documents	Images et documents
+Documents	Documents
+Add pictures or a manual of the original (optional: screenshots help it look right, a manual helps it work right)	Ajouter des images ou un manuel de l'original (facultatif : les captures d'écran aident à en reproduire l'apparence, un manuel aide à en reproduire le fonctionnement)
+{name} can't be added: a document can be up to 20 MB.	{name} ne peut pas être ajouté : un document peut faire jusqu'à 20 Mo.
 Sandbox	Bac à sable
 Build commands	Commandes de build
 Where a build's shell commands run. Docker sees only the project folder, as a non-root user, with the network off unless you allow it.	Où s'exécutent les commandes shell d'un build. Docker ne voit que le dossier du projet, en tant qu'utilisateur non root, sans réseau sauf si vous l'autorisez.
@@ -1492,3 +1503,12 @@ On this computer	Sur cet ordinateur
 Sandbox image	Image du bac à sable
 debian:bookworm-slim	debian:bookworm-slim
 Docker	Docker
+Attach pictures or documents	Joindre des images ou des documents
+Attach pictures or a manual (or drop or paste them here)	Joindre des images ou un manuel (ou les déposer ou coller ici)
+(1 file attached)	(1 fichier joint)
+({n} files attached)	({n} fichiers joints)
+A manual, or the file to study?	Un manuel, ou le fichier à étudier ?
+Use as the manual	Utiliser comme manuel
+The builder reads it to learn what the original does. It's kept with the project's references.	Le constructeur le lit pour savoir ce que fait l'original. Il est gardé avec les références du projet.
+Study this file	Étudier ce fichier
+Open it as the thing to look inside, as if you'd opened it from Home.	L'ouvrir comme ce qu'il faut examiner, comme si vous l'aviez ouvert depuis l'Accueil.

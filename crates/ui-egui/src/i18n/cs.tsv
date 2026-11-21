@@ -1481,6 +1481,17 @@ Restored project: {path}	Projekt obnoven: {path}
 Build confinement	Izolace buildů
 Refuse unconfined builds	Odmítat neizolované buildy
 A build whose agent declares neither its own sandbox nor our approval tool is refused before it starts. Off, it runs with your own access and the result says so.	Build, jehož agent nehlásí vlastní sandbox ani naše schvalování, se odmítne před spuštěním. Vypnuto: běží s tvým přístupem a výsledek to uvede.
+Spending limits	Limity útraty
+Most per build	Nejvýše za build
+A build stops between turns once its AI cost reaches this, in US dollars. Empty: no limit.	Build se zastaví mezi tahy, jakmile jeho náklady na AI dosáhnou této částky v amerických dolarech. Prázdné: bez limitu.
+Most per day	Nejvýše za den
+Builds stop, and new ones don't start, once today's AI cost (UTC) reaches this, in US dollars. Empty: no limit.	Buildy se zastaví a nové se nespustí, jakmile dnešní náklady na AI (UTC) dosáhnou této částky v amerických dolarech. Prázdné: bez limitu.
+No limit	Bez limitu
+Enter an amount in US dollars, zero or more, or leave it empty for no limit.	Zadejte částku v amerických dolarech, nula nebo více, nebo nechte pole prázdné pro žádný limit.
+Pictures and documents	Obrázky a dokumenty
+Documents	Dokumenty
+Add pictures or a manual of the original (optional: screenshots help it look right, a manual helps it work right)	Přidat obrázky nebo příručku originálu (volitelné: snímky obrazovky pomáhají se vzhledem, příručka s fungováním)
+{name} can't be added: a document can be up to 20 MB.	{name} nelze přidat: dokument může mít nejvýše 20 MB.
 Sandbox	Sandbox
 Build commands	Příkazy buildu
 Where a build's shell commands run. Docker sees only the project folder, as a non-root user, with the network off unless you allow it.	Kde se spouštějí shellové příkazy buildu. Docker vidí jen složku projektu, běží jako uživatel bez rootu a bez sítě, pokud to nepovolíš.
@@ -1493,3 +1504,12 @@ On this computer	Na tomto počítači
 Sandbox image	Obraz sandboxu
 debian:bookworm-slim	debian:bookworm-slim
 Docker	Docker
+Attach pictures or documents	Přiložit obrázky nebo dokumenty
+Attach pictures or a manual (or drop or paste them here)	Přiložit obrázky nebo příručku (nebo je přetáhněte či vložte sem)
+(1 file attached)	(1 soubor přiložen)
+({n} files attached)	(přiloženo souborů: {n})
+A manual, or the file to study?	Příručka, nebo soubor k prozkoumání?
+Use as the manual	Použít jako příručku
+The builder reads it to learn what the original does. It's kept with the project's references.	Tvůrce si ji přečte, aby zjistil, co originál dělá. Uloží se k podkladům projektu.
+Study this file	Prozkoumat tento soubor
+Open it as the thing to look inside, as if you'd opened it from Home.	Otevřít ho jako to, do čeho se má nahlédnout, jako byste ho otevřeli z Úvodu.

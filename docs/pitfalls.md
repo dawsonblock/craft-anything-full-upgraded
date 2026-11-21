@@ -93,11 +93,12 @@ GitHub's branch and tag archives name it `<repository>-<branch>`, so the project
 failed its own verifier. Verify content relative to the single top-level folder and report both
 names; the folder name is packaging, not hashed data.
 
-**A source manifest regenerated in an earlier commit.** `SOURCE_INTEGRITY.json` was regenerated in
+**A generated manifest committed to the repository.** `SOURCE_INTEGRITY.json` was regenerated at
 `5e27e8f`, then five commits changed 32 files without regenerating it, so the tree at HEAD failed
-`verify-tree` even though every file matched Git. Regenerate the manifest in the commit that
-changes source, and package with `package-zip` (it refuses a stale manifest); a ZIP made outside
-that tool can still carry the old one.
+`verify-tree` even though every file matched Git. It happened twice more, once because the
+contribution rules require a roadmap edit in almost every pull request. A checksum that must move
+in lockstep with every commit is one nobody keeps in step: `package-zip` now generates it and it is
+never committed, and a checkout is checked against its commit instead.
 
 **A check-then-rename overwrite race.** `package_zip` checked that the destination did not exist
 and later called `os.rename`, which replaces an existing file on POSIX; another process could
@@ -120,6 +121,14 @@ unrelated group, so `killpg` raised `PermissionError` out of a test and the gate
 - Treat `ProcessLookupError` and `PermissionError` as "nothing left to stop"; a cleanup helper
   must never raise into the result it is cleaning up after.
 
+**A group of zombies probed as alive.** Three capture cleanup tests failed in a cloud container and
+passed in CI, and were set aside as "the environment". The cause was ours: a killed group's orphans
+become zombies until init reaps them, `killpg(pid, 0)` still succeeds on a group of zombies, and
+that container's first process never reaps, so cleanup said "incomplete" after waiting out the
+whole settle. Docker without `--init` behaves the same. A liveness probe by signal 0 counts
+zombies: read the members' state (`/proc/<pid>/stat` on Linux) before calling a group alive, and
+find the cause of a failure that only one environment shows before calling it that environment's.
+
 **A heartbeat sampled before shutdown raced a successful stop.** A child could write between
 the baseline read and `stop()`, failing the descendant cleanup test even when cleanup worked.
 Probe for exit instead of timing writes: the child holds a file lock the system releases only
@@ -138,6 +147,13 @@ Resolve fixture utilities on the host, make their paths absolute, then populate 
 changed valid Python to a syntax error within the same mtime second. `compileall` skipped it and
 exited zero; the screenshot run then failed instead. Use `compileall -f` for a build check, and
 hold the valid and broken fixture revisions at the same timestamp in the real-Python regression.
+
+**A reader that outlived its program, and a close that waited for it.** `run_gh` joined its
+output readers for five seconds and then parsed what they had read, even when a program `gh`
+started still held the pipe and a reader was mid-read, so a reply cut short could be used whole.
+The first fix closed the pipe under the reader; Python's buffered `close` waits for the read in
+progress, so it blocked as long as the holder lived. A reader still running after its grace is a
+refusal, and its pipe is left to the daemon thread rather than closed under it.
 
 **A test started a real download on a contributor's machine.** A test called `engines_install` for
 Unity; a later change made that download the vendor installer and open it on Windows. It also
@@ -211,6 +227,18 @@ and then on Linux with "Text file busy": another test thread was starting a chil
 and the child still held the new file open for writing. Starting a program goes through
 `process::spawn_retrying`, which tries a busy file again for a moment; don't add a sleep to a test
 instead.
+
+**A test that stubbed a function the code stopped calling.** `run_gh` moved from `subprocess.run`
+to `Popen`, and two tests still patched `subprocess.run`: one began running the real `gh release
+download` over the network, and the other ("nothing is started for a bad identity") passed without
+checking anything. When a change replaces a call, grep the tests that patch the old one, and patch
+at the layer that starts the program.
+
+**A wait for jobs that counted only the visible ones.** `Jobs::busy()` is for the job list, so it
+ignores jobs spawned with `visible: false`, as a settings save is. A test that waited
+`while app.jobs.busy()` returned at once and read the settings before the save had run, and its
+"nothing was saved" check passed without checking anything. Wait on `jobs.running()`, and make
+a test that asserts nothing ran fail once by starting something.
 
 **Proving a refactor changed nothing.** Unit tests that check substrings can miss changed prompts.
 For a refactor that must keep output identical, dump the outputs for every combination before and
@@ -1044,6 +1072,21 @@ inventory itself, then regenerate the manifest after the last source change.
 never asked. List every route by the function that starts the program or build, not only by the
 tools, and test the check paths too.
 
+**An approval tool that a settings file answered first.** Claude Code builds were held by
+`--permission-prompt-tool`, and the argument checks refused every flag that could loosen it, but
+Claude Code reads allow rules from settings files before it asks that tool: a live run let a
+command through on a rule in the person's `settings.json`, and on one in the build folder's
+`.claude/settings.local.json`, a file the builder can write itself. A boundary that a program
+enforces is what that program reads, not what we pass it: check live, with a stand-in that logs
+and denies, which of the program's own files can decide first, and turn them off.
+
+**A tool that copies a named file is a tool that reads it.** `rebuild_note` gained `attachments`
+(absolute paths, copied into the project the builder reads), with the effects it had for text and
+a place on the Clean room list, so an agent could have pulled the person's files, or the
+original's in Clean room, into reach; and its file checks, run before anything else, told any
+caller whether a path existed. A parameter that takes a path on the computer changes who may call
+the tool: refuse agents and MCP clients for it (or ask), and look at the path only after that.
+
 **A refusal is not a consent request.** `sandbox_unconfined = "refuse"` returned
 `ErrorCode::ConsentRequired`; the MCP server and the API agent loop ask the person on that code and
 retry with consent granted, so the person approved a route that could never run. Use a non-consent
@@ -1087,3 +1130,16 @@ in one tool, and every route that runs or reads the app must use it.
 "on". When a field's default isn't its type's default, implement `Default` by hand, drop the
 field-level attribute, and test both paths (an empty table and `AiConfig::default()`) — otherwise
 the gate silently reopens through whichever path forgot.
+
+**An inventory that includes files the rules make you edit every time.** The manifest went stale
+twice because it hashed `docs/ROADMAP.md` and `docs/STATUS.md`, and the contribution rules require
+touching the roadmap in almost every pull request: following the rules invalidated the checksum,
+and two concurrent PRs would both rewrite a 158 KB generated file. A file that changes on a
+schedule the checksum can't follow doesn't belong in a checksum. Both are excluded
+(`LIVING_RECORDS`) and are absent from the source ZIP; the archive's bytes are still bound to the
+commit by the release attestation.
+
+**A manifest generated from a dirty checkout.** Generating the manifest at packaging time removes
+the stale-manifest failure, but it also means a modified tracked file is described faithfully and
+ships — and the attestation then claims those bytes came from a commit they never came from. Ask
+Git whether the tree matches its commit before packaging; a green test suite says nothing about it.

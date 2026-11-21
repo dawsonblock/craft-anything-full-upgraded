@@ -290,6 +290,11 @@ pub enum AgentEvent {
         backend: String,
         /// Every prompt token, cached ones included, as agent apps report them.
         input_tokens: u64,
+        /// The part of `input_tokens` read from the provider's prompt cache, when the agent says
+        /// (0 when it doesn't). A cost that has to be estimated prices these at the cache-read rate,
+        /// not the full input rate.
+        #[serde(default)]
+        cached_input_tokens: u64,
         output_tokens: u64,
         cost_usd: Option<f64>,
         /// `cost_usd` is the agent's own guess at API prices, not what a key was charged: a
@@ -573,6 +578,49 @@ impl AiHub {
         b.config.enabled = on;
         self.save_config(&cfg)?;
         Ok(true)
+    }
+
+    /// Whether a build whose agent declares no boundary is refused (`[ai] require_confined_build`).
+    /// Read through [`config_to_change`](Self::config_to_change), so an `[ai]` section that can't be
+    /// read is an error and is never replaced by the empty default (#261).
+    pub fn set_require_confined_build(&self, on: bool) -> Result<(), ToolError> {
+        let mut cfg = self.config_to_change()?;
+        cfg.require_confined_build = on;
+        self.save_config(&cfg)
+    }
+
+    /// The `[ai]` spending ceilings (`max_run_cost_usd`, `max_daily_cost_usd`; `None` is no
+    /// ceiling). A negative or non-finite amount is refused before anything is read or written,
+    /// and like [`set_require_confined_build`](Self::set_require_confined_build) it never saves
+    /// over an `[ai]` section it can't read (#261).
+    pub fn set_spend_limits(&self, limits: budget::SpendLimits) -> Result<(), ToolError> {
+        limits.validate()?;
+        let mut cfg = self.config_to_change()?;
+        cfg.max_run_cost_usd = limits.run_usd;
+        cfg.max_daily_cost_usd = limits.daily_usd;
+        self.save_config(&cfg)
+    }
+
+    /// Change how builds are held in one save: the confinement gate and either spending ceiling
+    /// (`Some(None)` removes a ceiling; `None` leaves a field as it is). Refused, with nothing
+    /// written, for a negative amount or an `[ai]` section it can't read (#261). Returns what is
+    /// saved now.
+    pub fn set_build_policy(&self, change: budget::PolicyChange) -> Result<budget::BuildPolicy, ToolError> {
+        let mut cfg = self.config_to_change()?;
+        if let Some(on) = change.require_confined_build {
+            cfg.require_confined_build = on;
+        }
+        if let Some(v) = change.run_usd {
+            cfg.max_run_cost_usd = v;
+        }
+        if let Some(v) = change.daily_usd {
+            cfg.max_daily_cost_usd = v;
+        }
+        cfg.spend_limits().validate()?;
+        if !change.is_empty() {
+            self.save_config(&cfg)?;
+        }
+        Ok(budget::BuildPolicy { require_confined_build: cfg.require_confined_build, spend: cfg.spend_limits() })
     }
 
     /// The program an agent app runs (`None` or empty: found by its usual name, on PATH and in the

@@ -21,7 +21,7 @@ import sys
 import threading
 import time
 
-from source_bundle_integrity import IntegrityError, verify_tree
+from source_bundle_integrity import IntegrityError, tree_integrity
 
 SCHEMA_VERSION = 1
 MIN_RUST = (1, 97, 0)
@@ -249,6 +249,12 @@ def passed_test_count(output: str) -> int | None:
     return sum(counts) if counts else None
 
 
+def source_integrity(root: Path) -> dict:
+    """Check an extracted tree against its manifest, or a checkout against its commit."""
+    result = tree_integrity(root, require_declared_root=True)
+    return {"basis": result["basis"], "file_count": result["manifest"]["file_count"]}
+
+
 def run_gate(root: Path, timeout: int, cargo: str | None = None, rustc: str | None = None, *, profile: str = "full") -> dict:
     if not 1 <= timeout <= 3600:
         raise ValueError("Per-command timeout must be between 1 and 3600 seconds")
@@ -259,8 +265,7 @@ def run_gate(root: Path, timeout: int, cargo: str | None = None, rustc: str | No
     rust_checks = DEEP_RUST_CHECKS if profile == "deep" else RUST_CHECKS
     results = []
     try:
-        manifest = verify_tree(root, require_declared_root=True)
-        results.append({"name": "source_integrity", "status": "pass", "file_count": manifest["file_count"]})
+        results.append({"name": "source_integrity", "status": "pass", **source_integrity(root)})
     except (IntegrityError, OSError, ValueError) as exc:
         results.append({"name": "source_integrity", "status": "fail", "reason": str(exc)})
     version = None

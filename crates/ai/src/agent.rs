@@ -488,6 +488,7 @@ impl AgentLoop {
         self.emit(AgentEvent::TurnDone {
             backend,
             input_tokens: msg_usage.input_tokens.saturating_add(msg_usage.cache_read_tokens).saturating_add(msg_usage.cache_write_tokens),
+            cached_input_tokens: msg_usage.cache_read_tokens,
             output_tokens: msg_usage.output_tokens,
             cost_usd: msg_cost,
             cost_is_estimate: false,
@@ -1295,8 +1296,9 @@ pub(crate) mod tests {
             assert!(seen[3].len() < seen[1].len() + 2);
         }
         assert!(
-            // Cached tokens count as input (R5.4: Ollama 0.40 reports them, and usage.json left them out).
-            matches!(events.last(), Some(AgentEvent::TurnDone { input_tokens: 70, output_tokens: 19, cost_usd: Some(cost), .. }) if (cost - 0.00010125).abs() < 1e-12),
+            // Cached tokens count as input (R5.4: Ollama 0.40 reports them, and usage.json left them out),
+            // and the cached part is kept beside the total so an estimate can price it at the cache rate.
+            matches!(events.last(), Some(AgentEvent::TurnDone { input_tokens: 70, cached_input_tokens: 7, output_tokens: 19, cost_usd: Some(cost), .. }) if (cost - 0.00010125).abs() < 1e-12),
             "{events:?}"
         );
         {
@@ -1516,7 +1518,9 @@ pub(crate) mod tests {
         assert!(seen[0].last().unwrap().text().contains("summary of the work so far"));
         assert!(seen[1][0].text().contains("Earlier work kept."));
         assert!(events.iter().any(|event| matches!(event, AgentEvent::TextDelta { text } if text == "done")), "{events:?}");
-        assert!(matches!(events.last(), Some(AgentEvent::TurnDone { input_tokens: 40, output_tokens: 20, backend, .. }) if backend == "Small"));
+        assert!(
+            matches!(events.last(), Some(AgentEvent::TurnDone { input_tokens: 40, cached_input_tokens: 0, output_tokens: 20, backend, .. }) if backend == "Small")
+        );
         let journal = host.journal.lock().unwrap();
         assert!(journal.iter().any(|(kind, entry)| kind == "context" && entry["budget"] == 5));
         assert!(journal.iter().any(|(kind, entry)| kind == "model_turn" && entry["purpose"] == "context_summary" && entry["backend"] == "Small"));

@@ -177,7 +177,7 @@ pub fn check_class(check: &str) -> Class {
         "app-screenshot" | "game-self-test" => Class::Generated("self-test"),
         "app-runs" => Class::Generated("runs-check"),
         "own-tests" => Class::Generated("own-check"),
-        "mechanics" | "credits" | "web-visual" => Class::Generated("website"),
+        "mechanics" | "credits" | "features" | "web-visual" => Class::Generated("website"),
         _ => Class::Unclassified,
     }
 }

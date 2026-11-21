@@ -33,6 +33,34 @@ fn opencode_cli_lists_supported_depths_and_rejects_unsupported_choices() {
     assert_eq!(cli(&["ai", "model", "OpenCode", "test/model", "--default"], cfg.path()).code, Some(2));
 }
 
+/// `ai policy` shows and changes how builds are held, field by field, and refuses a bad amount
+/// without writing anything.
+#[test]
+fn ai_policy_shows_and_sets_the_confinement_switch_and_spending_limits() {
+    let cfg = tempfile::tempdir().unwrap();
+    let show = |args: &[&str]| {
+        let out = cli(&[&["ai", "policy", "--format", "json"], args].concat(), cfg.path());
+        assert!(out.success, "{}", String::from_utf8_lossy(&out.stderr));
+        serde_json::from_slice::<Value>(&out.stdout).unwrap()
+    };
+    assert_eq!(show(&[]), json!({"require_confined_build": true, "max_run_cost_usd": null, "max_daily_cost_usd": null}), "the defaults");
+    assert!(!cfg.path().join("config.toml").exists(), "showing writes nothing");
+    let set = show(&["--max-per-build", "$4.50", "--max-per-day", "20"]);
+    assert_eq!((set["max_run_cost_usd"].clone(), set["max_daily_cost_usd"].clone()), (json!(4.5), json!(20.0)));
+    // One field changes; the other is kept.
+    let set = show(&["--max-per-day", "none", "--refuse-unconfined", "off"]);
+    assert_eq!(set, json!({"require_confined_build": false, "max_run_cost_usd": 4.5, "max_daily_cost_usd": null}));
+    let saved = std::fs::read_to_string(cfg.path().join("config.toml")).unwrap();
+    assert!(saved.contains("max_run_cost_usd = 4.5") && saved.contains("require_confined_build = false"), "{saved}");
+    for bad in ["-1", "1,000", "lots"] {
+        let out = cli(&["ai", "policy", "--max-per-build", bad], cfg.path());
+        assert!(!out.success, "{bad} is refused");
+        let said = String::from_utf8_lossy(&out.stdout);
+        assert!(said.contains("US dollars") && said.contains("`none`"), "{bad}: {said}");
+    }
+    assert_eq!(std::fs::read_to_string(cfg.path().join("config.toml")).unwrap(), saved, "a refused change writes nothing");
+}
+
 #[test]
 fn commands_and_exit_codes() {
     let cfg = tempfile::tempdir().unwrap();

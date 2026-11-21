@@ -25,9 +25,29 @@ pub use confinement::{Bound, Confinement};
 /// extra arguments, so a flag that weakens it is counted), or our approvals for our own agent loop
 /// (an API backend's tools all go through the approval policy).
 pub fn confinement_for(entry: &crate::BackendEntry) -> Confinement {
+    confinement_in(&AgentAdapters::built_in(), entry)
+}
+
+/// [`confinement_for`] read from `adapters`, the registry a run builds with, so an adapter a fork
+/// registers under a built-in id is the one whose boundary is checked.
+pub fn confinement_in(adapters: &AgentAdapters, entry: &crate::BackendEntry) -> Confinement {
     match entry.config.kind {
-        crate::BackendKind::AgentCli => adapter_for(&entry.config.model).confinement_with(&entry.options),
+        crate::BackendKind::AgentCli => adapters.for_backend(&entry.config.model, &entry.options).confinement_with(&entry.options),
         _ => Confinement::OUR_APPROVALS,
+    }
+}
+
+/// The backend's own extra argument that keeps an agent CLI from the boundary its adapter names,
+/// if one does, so a refusal can say which (an API backend has none).
+pub fn boundary_breaker_for(entry: &crate::BackendEntry) -> Option<String> {
+    boundary_breaker_in(&AgentAdapters::built_in(), entry)
+}
+
+/// [`boundary_breaker_for`] read from `adapters`.
+pub fn boundary_breaker_in(adapters: &AgentAdapters, entry: &crate::BackendEntry) -> Option<String> {
+    match entry.config.kind {
+        crate::BackendKind::AgentCli => adapters.for_backend(&entry.config.model, &entry.options).boundary_breaker(&entry.options),
+        _ => None,
     }
 }
 
@@ -464,6 +484,8 @@ pub struct StreamParser {
     pub run_session: Option<String>,
     pub tool_names: HashMap<String, String>,
     pub input_tokens: u64,
+    /// The part of `input_tokens` read from the prompt cache, when the agent reports it.
+    pub cached_input_tokens: u64,
     pub output_tokens: u64,
     pub cost_usd: Option<f64>,
     /// A missing or invalid per-step cost cannot become a complete turn total later.
@@ -514,6 +536,7 @@ impl StreamParser {
             run_session: None,
             tool_names: HashMap::new(),
             input_tokens: 0,
+            cached_input_tokens: 0,
             output_tokens: 0,
             cost_usd: None,
             cost_incomplete: false,
@@ -864,7 +887,7 @@ fn end_turn(busy: &AtomicBool, done: AgentEvent, send: impl FnOnce(AgentEvent)) 
 
 /// The `TurnDone` that ends a turn of `backend` with no usage to report.
 fn nothing_done(backend: &str) -> AgentEvent {
-    AgentEvent::TurnDone { backend: backend.to_string(), input_tokens: 0, output_tokens: 0, cost_usd: None, cost_is_estimate: false }
+    AgentEvent::TurnDone { backend: backend.to_string(), input_tokens: 0, cached_input_tokens: 0, output_tokens: 0, cost_usd: None, cost_is_estimate: false }
 }
 
 /// One message as one run of the agent's program (here or over SSH), its events sent on `tx`
@@ -1133,7 +1156,14 @@ fn run_cli(spec: &CliSpec, text: &str, retry: bool, tx: &Sender<AgentEvent>, sto
     if gone && let Some(h) = held {
         h.done();
     }
-    AgentEvent::TurnDone { backend: name, input_tokens: p.input_tokens, output_tokens: p.output_tokens, cost_usd: p.cost_usd, cost_is_estimate: true }
+    AgentEvent::TurnDone {
+        backend: name,
+        input_tokens: p.input_tokens,
+        cached_input_tokens: p.cached_input_tokens,
+        output_tokens: p.output_tokens,
+        cost_usd: p.cost_usd,
+        cost_is_estimate: true,
+    }
 }
 
 /// What's needed to explain a failed CLI run: the command with the person's message left out, and
@@ -1752,7 +1782,7 @@ mod tests {
             }
             assert!(
                 matches!(events.last(), Some(AgentEvent::TurnDone {
-                backend, input_tokens: 0, output_tokens: 0, cost_usd: None, cost_is_estimate: false,
+                backend, input_tokens: 0, cached_input_tokens: 0, output_tokens: 0, cost_usd: None, cost_is_estimate: false,
             }) if backend == "Test"),
                 "{events:?}"
             );
@@ -1779,7 +1809,11 @@ mod tests {
             let tools = &builder[builder_pos + 1];
             assert!(tools.split(',').any(|tool| tool == "Bash"), "{access:?}: {tools}");
             assert!(tools.split(',').any(|tool| tool == "Write"), "{access:?}: {tools}");
+            // No settings file's allow rules may decide before our approval tool (checked live).
+            let sources = builder.iter().position(|x| x == "--setting-sources").expect("a build reads no settings files");
+            assert_eq!(builder[sources + 1], "", "{access:?}");
         }
+        assert!(!a.contains(&"--setting-sources".to_string()), "a chat keeps the person's own settings");
         assert_eq!(a[pos("--resume") + 1], "sess-1");
         assert_eq!(a[pos("--allowedTools") + 1], "mcp__craft-anything__*");
         assert_eq!(a[pos("--model") + 1], "claude-opus-5-5", "Opus 5.5 unless configured otherwise");
@@ -2246,7 +2280,7 @@ mod tests {
             json!({"type":"item.started","item":{"id":"i1","type":"mcp_tool_call","server":"craft-anything","tool":"core_target_open","arguments":{"path":"/bin/ls"}}}),
             json!({"type":"item.completed","item":{"id":"i1","type":"mcp_tool_call","tool":"core_target_open","status":"completed","result":{"ok":true}}}),
             json!({"type":"item.completed","item":{"id":"i2","type":"agent_message","text":"It lists files."}}),
-            json!({"type":"turn.completed","usage":{"input_tokens":3,"output_tokens":4}}),
+            json!({"type":"turn.completed","usage":{"input_tokens":3,"cached_input_tokens":2,"output_tokens":4}}),
         ] {
             ev.extend(p.line(&l.to_string()));
         }
@@ -2254,6 +2288,9 @@ mod tests {
         assert!(matches!(&ev[1], AgentEvent::ToolFinished { ok: true, .. }));
         assert!(matches!(&ev[2], AgentEvent::TextDelta { text } if text.starts_with("It lists")));
         assert!(p.saw_result && p.output_tokens == 4);
+        // Codex counts cached prompt tokens inside `input_tokens`: the total stays the total, and the
+        // cached part is kept beside it for pricing.
+        assert_eq!((p.input_tokens, p.cached_input_tokens), (3, 2));
         let mut g = StreamParser::new(adapter_for("gemini-cli"));
         let ev: Vec<_> = [
             json!({"type":"message","role":"assistant","content":"Hi","delta":true}),

@@ -34,7 +34,14 @@ impl Conversation for NotesDuringPoll {
             }
             return vec![AgentEvent::TextDelta { text: "Finished the edit".into() }];
         }
-        vec![AgentEvent::TurnDone { backend: "scripted".into(), input_tokens: 0, output_tokens: 0, cost_usd: None, cost_is_estimate: false }]
+        vec![AgentEvent::TurnDone {
+            backend: "scripted".into(),
+            input_tokens: 0,
+            cached_input_tokens: 0,
+            output_tokens: 0,
+            cost_usd: None,
+            cost_is_estimate: false,
+        }]
     }
 
     fn answer_consent(&mut self, _: &str, _: bool) {}

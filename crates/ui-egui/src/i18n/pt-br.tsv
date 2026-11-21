@@ -1481,6 +1481,17 @@ Restored project: {path}	Projeto restaurado: {path}
 Build confinement	Confinamento de builds
 Refuse unconfined builds	Recusar builds sem confinamento
 A build whose agent declares neither its own sandbox nor our approval tool is refused before it starts. Off, it runs with your own access and the result says so.	Um build cujo agente não declara nem o próprio sandbox nem a nossa aprovação é recusado antes de começar. Desligado, ele roda com o seu acesso e o resultado avisa.
+Spending limits	Limites de gasto
+Most per build	Máximo por build
+A build stops between turns once its AI cost reaches this, in US dollars. Empty: no limit.	Um build para entre turnos assim que seu custo de IA atinge este valor, em dólares americanos. Vazio: sem limite.
+Most per day	Máximo por dia
+Builds stop, and new ones don't start, once today's AI cost (UTC) reaches this, in US dollars. Empty: no limit.	Os builds param, e novos não começam, assim que o custo de IA de hoje (UTC) atinge este valor, em dólares americanos. Vazio: sem limite.
+No limit	Sem limite
+Enter an amount in US dollars, zero or more, or leave it empty for no limit.	Digite um valor em dólares americanos, zero ou mais, ou deixe vazio para não ter limite.
+Pictures and documents	Imagens e documentos
+Documents	Documentos
+Add pictures or a manual of the original (optional: screenshots help it look right, a manual helps it work right)	Adicionar imagens ou um manual do original (opcional: capturas de tela ajudam na aparência, um manual ajuda no funcionamento)
+{name} can't be added: a document can be up to 20 MB.	Não é possível adicionar {name}: um documento pode ter até 20 MB.
 Sandbox	Sandbox
 Build commands	Comandos de build
 Where a build's shell commands run. Docker sees only the project folder, as a non-root user, with the network off unless you allow it.	Onde os comandos de shell de um build rodam. O Docker vê apenas a pasta do projeto, como usuário não root, sem rede a menos que você permita.
@@ -1493,3 +1504,12 @@ On this computer	Neste computador
 Sandbox image	Imagem do sandbox
 debian:bookworm-slim	debian:bookworm-slim
 Docker	Docker
+Attach pictures or documents	Anexar imagens ou documentos
+Attach pictures or a manual (or drop or paste them here)	Anexar imagens ou um manual (ou arraste ou cole-os aqui)
+(1 file attached)	(1 arquivo anexado)
+({n} files attached)	({n} arquivos anexados)
+A manual, or the file to study?	Um manual ou o arquivo a estudar?
+Use as the manual	Usar como manual
+The builder reads it to learn what the original does. It's kept with the project's references.	O construtor o lê para saber o que o original faz. Ele fica guardado com as referências do projeto.
+Study this file	Estudar este arquivo
+Open it as the thing to look inside, as if you'd opened it from Home.	Abra-o como aquilo a ser examinado, como se o tivesse aberto pelo Início.

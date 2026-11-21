@@ -49,7 +49,7 @@ pub fn specs() -> Vec<ToolSpec> {
         ToolSpec {
             id: "rebuild_note",
             title: "Add to a running build",
-            summary: "Tell a running build something more; the agent reads it at its next step. With no build running, start a follow-up with rebuild_start instead.",
+            summary: "Tell a running build something more, with pictures or documents about the original if the person is sending it (`attachments`: refused for agents and MCP clients, since it copies files from anywhere on the computer); the agent reads it at its next step. With no build running, start a follow-up with rebuild_start instead.",
             beginner: "Adds information while it builds.",
             toolset: Toolset::Projects,
             effects: Effects::CHANGES_UI_STATE.union(Effects::WRITES_FILESYSTEM),
@@ -160,6 +160,11 @@ pub struct StartParams {
     /// into the project's reference/ folder for the builder.
     #[serde(default)]
     pub pictures: Vec<PathBuf>,
+    /// Documents about the original (absolute paths): a manual or notes on what it does and how
+    /// it behaves (.pdf, .md, .markdown, .txt, .html, .htm, up to 20 MB each). They're copied into
+    /// the project's reference/docs/ folder, and the builder reads them before it plans.
+    #[serde(default)]
+    pub documents: Vec<PathBuf>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -205,6 +210,12 @@ pub struct NoteParams {
     pub project: PathBuf,
     /// What to tell the builder.
     pub text: String,
+    /// Files to send with it (absolute paths): pictures (.png, .jpg, .jpeg, .webp, .gif) that
+    /// show what's meant, copied into attachments/, and documents about the original (.pdf, .md,
+    /// .markdown, .txt, .html, .htm), copied into reference/docs/; up to 20 MB each. Only the
+    /// person attaches files: an agent or MCP client is refused.
+    #[serde(default)]
+    pub attachments: Vec<PathBuf>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -299,12 +310,43 @@ fn rebuild_questions_list(_ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutpu
     Ok(ToolOutput::Value(json!({"count": questions.len(), "questions": questions})))
 }
 
+/// Refuse a named picture or document that [`Workspace::add_references`] would skip or refuse: a
+/// file that isn't there, one of a kind it doesn't take, or one over its size limit.
+fn refuse_unaddable_references(pictures: &[PathBuf], documents: &[PathBuf]) -> Result<(), ToolError> {
+    use craft_anything_engine::workspace::{DOCUMENT_EXTENSIONS, document_too_large, is_document, is_picture, picture_too_large};
+    if let Some(f) = pictures.iter().chain(documents).find(|f| !f.is_file()) {
+        return Err(
+            ToolError::invalid(format!("{} can't be added: there's no file there.", f.display())).with_remediation("Pass the full path of a file that exists.")
+        );
+    }
+    if let Some(f) = pictures.iter().find(|f| !is_picture(f)) {
+        return Err(ToolError::invalid(format!("{} isn't a picture Craft Anything can add.", f.display()))
+            .with_remediation("Add pictures as .png, .jpg, .jpeg, .webp or .gif, and manuals or notes as `documents`."));
+    }
+    if let Some(f) = pictures.iter().find(|f| picture_too_large(f)) {
+        return Err(ToolError::new(ErrorCode::OverLimit, format!("{} can't be added: a picture can be up to 20 MB.", f.display()))
+            .with_remediation("Add a smaller picture, or save it as a JPEG."));
+    }
+    if let Some(f) = documents.iter().find(|f| !is_document(f)) {
+        return Err(ToolError::invalid(format!("{} isn't a document Craft Anything can add.", f.display()))
+            .with_remediation(format!("Add a manual or notes as {}.", DOCUMENT_EXTENSIONS.iter().map(|e| format!(".{e}")).collect::<Vec<_>>().join(", "))));
+    }
+    if let Some(f) = documents.iter().find(|f| document_too_large(f)) {
+        return Err(ToolError::new(ErrorCode::OverLimit, format!("{} can't be added: a document can be up to 20 MB.", f.display()))
+            .with_remediation("Add the chapters that describe what the program does, or save the manual as plain text."));
+    }
+    Ok(())
+}
+
 fn rebuild_start(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolError> {
     let p: StartParams = parse_params(params)?;
     let engine = engine(ctx).ok_or_else(|| {
         ToolError::new(ErrorCode::FeatureMissing, "Building isn't available in this engine.").with_remediation("Use the app or `craft-anything-cli rebuild`.")
     })?;
     let runs = runs(ctx);
+    // A named picture or document that can't be added is an error, not a silent skip (the person
+    // asked for it to be used), and it's refused before a project folder is made.
+    refuse_unaddable_references(&p.pictures, &p.documents)?;
     let cfg = crate::AiConfig::from_settings(&ctx.session.settings);
     // Refuse a start that can only spend money it may not, before a project or pictures are made.
     crate::budget::refuse_over_daily(cfg.spend_limits(), &crate::budget::ledger_path(&ctx.session.config_dir().join("config.toml")))?;
@@ -346,8 +388,9 @@ fn rebuild_start(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolErr
             (ws, None)
         }
     };
-    if !p.pictures.is_empty() {
-        ws.add_references(&p.pictures)?;
+    if !p.pictures.is_empty() || !p.documents.is_empty() {
+        let files: Vec<PathBuf> = p.pictures.iter().chain(&p.documents).cloned().collect();
+        ws.add_references(&files)?;
     }
     // A headless start can't show the app's toast: say which AI builds when the saved one is gone.
     let builder_notice =
@@ -444,14 +487,28 @@ fn rebuild_activity_show(_ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput
 
 fn rebuild_note(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolError> {
     let p: NoteParams = parse_params(params)?;
+    // Attachments copy files from anywhere on the computer into the project, where the builder
+    // reads them: in Clean room that could be the original's own files. Only the person sends
+    // them; an agent or a tool client sends text, before any path is looked at.
+    if !p.attachments.is_empty() && matches!(ctx.caller, craft_anything_engine::Caller::Mcp | craft_anything_engine::Caller::Agent) {
+        return Err(ToolError::new(ErrorCode::NoPermission, "An agent can't attach files to a note on the person's behalf.")
+            .with_remediation("Send the note's text only; the person can attach files in the app or with the CLI."));
+    }
     let ws = open(&p.project)?;
     let runs = runs(ctx);
     let mut set = runs.0.lock().unwrap_or_else(PoisonError::into_inner);
     refresh(ctx, &mut set);
     match set.get(&ws.root).filter(|r| r.is_running()) {
         Some(run) => {
-            let id = run.add_note(p.text.clone(), p.text, Vec::new());
-            Ok(ToolOutput::Value(json!({"id": id, "queued": run.queued()})))
+            // A file that can't be added is refused before anything is copied or sent.
+            let (documents, pictures): (Vec<PathBuf>, Vec<PathBuf>) =
+                p.attachments.iter().cloned().partition(|f| craft_anything_engine::workspace::is_document(f));
+            refuse_unaddable_references(&pictures, &documents)?;
+            let files = if p.attachments.is_empty() { Vec::new() } else { ws.add_attachments(&p.attachments)? };
+            let message = super::notes::with_attachments(&p.text, &files, &ws.root);
+            let id = run.add_note(message, p.text, files.clone());
+            let attached: Vec<String> = files.iter().map(|f| f.strip_prefix(&ws.root).unwrap_or(f).display().to_string().replace('\\', "/")).collect();
+            Ok(ToolOutput::Value(json!({"id": id, "queued": run.queued(), "attached": attached})))
         }
         None => Err(ToolError::new(ErrorCode::BadInput, "No build is running for this project in this session.")
             .with_remediation("Start a follow-up with rebuild_start (pass project and your message).")),
@@ -565,6 +622,27 @@ mod tests {
         assert_eq!(st["result"]["running"], false);
         assert_eq!(st["result"]["queued"], Value::Null);
         assert!(e.call("rebuild_note", json!({"project": ws.root, "text": "blue"}), ok()).is_err());
+        // Only the person attaches files to a note: an agent or a tool client is refused before
+        // any path is looked at, so the answer says nothing about the computer's files.
+        let (gone, here) = (d.path().join("gone.txt"), d.path().join("here.txt"));
+        std::fs::write(&here, "x").unwrap();
+        for caller in [Caller::Mcp, Caller::Agent] {
+            for f in [&gone, &here] {
+                let err = e
+                    .call(
+                        "rebuild_note",
+                        json!({"project": ws.root, "text": "read this", "attachments": [f]}),
+                        CallOptions::new(caller).with_consent(Consent::Granted),
+                    )
+                    .unwrap_err();
+                assert_eq!(err.code, ErrorCode::NoPermission, "{caller:?} {}: {}", f.display(), err.message);
+            }
+        }
+        // The person's own call with nothing running says so, whatever the files are.
+        for f in [&gone, &here] {
+            let err = e.call("rebuild_note", json!({"project": ws.root, "text": "read this", "attachments": [f]}), ok()).unwrap_err();
+            assert!(err.message.contains("No build is running"), "{}", err.message);
+        }
         assert!(e.call("rebuild_note_withdraw", json!({"project": ws.root, "id": 1}), ok()).is_err());
         assert!(e.call("rebuild_stop", json!({"project": ws.root}), ok()).is_err());
     }
@@ -667,6 +745,43 @@ mod tests {
         let notice = out["result"]["builder_notice"].as_str().unwrap_or_default();
         assert!(notice.contains("Off") && notice.contains("Claude"), "{out}");
         let _ = e.call("rebuild_stop", json!({"project": ws.root}), ok());
+    }
+
+    /// A named picture or document that can't be added (missing, the wrong kind, too large) is
+    /// refused before a project folder is made, never skipped without a word.
+    #[test]
+    fn rebuild_start_refuses_a_document_it_cant_add_before_making_a_project() {
+        let d = tempfile::tempdir().unwrap();
+        let s = craft_anything_engine::testing::session();
+        let projects = s.settings.projects_dir();
+        let e = Engine::shared(s, specs());
+        let ok = || CallOptions::new(Caller::Cli).with_consent(Consent::Granted);
+        let word = d.path().join("manual.docx");
+        std::fs::write(&word, "x").unwrap();
+        let err = e.call("rebuild_start", json!({"target": "-", "request": "Recreate this app", "documents": [word]}), ok()).unwrap_err();
+        assert_eq!(err.code, ErrorCode::BadInput, "{}", err.message);
+        assert!(err.message.contains("isn't a document"), "{}", err.message);
+        assert!(err.remediation.as_deref().is_some_and(|r| r.contains(".pdf") && r.contains(".md")), "{:?}", err.remediation);
+        let big = d.path().join("manual.pdf");
+        std::fs::File::create(&big).unwrap().set_len(21 * 1024 * 1024).unwrap();
+        let err = e.call("rebuild_start", json!({"target": "-", "request": "Recreate this app", "documents": [big]}), ok()).unwrap_err();
+        assert_eq!(err.code, ErrorCode::OverLimit, "{}", err.message);
+        let missing = d.path().join("gone.pdf");
+        let err = e.call("rebuild_start", json!({"target": "-", "request": "Recreate this app", "documents": [missing]}), ok()).unwrap_err();
+        assert!(err.message.contains("no file there"), "{}", err.message);
+        let missing = d.path().join("gone.png");
+        let err = e.call("rebuild_start", json!({"target": "-", "request": "Recreate this app", "pictures": [missing]}), ok()).unwrap_err();
+        assert!(err.message.contains("no file there"), "{}", err.message);
+        let notes = d.path().join("notes.txt");
+        std::fs::write(&notes, "x").unwrap();
+        let err = e.call("rebuild_start", json!({"target": "-", "request": "Recreate this app", "pictures": [notes]}), ok()).unwrap_err();
+        assert!(err.message.contains("isn't a picture"), "{}", err.message);
+        let huge = d.path().join("screen.png");
+        std::fs::File::create(&huge).unwrap().set_len(21 * 1024 * 1024).unwrap();
+        let err = e.call("rebuild_start", json!({"target": "-", "request": "Recreate this app", "pictures": [huge]}), ok()).unwrap_err();
+        assert_eq!(err.code, ErrorCode::OverLimit, "{}", err.message);
+        let made = std::fs::read_dir(&projects).map(|r| r.count()).unwrap_or(0);
+        assert_eq!(made, 0, "no project folder was left behind");
     }
 
     /// A tool holds the session while it starts a run, so `try_session` fails and the run must

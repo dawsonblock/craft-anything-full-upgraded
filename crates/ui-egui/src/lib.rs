@@ -159,7 +159,17 @@ pub enum Done {
     Detected(Vec<Detected>, Vec<craft_anything_ai::detect::DetectHint>),
     /// The configured backends, the ones chosen to build with and to extract with, and each one's
     /// options.
-    Backends(Vec<BackendConfig>, Option<String>, Option<String>, std::collections::BTreeMap<String, craft_anything_ai::BackendOptions>),
+    /// Settings → AI's spending fields were saved (or not), and the ceilings now in `[ai]`.
+    SpendSaved {
+        result: Result<(), String>,
+        /// What the save asked for.
+        sent: craft_anything_ai::budget::SpendLimits,
+        /// What is saved now, whether the save worked or not.
+        saved: craft_anything_ai::budget::SpendLimits,
+    },
+    /// The AIs, the Builder and Extractor choices, each AI's options, and the build policy
+    /// (`[ai] require_confined_build` and the spending ceilings).
+    Backends(Vec<BackendConfig>, Option<String>, Option<String>, std::collections::BTreeMap<String, craft_anything_ai::BackendOptions>, AiPolicy),
     /// The models an AI can be set to (Settings → AI's model picker).
     ModelChoices {
         name: String,
@@ -435,6 +445,18 @@ pub struct CraftApp {
     pub backends: Vec<BackendConfig>,
     /// Each backend's options (an agent app's program and model), by name (Settings → AI).
     pub backend_options: std::collections::BTreeMap<String, craft_anything_ai::BackendOptions>,
+    /// `[ai] require_confined_build` as last read on a worker, for Settings → AI's switch: drawing
+    /// reads this, never config.toml.
+    pub require_confined_build: bool,
+    /// The `[ai]` spending ceilings as last read on a worker, for Settings → AI.
+    pub spend_limits: craft_anything_ai::budget::SpendLimits,
+    /// What is typed in Settings → AI's two spending fields (per build, per day), saved when the
+    /// field is left; empty is no ceiling.
+    pub spend_drafts: SpendDrafts,
+    /// A save of the spending fields is running, and whether another was asked for meanwhile: one
+    /// save at a time, each from both fields, so two quick saves can't land out of order.
+    pub spend_saving: bool,
+    pub spend_resave: bool,
     /// The AI whose model is being chosen in Settings → AI, and the models it offers once they've
     /// come (`None`: still asking).
     pub model_picker: Option<(String, Option<Vec<String>>)>,
@@ -561,6 +583,11 @@ impl CraftApp {
             conversation: None,
             backends: Vec::new(),
             backend_options: Default::default(),
+            require_confined_build: craft_anything_ai::AiConfig::default().require_confined_build,
+            spend_limits: Default::default(),
+            spend_drafts: Default::default(),
+            spend_saving: false,
+            spend_resave: false,
             model_picker: None,
             agent_model_picker: None,
             model_request: 0,
@@ -1101,8 +1128,30 @@ impl CraftApp {
         self.jobs.spawn("Choose a file", false, move |_| {
             let d = rfd::AsyncFileDialog::new();
             if matches!(pick, Pick::Pictures | Pick::Attach) {
-                let title = if pick == Pick::Pictures { tr("Pictures of the original") } else { tr("Attach pictures") };
-                let files = pollster::block_on(d.set_title(title).add_filter(tr("Pictures"), &["png", "jpg", "jpeg", "webp", "gif"]).pick_files());
+                const PICTURES: &[&str] = &["png", "jpg", "jpeg", "webp", "gif"];
+                let files = if pick == Pick::Pictures {
+                    // The original's pictures, and documents about it (a manual, notes).
+                    let docs = craft_anything_engine::workspace::DOCUMENT_EXTENSIONS;
+                    let both: Vec<&str> = PICTURES.iter().chain(docs).copied().collect();
+                    pollster::block_on(
+                        d.set_title(tr("Pictures of the original"))
+                            .add_filter(tr("Pictures and documents"), &both)
+                            .add_filter(tr("Pictures"), PICTURES)
+                            .add_filter(tr("Documents"), docs)
+                            .pick_files(),
+                    )
+                } else {
+                    // Pictures for the message, and a manual or notes about the original.
+                    let docs = craft_anything_engine::workspace::DOCUMENT_EXTENSIONS;
+                    let both: Vec<&str> = PICTURES.iter().chain(docs).copied().collect();
+                    pollster::block_on(
+                        d.set_title(tr("Attach pictures or documents"))
+                            .add_filter(tr("Pictures and documents"), &both)
+                            .add_filter(tr("Pictures"), PICTURES)
+                            .add_filter(tr("Documents"), docs)
+                            .pick_files(),
+                    )
+                };
                 let files: Vec<PathBuf> = files.unwrap_or_default().iter().map(|h| h.path().to_path_buf()).collect();
                 return Ok(if pick == Pick::Pictures { Done::Pictures(files) } else { Done::ToAttach(files) });
             }
@@ -1314,7 +1363,7 @@ impl CraftApp {
             chat::apply_event(&mut self.state.chat, e.clone());
             match e {
                 AgentEvent::ToolFinished { .. } => self.view_dirty = true,
-                AgentEvent::TurnDone { backend, input_tokens, output_tokens, cost_usd, cost_is_estimate } => {
+                AgentEvent::TurnDone { backend, input_tokens, output_tokens, cost_usd, cost_is_estimate, .. } => {
                     self.view_dirty = true;
                     self.session_usage.add_turn(input_tokens, output_tokens, cost_usd, cost_is_estimate);
                     let cost = cost_usd.map(|c| format!(", ${c:.4}")).unwrap_or_default();
@@ -1480,7 +1529,27 @@ impl CraftApp {
                 self.log(false, format!("Found {} AI option(s) on this computer", d.len()));
                 self.detected = Some(d);
             }
-            Done::Backends(b, builder, extractor, options) => {
+            Done::SpendSaved { result, sent, saved } => {
+                self.spend_saving = false;
+                self.spend_limits = saved;
+                if let Err(e) = result {
+                    self.toast(e, true);
+                }
+                // A field still reading what was sent shows what is saved now; one changed since
+                // (being typed in) keeps its text.
+                let mut shown = SpendDrafts::showing(saved);
+                for which in [SpendLimit::PerBuild, SpendLimit::PerDay] {
+                    let draft = self.spend_drafts.get_mut(which);
+                    if parse_dollars(draft) == Ok(which.of(sent)) {
+                        *draft = std::mem::take(shown.get_mut(which));
+                    }
+                }
+                if std::mem::take(&mut self.spend_resave) {
+                    // A field was left while this save ran: save both fields as they now read.
+                    self.save_spend_limits();
+                }
+            }
+            Done::Backends(b, builder, extractor, options, policy) => {
                 if self.state.backend.as_ref().is_some_and(|n| !b.iter().any(|c| &c.name == n)) {
                     self.state.backend = None;
                 }
@@ -1488,6 +1557,14 @@ impl CraftApp {
                 self.builder = builder;
                 self.extractor = extractor;
                 self.backend_options = options;
+                self.require_confined_build = policy.require_confined_build;
+                // The fields show what is saved, except while it is what they already say: a
+                // refresh for something else doesn't wipe what the person is typing.
+                // A spending save in flight reports its own result (`SpendSaved`).
+                if policy.spend != self.spend_limits && !self.spend_saving {
+                    self.spend_drafts = SpendDrafts::showing(policy.spend);
+                    self.spend_limits = policy.spend;
+                }
                 self.model_tuning.retain(|name, state| {
                     self.backends.iter().any(|backend| backend.name == *name && craft_anything_ai::model_options::supported(backend))
                         && self.backend_options.get(name).and_then(|options| options.cli_model.as_ref()) == state.cli_model.as_ref()
@@ -1754,17 +1831,37 @@ impl CraftApp {
         } else if self.runs.any_busy() {
             ctx.request_repaint_after(Duration::from_secs(1));
         }
-        // Dropped pictures go to the prompt box on Make or a project; anything else opens.
+        // Dropped pictures go to the prompt box on Make or a project; anything else opens. A
+        // dropped document may be a manual or the file to study, so there the person is asked.
         let dropped: Vec<PathBuf> = ctx.input(|i| i.raw.dropped_files.iter().map(|f| f.path().to_path_buf()).filter(|p| !p.as_os_str().is_empty()).collect());
-        let pictures = !dropped.is_empty() && dropped.iter().all(|p| craft_anything_engine::workspace::is_picture(p));
-        match self.state.screen {
-            Screen::Project if pictures => self.attach(dropped),
-            Screen::Home if pictures => self.add_pictures(dropped),
-            _ => {
-                if let Some(p) = dropped.into_iter().next() {
-                    self.open_path(p);
-                }
+        self.drop_files(dropped);
+    }
+
+    /// Act on files dropped on the window (see `tick`).
+    pub(crate) fn drop_files(&mut self, dropped: Vec<PathBuf>) {
+        use craft_anything_engine::workspace::{is_document, is_picture};
+        let references = !dropped.is_empty() && dropped.iter().all(|p| crate::project::is_reference(p));
+        let prompt = matches!(self.state.screen, Screen::Project | Screen::Home);
+        if prompt && references {
+            let (documents, pictures): (Vec<PathBuf>, Vec<PathBuf>) = dropped.into_iter().partition(|p| is_document(p));
+            if !pictures.is_empty() {
+                self.add_dropped_references(pictures);
             }
+            if !documents.is_empty() {
+                self.state.modal = Some(state::Modal::DroppedDocuments(documents));
+            }
+            return;
+        }
+        if let Some(p) = dropped.into_iter().find(|p| !is_picture(p) || !prompt) {
+            self.open_path(p);
+        }
+    }
+
+    /// Pictures or documents for the open project's next message, or for Make's draft.
+    pub(crate) fn add_dropped_references(&mut self, files: Vec<PathBuf>) {
+        match self.state.screen {
+            Screen::Project => self.attach(files),
+            _ => self.add_pictures(files),
         }
     }
 
@@ -1954,7 +2051,64 @@ pub fn app_icon(size: f32) -> egui::Image<'static> {
 /// Run an action; a panic is logged and swallowed so one bad action never takes the app down.
 /// The configured backends and the ones chosen to build and to extract (read off the UI thread).
 pub(crate) fn backends(hub: &AiHub) -> Done {
-    Done::Backends(hub.backends(), hub.chosen(craft_anything_ai::Role::Builder), hub.chosen(craft_anything_ai::Role::Extractor), hub.options())
+    Done::Backends(hub.backends(), hub.chosen(craft_anything_ai::Role::Builder), hub.chosen(craft_anything_ai::Role::Extractor), hub.options(), {
+        let cfg = hub.config();
+        AiPolicy { require_confined_build: cfg.require_confined_build, spend: cfg.spend_limits() }
+    })
+}
+
+/// What Settings → AI shows about how builds are held: the confinement gate and the spending
+/// ceilings, read on a worker.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AiPolicy {
+    pub require_confined_build: bool,
+    pub spend: craft_anything_ai::budget::SpendLimits,
+}
+
+/// Which spending ceiling a Settings field sets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpendLimit {
+    /// `[ai] max_run_cost_usd`.
+    PerBuild,
+    /// `[ai] max_daily_cost_usd`.
+    PerDay,
+}
+
+impl SpendLimit {
+    /// This ceiling in `limits`.
+    pub fn of(self, limits: craft_anything_ai::budget::SpendLimits) -> Option<f64> {
+        match self {
+            SpendLimit::PerBuild => limits.run_usd,
+            SpendLimit::PerDay => limits.daily_usd,
+        }
+    }
+}
+
+/// The text in Settings → AI's two spending fields.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SpendDrafts {
+    pub per_build: String,
+    pub per_day: String,
+}
+
+impl SpendDrafts {
+    /// The fields for saved ceilings: an amount, or empty for none.
+    pub fn showing(limits: craft_anything_ai::budget::SpendLimits) -> SpendDrafts {
+        let text = |v: Option<f64>| v.map(|v| v.to_string()).unwrap_or_default();
+        SpendDrafts { per_build: text(limits.run_usd), per_day: text(limits.daily_usd) }
+    }
+
+    pub fn get_mut(&mut self, which: SpendLimit) -> &mut String {
+        match which {
+            SpendLimit::PerBuild => &mut self.per_build,
+            SpendLimit::PerDay => &mut self.per_day,
+        }
+    }
+}
+
+/// A spending field's text as a ceiling in US dollars (see [`craft_anything_ai::budget::parse_dollars`]).
+pub(crate) fn parse_dollars(text: &str) -> Result<Option<f64>, ()> {
+    craft_anything_ai::budget::parse_dollars(text).map_err(|_| ())
 }
 
 impl CraftApp {

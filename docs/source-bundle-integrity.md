@@ -1,11 +1,20 @@
 # V5–V26 source-bundle integrity and verified extraction
 
-The independent V5 source ZIP contains `SOURCE_INTEGRITY.json`. That file
-enumerates every regular source file (other than itself), with its relative
-POSIX path, byte count and SHA-256 digest. Python cache files are excluded.
+The source ZIP contains `SOURCE_INTEGRITY.json`. That file enumerates every
+regular source file (other than itself), with its relative POSIX path, byte
+count and SHA-256 digest. Python cache files are excluded, as are the two
+living records the contribution rules edit in almost every pull request
+(`docs/ROADMAP.md` and `docs/STATUS.md`).
+
+The manifest is **generated when the ZIP is packaged**, never committed. A
+committed copy has to be refreshed by hand after every source change, and one
+forgotten refresh blocks a release while every test still passes. A checkout is
+checked against its commit instead, and the release attestation binds the
+archive to that commit.
 
 The manifest's `root` field records the folder name used when it was written.
-It is a label, not part of the content hashes: GitHub's branch and tag archives
+Packaging always writes the canonical `craft-anything-full-upgraded`; the field
+is a label, not part of the content hashes. GitHub's branch and tag archives
 name the top-level folder `<repository>-<branch>`, so verification accepts any
 single safe top-level folder and reports both names. Every file is still
 checked against the manifest's relative paths. Release gates pass
@@ -42,24 +51,30 @@ filename punctuation and trailing dots/spaces.
 
 ## Package a source ZIP and verify the artifact (V26)
 
-Build the archive from the verified tree, then verify the file that was actually
+Build the archive from the checkout, then verify the file that was actually
 written rather than a checked-out directory:
 
     python3 scripts/source_bundle_integrity.py package-zip \
       --root . --archive /path/to/new-source.zip
 
-The command refuses a stale tree, writes every manifest entry plus the manifest
-itself under the manifest's `root`, refuses an archive inside the source tree,
-and always requires the canonical root. It creates the destination exclusively
-(`O_CREAT | O_EXCL`), so a file another process creates during packaging is
-never overwritten; it then verifies the bytes written to that descriptor, not a
-separate path. Before creating the destination it also verifies the staged ZIP
-and extracts it into a private folder, rehashing every file. Every member is
-written with a fixed 1980 timestamp and mode, so identical source produces an
-identical ZIP regardless of checkout times. Its result includes the whole
-archive's SHA-256. The source-portability workflow runs this package, verify
-and extract round-trip with `--require-declared-root` on every operating system
-it tests.
+The command inventories the tree, writes that manifest plus every entry under
+the canonical `craft-anything-full-upgraded` (or `--root-name`), refuses an
+archive inside the source tree, and always requires the canonical root. In a
+Git checkout it first refuses a tree whose tracked files differ from their
+commit: the manifest is generated from the tree, so a modified file would be
+described faithfully, ship, and then be attested as coming from a commit it
+never came from. Files Git does not track are not inventoried and do not block
+packaging.
+
+It creates the destination exclusively (`O_CREAT | O_EXCL`), so a file another
+process creates during packaging is never overwritten; it then verifies the
+bytes written to that descriptor, not a separate path. Before creating the
+destination it also verifies the staged ZIP and extracts it into a private
+folder, rehashing every file. Every member is written with a fixed 1980
+timestamp and mode, so identical source produces an identical ZIP regardless of
+checkout times. Its result includes the whole archive's SHA-256. The
+source-portability workflow runs this package, verify and extract round-trip
+with `--require-declared-root` on every operating system it tests.
 
 ## Verify a published release artifact
 
@@ -164,6 +179,10 @@ a signature.
 
 ## Verify the extracted source tree
 
+This applies to an extracted ZIP, which carries the manifest it was packaged
+with. A Git checkout carries none; `package-zip` inventories it, and the
+release gate compares a checkout with its commit instead.
+
 From the extracted source directory (its name may differ from the manifest's
 `root`, for example after a GitHub branch download):
 
@@ -195,8 +214,8 @@ verification of who authored or reviewed the modifications.
 - ZIP names must use portable, unambiguous relative paths without traversal,
   invalid Windows names, file/parent conflicts or case-insensitive collisions,
   and exactly one safe top-level folder.
-- The original license files, assets, Rust crates, tests and docs are all
-  included in the inventory.
+- The original license files, assets, Rust crates, tests and every `docs/` page
+  except the two living records are included in the inventory.
 
 This is a packaging and provenance-control aid. Native Rust compilation,
 third-party dependency verification, executable sandboxing and genuine

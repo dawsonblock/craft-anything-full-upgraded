@@ -54,6 +54,7 @@ impl SharedConversation {
                                     let _ = output.send(AgentEvent::TurnDone {
                                         backend: entry.config.name.clone(),
                                         input_tokens: 0,
+                                        cached_input_tokens: 0,
                                         output_tokens: 0,
                                         cost_usd: None,
                                         cost_is_estimate: false,
@@ -110,6 +111,7 @@ impl SharedConversation {
                 let _ = output.send(AgentEvent::TurnDone {
                     backend: entry.config.name.clone(),
                     input_tokens: 0,
+                    cached_input_tokens: 0,
                     output_tokens: 0,
                     cost_usd: None,
                     cost_is_estimate: false,

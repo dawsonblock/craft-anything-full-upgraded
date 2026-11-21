@@ -15,5 +15,8 @@ concurrency:
 
 jobs:
   sonarcloud:
-    uses: storytold/craft-common-actions/.github/workflows/sonarcloud.yml@main
+    # Pinned, not @main: `secrets: inherit` hands the shared workflow every repository secret,
+    # the signing ones included, so an unreviewed push to craft-common-actions must not reach it.
+    # Bump it with the release pin (docs/releasing.md). ecb64b2 is the commit the last green runs used.
+    uses: storytold/craft-common-actions/.github/workflows/sonarcloud.yml@ecb64b2acb8731f0e2eb8f55fd2f45424bef75d0 # 2026-11-19
     secrets: inherit

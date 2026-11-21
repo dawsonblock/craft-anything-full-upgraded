@@ -7,8 +7,8 @@ shared CI workflow and uses only Python's standard library for orchestration.
 The extracted folder should be named `craft-anything-full-upgraded`. The
 native gate enforces that name; a renamed GitHub branch folder is for
 inspection, not release qualification. Keep the generated JSON receipt
-**outside** that folder: the source integrity manifest would otherwise become
-stale.
+**outside** that folder: a receipt written inside it becomes an unexpected file
+that the inventory rejects.
 
 ## V25: Focused Deep test profile with protected receipts
 
@@ -429,7 +429,7 @@ the relevant SDK, Rust 1.97+, Cargo, rustfmt and clippy installed.
 
 | Name | Command | What it verifies |
 |---|---|---|
-| `source_integrity` | Built-in Python SHA-256 inventory | Extracted source matches the unsigned source manifest |
+| `source_integrity` | Built-in Python SHA-256 inventory | Extracted source matches the manifest it was packaged with; a checkout matches its commit |
 | `python_tests` | `python -m unittest discover -s scripts/tests -p 'test_*.py' -v` | Synthetic Python regression tests |
 | `fmt` | `cargo fmt --all -- --check` | Rust formatting |
 | `i18n` | `cargo xtask i18n-coverage` | Localization checks |
@@ -484,10 +484,15 @@ python3 scripts/native_validation.py --root . --timeout 900 --report ../craft_na
 
 ## Packaging and authenticity
 
-Source inventory and ZIP checking from V5 remain available:
+Source inventory and ZIP checking from V5 remain available. `verify-tree` works on an
+extracted ZIP, which carries the manifest it was packaged with; a Git checkout has
+none, so it's checked against its commit and `package-zip` inventories it. The gate's
+declared-root check (`root_policy: strict`) applies only to an extracted ZIP; a checkout's
+folder name is never checked, since it's packaging, not content:
 
 ```bash
-python3 scripts/source_bundle_integrity.py verify-tree --root .
+python3 scripts/source_bundle_integrity.py verify-tree --root path/to/extracted
+python3 scripts/source_bundle_integrity.py package-zip --root . --archive ../new-source.zip
 python3 scripts/source_bundle_integrity.py verify-zip --archive ../Craft_Anything_v0.4.0_HARDENED_V21_FULL_SOURCE.zip
 ```
 

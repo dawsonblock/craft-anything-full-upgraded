@@ -1481,6 +1481,17 @@ Restored project: {path}	已還原專案：{path}
 Build confinement	建置隔離
 Refuse unconfined builds	拒絕未隔離的建置
 A build whose agent declares neither its own sandbox nor our approval tool is refused before it starts. Off, it runs with your own access and the result says so.	若代理程式既未宣告自己的沙箱，也未使用我們的核准工具，建置會在開始前被拒絕。關閉後，建置將以你的權限執行，結果中會說明。
+Spending limits	支出上限
+Most per build	每次建置最多
+A build stops between turns once its AI cost reaches this, in US dollars. Empty: no limit.	建置的 AI 費用達到此金額（美元）後，會在兩輪之間停止。留空：不設上限。
+Most per day	每天最多
+Builds stop, and new ones don't start, once today's AI cost (UTC) reaches this, in US dollars. Empty: no limit.	今天（UTC）的 AI 費用達到此金額（美元）後，建置會停止，新的建置也不會開始。留空：不設上限。
+No limit	不設上限
+Enter an amount in US dollars, zero or more, or leave it empty for no limit.	請輸入不小於 0 的美元金額，或留空表示不設上限。
+Pictures and documents	圖片和文件
+Documents	文件
+Add pictures or a manual of the original (optional: screenshots help it look right, a manual helps it work right)	加入原軟體的圖片或使用手冊（選填：螢幕截圖有助於還原外觀，手冊有助於還原功能）
+{name} can't be added: a document can be up to 20 MB.	無法加入 {name}：文件最大為 20 MB。
 Sandbox	沙箱
 Build commands	建置命令
 Where a build's shell commands run. Docker sees only the project folder, as a non-root user, with the network off unless you allow it.	建置的 shell 命令在哪裡執行。Docker 只看得到專案資料夾，以非 root 使用者執行，除非你允許，否則沒有網路。
@@ -1493,3 +1504,12 @@ On this computer	在這台電腦上
 Sandbox image	沙箱映像
 debian:bookworm-slim	debian:bookworm-slim
 Docker	Docker
+Attach pictures or documents	附加圖片或文件
+Attach pictures or a manual (or drop or paste them here)	附加圖片或說明書 (或拖到這裡、貼到這裡)
+(1 file attached)	(已附加 1 個檔案)
+({n} files attached)	(已附加 {n} 個檔案)
+A manual, or the file to study?	這是說明書，還是要研究的檔案？
+Use as the manual	用作說明書
+The builder reads it to learn what the original does. It's kept with the project's references.	建構者會閱讀它，了解原作的功能。它會保存在專案的參考資料中。
+Study this file	研究這個檔案
+Open it as the thing to look inside, as if you'd opened it from Home.	把它當作要查看內部的對象開啟，就像從首頁開啟一樣。

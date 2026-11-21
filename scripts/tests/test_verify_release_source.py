@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from contextlib import redirect_stdout
 from unittest.mock import patch
@@ -161,22 +162,35 @@ class VerifyReleaseSourceTests(unittest.TestCase):
             self.assertIn("--tag is required", receipt["error"])
 
     def test_download_failure_reports_the_cli_message(self):
-        with tempfile.TemporaryDirectory() as temp:
-            completed = subprocess.CompletedProcess(
-                [], 1, "", "no assets match the file pattern",
+        # `run_gh` starts gh with Popen. A local stand-in takes its place, so the real reader and
+        # error path run without reaching the network (tests never do).
+        real_popen = subprocess.Popen
+        started = []
+
+        def stand_in(command, **kwargs):
+            started.append(command)
+            return real_popen(
+                [sys.executable, "-c",
+                 "import sys; sys.stderr.write('no assets match the file pattern'); sys.exit(1)"],
+                **kwargs,
             )
-            with patch.object(verify_release_source.subprocess, "run",
-                              return_value=completed):
+
+        with tempfile.TemporaryDirectory() as temp:
+            with patch.object(verify_release_source.subprocess, "Popen",
+                              side_effect=stand_in):
                 with self.assertRaisesRegex(IntegrityError, "no assets match"):
                     verify_release_source.download_release(
                         "storytold/craft-anything", "v0.6.1", "*source*.zip",
                         Path(temp),
                     )
+        self.assertEqual(len(started), 1)
+        self.assertEqual(started[0][:3], ["gh", "release", "download"])
 
     def test_identity_validation_rejects_shell_syntax(self):
         with tempfile.TemporaryDirectory() as temp:
             destination = Path(temp)
-            with patch.object(verify_release_source.subprocess, "run") as run:
+            # `run_gh` starts gh with Popen: nothing may be started for a rejected identity.
+            with patch.object(verify_release_source.subprocess, "Popen") as run:
                 for repo, tag, asset in (
                     ("owner/repo; rm -rf /", "v1", "*source*.zip"),
                     ("owner/repo", "v1$(touch pwned)", "*source*.zip"),
@@ -400,6 +414,49 @@ class VerifyReleaseSourceTests(unittest.TestCase):
                     "storytold/craft-anything", "v1.0.0",
                 )
 
+    def test_run_gh_returns_the_captured_streams(self):
+        completed = verify_release_source.run_gh(
+            [sys.executable, "-c", "import sys; print('hello'); print('careful', file=sys.stderr)"],
+            timeout=30, what="Reading a reply",
+        )
+        self.assertEqual(completed.returncode, 0)
+        self.assertEqual(completed.stdout, "hello\n")
+        self.assertEqual(completed.stderr, "careful\n")
+
+    def test_run_gh_stops_reading_at_the_cap_instead_of_waiting_for_the_deadline(self):
+        writer = "import sys\nwhile True:\n    sys.stdout.write('x' * 65536)\n"
+        started = time.monotonic()
+        with self.assertRaisesRegex(IntegrityError, "produced too much output"):
+            verify_release_source.run_gh(
+                [sys.executable, "-c", writer], timeout=30,
+                what="Reading an endless reply",
+            )
+        self.assertLess(time.monotonic() - started, 20)
+
+    def test_run_gh_reports_a_deadline(self):
+        with self.assertRaisesRegex(IntegrityError, "timed out"):
+            verify_release_source.run_gh(
+                [sys.executable, "-c", "import time; time.sleep(30)"],
+                timeout=1, what="Waiting for a reply",
+            )
+
+    def test_run_gh_refuses_output_held_open_after_it_ends(self):
+        # gh ends, but a program it started keeps the output pipe open: what was read so far may
+        # be cut short, so it's refused instead of returned as the whole reply.
+        holder = (
+            "import subprocess, sys\n"
+            "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(3)'])\n"
+            "print('partial')\n"
+        )
+        started = time.monotonic()
+        with patch.object(verify_release_source, "READER_GRACE", 0.5):
+            with self.assertRaisesRegex(IntegrityError, "left its output open"):
+                verify_release_source.run_gh(
+                    [sys.executable, "-c", holder], timeout=30,
+                    what="Reading a reply",
+                )
+        self.assertLess(time.monotonic() - started, 2.5, "it doesn't wait for the holder")
+
     def test_attestation_must_cover_the_verified_bytes(self):
         digest = "a" * 64
         payload = [{
@@ -487,6 +544,30 @@ class VerifyReleaseSourceTests(unittest.TestCase):
         text = (WORKFLOWS / "release.yml").read_text(encoding="utf-8")
         self.assertIn("source-preflight:", text)
         self.assertIn("needs: source-preflight", text)
+
+    def test_published_release_check_requires_the_attestation(self):
+        text = (WORKFLOWS / "fork-release-source-check.yml").read_text(encoding="utf-8")
+        self.assertIn("--verify-attestation", text)
+        self.assertIn("attestations: read", text)
+
+    def test_workflows_pin_actions_to_a_commit(self):
+        for path in sorted(WORKFLOWS.glob("*.yml")):
+            for line in path.read_text(encoding="utf-8").splitlines():
+                stripped = line.strip()
+                if stripped.startswith("#") or "uses:" not in stripped:
+                    continue
+                value = stripped.split("uses:", 1)[1].split("#", 1)[0].strip()
+                if value.startswith("./"):
+                    continue
+                ref = value.rpartition("@")[2]
+                self.assertNotRegex(
+                    ref, r"^v\d", f"{path.name} uses a mutable version tag: {value}",
+                )
+        release = (WORKFLOWS / "release.yml").read_text(encoding="utf-8")
+        self.assertRegex(
+            release,
+            r"craft-common-actions/\.github/workflows/release\.yml@[0-9a-f]{40}",
+        )
 
     def test_receipt_survives_a_valid_archive_swap_during_verification(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -639,7 +720,7 @@ class VerifyReleaseSourceTests(unittest.TestCase):
             (destination / "one.zip").write_bytes(b"one")
             (destination / "two.zip").write_bytes(b"two")
             completed = subprocess.CompletedProcess([], 0, "", "")
-            with patch.object(verify_release_source.subprocess, "run",
+            with patch.object(verify_release_source, "run_gh",
                               return_value=completed):
                 with self.assertRaisesRegex(IntegrityError, "exactly one source ZIP"):
                     verify_release_source.download_release(

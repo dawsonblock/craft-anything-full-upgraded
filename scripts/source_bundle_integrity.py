@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
-"""Create and independently check a complete, bounded Craft Anything source manifest.
+"""Create and independently check a bounded Craft Anything source manifest.
 
+Every tracked path is inventoried except the living records the contribution rules edit in almost
+every pull request (`LIVING_RECORDS`) and what `ignored()` leaves out; those are process records
+rather than source, and hashing them would invalidate the manifest on nearly every commit.
 This is a checksum/inventory check, not a digital signature or a Rust build.
 It uses only the Python standard library and never executes bundled source.
 """
@@ -24,6 +27,8 @@ import zipfile
 import zlib
 
 MANIFEST_NAME = "SOURCE_INTEGRITY.json"
+# The top-level folder every release ZIP carries, whatever the checkout happens to be called.
+CANONICAL_ROOT = "craft-anything-full-upgraded"
 SCHEMA_VERSION = 1
 MAX_FILES = 20_000
 MAX_SINGLE_FILE = 100_000_000
@@ -82,6 +87,14 @@ def check_component_spelling(name: str, seen: dict[str, str]) -> None:
 
 TOOL_CACHES = frozenset({".ruff_cache", ".pytest_cache", ".mypy_cache"})
 
+# Living records the contribution rules require editing in almost every pull request
+# ("the roadmap item ticked, STATUS.md if what works changed"). Hashing them would invalidate the
+# manifest on every commit, so a clean checkout stops verifying the moment anyone follows those
+# rules, and two concurrent PRs both rewrite a 158 KB generated file. They are process records,
+# not build inputs, so they are neither inventoried nor packaged. The archive's own bytes are
+# still bound to the commit by the release attestation.
+LIVING_RECORDS = frozenset({"docs/ROADMAP.md", "docs/STATUS.md"})
+
 
 def ignored(rel: Path) -> bool:
     # A freshly checked-out source tree carries Git internals not distributed
@@ -89,7 +102,8 @@ def ignored(rel: Path) -> bool:
     # are similarly not part of the source. Ignore only the root-level folders
     # (tool caches excepted: a run from a subfolder puts one beside the code),
     # not nested files.
-    return (".git" in rel.parts or "__pycache__" in rel.parts
+    return (rel.as_posix() in LIVING_RECORDS
+            or ".git" in rel.parts or "__pycache__" in rel.parts
             or rel.suffix == ".pyc"
             or any(part in TOOL_CACHES for part in rel.parts)
             or (bool(rel.parts) and rel.parts[0] in ("target", "log")))
@@ -111,19 +125,26 @@ def tracked_files(root: Path) -> set[str] | None:
 
     A manifest made by walking the working tree records whatever scratch files happen to be there,
     and a clean checkout then fails to match it. In a work tree, list what Git tracks instead; a
-    tree without `.git` (an extracted ZIP) keeps the walk.
+    tree without `.git` (an extracted ZIP) keeps the walk. A work tree Git can't list is refused:
+    falling back to the walk there would put untracked files in the manifest without a word.
     """
     if not (root / ".git").exists():
         return None
     try:
         run = subprocess.run(
             ["git", "-C", str(root), "ls-files", "-z"],
-            capture_output=True, timeout=60, check=False,
+            stdin=subprocess.DEVNULL, capture_output=True, timeout=60, check=False,
         )
-    except (OSError, subprocess.SubprocessError):
-        return None
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise IntegrityError(
+            "This is a Git checkout, but Git could not list its tracked files"
+        ) from exc
     if run.returncode != 0:
-        return None
+        detail = run.stderr.decode("utf-8", "replace").strip()[:200]
+        raise IntegrityError(
+            "This is a Git checkout, but Git could not list its tracked files"
+            + (f": {detail}" if detail else "")
+        )
     return {part.decode("utf-8", "surrogateescape") for part in run.stdout.split(b"\0") if part}
 
 
@@ -168,16 +189,62 @@ def source_records(root: Path, only: set[str] | None = None) -> list[dict]:
     return result
 
 
-def make_manifest(root: Path) -> dict:
+def make_manifest(root: Path, root_name: str | None = None) -> dict:
     rows = source_records(root, tracked_files(root))
     return {
         "schema": SCHEMA_VERSION,
-        "root": root.name,
+        "root": root_name or root.name,
         "algorithm": "sha256",
         "file_count": len(rows),
         "total_bytes": sum(item["bytes"] for item in rows),
         "files": rows,
     }
+
+
+def require_clean_work_tree(root: Path) -> None:
+    """Refuse to package a checkout whose tracked files differ from its commit.
+
+    The manifest is generated from the tree at packaging time, so a modified file would be
+    described faithfully and still ship — and the release would attest those bytes as coming from
+    a commit they never came from. Asking Git is the only thing that catches it.
+    """
+    if not (root / ".git").exists():
+        return
+    try:
+        run = subprocess.run(
+            ["git", "-C", str(root), "status", "--porcelain", "--untracked-files=no"],
+            capture_output=True, timeout=60, check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise IntegrityError(
+            "Cannot ask Git whether the source tree matches its commit"
+        ) from exc
+    if run.returncode != 0:
+        raise IntegrityError("Cannot ask Git whether the source tree matches its commit")
+    if run.stdout.strip():
+        raise IntegrityError(
+            "The source tree has uncommitted changes: commit them before packaging, so the "
+            "archive is the commit the release attests to"
+        )
+
+
+def tree_integrity(root: Path, *, require_declared_root: bool = False) -> dict:
+    """The tree's own inventory: the packaged manifest when there is one, else one generated now.
+
+    An extracted release ZIP carries the manifest generated when it was packaged, so that one is
+    verified and used. A checkout has none: it is checked against its commit and inventoried from
+    Git. A folder with neither cannot be checked, and is refused rather than assumed good.
+    """
+    manifest_file = root / MANIFEST_NAME
+    if manifest_file.is_file() and not manifest_file.is_symlink():
+        verify_tree(root, require_declared_root=require_declared_root)
+        return {"basis": "manifest", "manifest": parse_manifest(manifest_file.read_bytes())}
+    if not (root / ".git").exists():
+        raise IntegrityError(
+            "The source root carries no source manifest and is not a Git checkout, so there is "
+            "nothing to check its contents against")
+    require_clean_work_tree(root)
+    return {"basis": "worktree", "manifest": make_manifest(root)}
 
 
 def parse_manifest(raw: bytes) -> dict:
@@ -342,8 +409,23 @@ def write_zip_member(zf: zipfile.ZipFile, path: Path, name: str) -> None:
         shutil.copyfileobj(source, destination, length=1024 * 1024)
 
 
-def package_zip(root: Path, archive: Path) -> dict:
-    """Write a ZIP at the manifest's declared root and verify the produced file."""
+def write_zip_member_bytes(zf: zipfile.ZipFile, data: bytes, name: str) -> None:
+    """Write one in-memory member with the same normalized metadata as a file."""
+    info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+    info.compress_type = zipfile.ZIP_DEFLATED
+    info.create_system = 3
+    info.external_attr = 0o644 << 16
+    zf.writestr(info, data)
+
+
+def package_zip(root: Path, archive: Path, *, root_name: str = CANONICAL_ROOT) -> dict:
+    """Generate the manifest from the tree, write the ZIP at `root_name` and verify the file.
+
+    The manifest is built here rather than read from the checkout: a committed copy has to be
+    regenerated by hand after every source change, and one forgotten refresh blocks a release
+    while every test still passes. Generating it makes the ZIP describe exactly the bytes being
+    packaged, which is what the release attestation binds to the commit.
+    """
     if archive.exists() or archive.is_symlink():
         raise IntegrityError(f"Refusing to overwrite an existing archive: {archive}")
     parent = archive.parent
@@ -351,19 +433,20 @@ def package_zip(root: Path, archive: Path) -> dict:
         raise IntegrityError("Archive parent must be an existing, non-symlink directory")
     if archive.resolve().is_relative_to(root.resolve()):
         raise IntegrityError("Archive must be outside the source root")
-    manifest_file = root / MANIFEST_NAME
-    if manifest_file.is_symlink() or not manifest_file.is_file():
-        raise IntegrityError("Source manifest is missing or is a symbolic link")
-    manifest = parse_manifest(manifest_file.read_bytes())
-    if source_records(root) != manifest["files"]:
-        raise IntegrityError("Source files are missing, changed or extra")
+    if "/" in root_name or not permitted_path(root_name):
+        raise IntegrityError("The source root name must be one safe path component")
+    require_clean_work_tree(root)
+    manifest = make_manifest(root, root_name)
+    manifest_raw = (json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    if len(manifest_raw) > MAX_MANIFEST_SIZE:
+        raise IntegrityError("Generated manifest is too large")
     descriptor, temporary = tempfile.mkstemp(prefix=".source-zip-", dir=parent)
     os.close(descriptor)
     staged = Path(temporary)
     try:
         with zipfile.ZipFile(staged, "w", zipfile.ZIP_DEFLATED) as zf:
-            prefix = manifest["root"] + "/"
-            write_zip_member(zf, manifest_file, prefix + MANIFEST_NAME)
+            prefix = root_name + "/"
+            write_zip_member_bytes(zf, manifest_raw, prefix + MANIFEST_NAME)
             for row in manifest["files"]:
                 write_zip_member(zf, root / row["path"], prefix + row["path"])
         verify_zip(staged, require_declared_root=True)
@@ -510,6 +593,8 @@ def main(argv: list[str] | None = None) -> int:
     ppackage.add_argument("--root", type=Path, required=True)
     ppackage.add_argument("--archive", type=Path, required=True,
                           help="New ZIP path; an existing archive is never overwritten")
+    ppackage.add_argument("--root-name", default=CANONICAL_ROOT,
+                          help=f"Top-level folder in the archive (default: {CANONICAL_ROOT})")
     pextract = modes.add_parser("extract-zip")
     pextract.add_argument("--archive", type=Path, required=True)
     pextract.add_argument("--output-parent", type=Path, required=True,
@@ -553,7 +638,8 @@ def main(argv: list[str] | None = None) -> int:
             result = verify_tree(args.root.absolute(),
                                  require_declared_root=args.require_declared_root)
         elif args.mode == "package-zip":
-            result = package_zip(args.root.absolute(), args.archive.absolute())
+            result = package_zip(args.root.absolute(), args.archive.absolute(),
+                                 root_name=args.root_name)
         elif args.mode == "verify-zip":
             result = verify_zip(args.archive, require_declared_root=args.require_declared_root)
         else:

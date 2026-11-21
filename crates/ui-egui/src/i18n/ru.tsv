@@ -1481,6 +1481,17 @@ Restored project: {path}	Проект восстановлен: {path}
 Build confinement	Ограничение сборок
 Refuse unconfined builds	Отклонять незащищённые сборки
 A build whose agent declares neither its own sandbox nor our approval tool is refused before it starts. Off, it runs with your own access and the result says so.	Сборка, агент которой не заявляет ни собственную песочницу, ни наше подтверждение, отклоняется до запуска. Если выключено, она выполняется с вашим доступом, и результат это сообщает.
+Spending limits	Лимиты расходов
+Most per build	Не больше за сборку
+A build stops between turns once its AI cost reaches this, in US dollars. Empty: no limit.	Сборка останавливается между ходами, как только её расходы на ИИ достигают этой суммы в долларах США. Пусто — без лимита.
+Most per day	Не больше за день
+Builds stop, and new ones don't start, once today's AI cost (UTC) reaches this, in US dollars. Empty: no limit.	Сборки останавливаются, а новые не запускаются, как только сегодняшние расходы на ИИ (UTC) достигают этой суммы в долларах США. Пусто — без лимита.
+No limit	Без лимита
+Enter an amount in US dollars, zero or more, or leave it empty for no limit.	Введите сумму в долларах США, ноль или больше, или оставьте поле пустым, чтобы не задавать лимит.
+Pictures and documents	Изображения и документы
+Documents	Документы
+Add pictures or a manual of the original (optional: screenshots help it look right, a manual helps it work right)	Добавить изображения или руководство оригинала (необязательно: снимки экрана помогают с внешним видом, руководство — с работой)
+{name} can't be added: a document can be up to 20 MB.	Не удаётся добавить {name}: документ может быть не больше 20 МБ.
 Sandbox	Песочница
 Build commands	Команды сборки
 Where a build's shell commands run. Docker sees only the project folder, as a non-root user, with the network off unless you allow it.	Где выполняются shell-команды сборки. Docker видит только папку проекта, работает не от root и без сети, если вы не разрешите.
@@ -1493,3 +1504,12 @@ On this computer	На этом компьютере
 Sandbox image	Образ песочницы
 debian:bookworm-slim	debian:bookworm-slim
 Docker	Docker
+Attach pictures or documents	Прикрепить изображения или документы
+Attach pictures or a manual (or drop or paste them here)	Прикрепить изображения или руководство (или перетащить или вставить их сюда)
+(1 file attached)	(прикреплён 1 файл)
+({n} files attached)	(прикреплено файлов: {n})
+A manual, or the file to study?	Это руководство или файл для изучения?
+Use as the manual	Использовать как руководство
+The builder reads it to learn what the original does. It's kept with the project's references.	Сборщик прочитает его, чтобы узнать, что делает оригинал. Оно хранится среди материалов проекта.
+Study this file	Изучить этот файл
+Open it as the thing to look inside, as if you'd opened it from Home.	Открыть его как то, что нужно изучить изнутри, как если бы вы открыли его с Главной.

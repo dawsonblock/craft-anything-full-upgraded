@@ -1481,6 +1481,17 @@ Restored project: {path}	Proje geri yüklendi: {path}
 Build confinement	Derleme yalıtımı
 Refuse unconfined builds	Yalıtılmamış derlemeleri reddet
 A build whose agent declares neither its own sandbox nor our approval tool is refused before it starts. Off, it runs with your own access and the result says so.	Aracısı kendi korumalı alanını da bizim onayımızı da bildirmeyen bir derleme başlamadan reddedilir. Kapalıysa senin erişiminle çalışır ve sonuç bunu söyler.
+Spending limits	Harcama sınırları
+Most per build	Derleme başına en fazla
+A build stops between turns once its AI cost reaches this, in US dollars. Empty: no limit.	Bir derleme, yapay zekâ maliyeti bu tutara (ABD doları) ulaştığında turlar arasında durur. Boş: sınır yok.
+Most per day	Günde en fazla
+Builds stop, and new ones don't start, once today's AI cost (UTC) reaches this, in US dollars. Empty: no limit.	Bugünün (UTC) yapay zekâ maliyeti bu tutara (ABD doları) ulaştığında derlemeler durur ve yenileri başlamaz. Boş: sınır yok.
+No limit	Sınır yok
+Enter an amount in US dollars, zero or more, or leave it empty for no limit.	Sıfır veya daha fazla bir tutarı ABD doları olarak girin ya da sınır olmaması için boş bırakın.
+Pictures and documents	Resimler ve belgeler
+Documents	Belgeler
+Add pictures or a manual of the original (optional: screenshots help it look right, a manual helps it work right)	Orijinalin resimlerini veya kılavuzunu ekle (isteğe bağlı: ekran görüntüleri görünüşe, kılavuz çalışmaya yardımcı olur)
+{name} can't be added: a document can be up to 20 MB.	{name} eklenemiyor: bir belge en fazla 20 MB olabilir.
 Sandbox	Korumalı alan
 Build commands	Derleme komutları
 Where a build's shell commands run. Docker sees only the project folder, as a non-root user, with the network off unless you allow it.	Bir derlemenin kabuk komutlarının çalıştığı yer. Docker yalnızca proje klasörünü görür, root olmayan kullanıcı olarak ve izin vermezsen ağ olmadan çalışır.
@@ -1493,3 +1504,12 @@ On this computer	Bu bilgisayarda
 Sandbox image	Korumalı alan imajı
 debian:bookworm-slim	debian:bookworm-slim
 Docker	Docker
+Attach pictures or documents	Resim veya belge ekleyin
+Attach pictures or a manual (or drop or paste them here)	Resim veya kılavuz ekleyin (ya da buraya bırakın veya yapıştırın)
+(1 file attached)	(1 dosya eklendi)
+({n} files attached)	({n} dosya eklendi)
+A manual, or the file to study?	Bir kılavuz mu, yoksa incelenecek dosya mı?
+Use as the manual	Kılavuz olarak kullan
+The builder reads it to learn what the original does. It's kept with the project's references.	Oluşturucu, orijinalin ne yaptığını öğrenmek için onu okur. Projenin başvuru malzemeleriyle birlikte saklanır.
+Study this file	Bu dosyayı incele
+Open it as the thing to look inside, as if you'd opened it from Home.	Ana sayfadan açmışsınız gibi, içine bakılacak şey olarak açın.
