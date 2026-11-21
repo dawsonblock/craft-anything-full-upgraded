@@ -204,7 +204,7 @@ fn mine(app: &mut CraftApp, ui: &mut Ui, w: f32) {
         ui.add_space(20.0);
         step_title(ui, 2, "Say what you want");
         ui.add_space(12.0);
-        let submit = request_box(app, ui, "For example: add a dark mode", Some("Attach pictures (or drop or paste them here)"));
+        let submit = request_box(app, ui, "For example: add a dark mode", Some("Attach pictures or a manual (or drop or paste them here)"));
         engine_choices(app, ui);
         ui.add_space(16.0);
         ui.horizontal(|ui| {

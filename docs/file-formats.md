@@ -12,6 +12,7 @@ version up to the current one, then turn the document into Rust types. The step 
 | `config.toml` (`settings::config_dir()`) | `engine::settings` (`Settings`) | `SETTINGS_VERSION` = 2 (`version`; missing = 0; 2 moved `[engines.ghidra] enabled` to `deep_mode`) | brought forward | loaded, never saved over |
 | `<name>.cany/project.toml` | `engine::project` (`ProjectMeta`) | `FORMAT_VERSION` = 1 (`format_version`, required) | brought forward | refused, with "update Craft Anything" |
 | `<project>/transcript.json` | `ai::context` (the API builder's conversation) | `TRANSCRIPT_VERSION` = 2 (`{version, deep, history}`; a version-1 transcript counts as Deep) | read as before; one without `deep` is resumed only in Deep | not resumed; a fresh build replaces it |
+| `<project>/app/features.json` | `engine::features` (written by the builder when the project has documents in `reference/docs/`, read by `FeaturesCheck`) | `FEATURES_VERSION` = 1 (`version`; missing = 1) | — | the check fails and says so |
 | `<project>/app/mechanics.json` | `engine::mechanics` (written by the builder, read by `MechanicsCheck`) | `MECHANICS_VERSION` = 1 (`version`; missing = 1) | — | the check fails and says so |
 | `<project>/checks/round-N/self-test.json` | `engine::self_test` (written by the built game's `--self-test`, read by `SelfTestCheck`) | 1 (`version`; missing = 1) | — | the check fails and says so |
 | `<project>/usage.json` | `engine::workspace` (`ProjectUsage`; written only by the rebuild run) | `USAGE_VERSION` = 1 (`version`; missing = 0) | read as before, saved as current | read as far as its fields are known, never written over |
@@ -59,5 +60,5 @@ out of the project list.
    list and the constant disagree.
 3. Add a test that reads a literal sample of the old file (keep the existing samples; old files
    must keep loading forever).
-4. For `craft.json`, `inbox/build-progress.json`, `mechanics.json` and `self-test.json`, run `cargo xtask schemas` and commit `docs/schemas/`.
+4. For `craft.json`, `inbox/build-progress.json`, `features.json`, `mechanics.json` and `self-test.json`, run `cargo xtask schemas` and commit `docs/schemas/`.
    `cargo xtask schemas --check` (and an engine test) fail when the published schema is stale.

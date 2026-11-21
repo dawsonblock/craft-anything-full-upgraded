@@ -171,6 +171,7 @@ pub fn modals(app: &mut CraftApp, ctx: &egui::Context) {
                 Modal::GamePermission => crate::game_files::permission_modal(app, ui, &mut close),
                 Modal::DeepMode => crate::engine_ui::deep_modal(app, ui, &mut close),
                 Modal::ExistingFiles => crate::folders::existing_modal(app, ui, &mut close),
+                Modal::DroppedDocuments(files) => crate::project::dropped_documents_modal(app, ui, files, &mut close),
                 Modal::NeedBuilder { start } => crate::builders::need_builder_modal(app, ui, *start, &mut close),
                 Modal::Rename(root) => crate::manage::rename_modal(app, ui, root, &mut close),
                 Modal::Delete(root) => crate::manage::delete_modal(app, ui, root, &mut close),

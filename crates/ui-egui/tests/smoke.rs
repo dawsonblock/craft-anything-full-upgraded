@@ -491,8 +491,8 @@ fn the_prompt_box_sends_on_enter_with_its_pictures() {
         a
     });
     h.run_steps(3);
-    h.state_mut().attach(vec![pic.clone(), d.path().join("notes.txt"), pic]);
-    assert!(wait(&mut h, |a| a.state.project_attachments.len() == 1), "pictures only, once each: {:?}", h.state().state.project_attachments);
+    h.state_mut().attach(vec![pic.clone(), d.path().join("tool.exe"), pic]);
+    assert!(wait(&mut h, |a| a.state.project_attachments.len() == 1), "pictures and documents only, once each: {:?}", h.state().state.project_attachments);
     h.get_by_label("shot.png");
     h.get_by_label("Ask for a change").focus();
     h.run_steps(2);

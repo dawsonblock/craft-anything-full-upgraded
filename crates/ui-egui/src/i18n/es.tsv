@@ -1504,3 +1504,12 @@ On this computer	En este ordenador
 Sandbox image	Imagen del sandbox
 debian:bookworm-slim	debian:bookworm-slim
 Docker	Docker
+Attach pictures or documents	Adjunta imágenes o documentos
+Attach pictures or a manual (or drop or paste them here)	Adjunta imágenes o un manual (o suéltalos o pégalos aquí)
+(1 file attached)	(1 archivo adjunto)
+({n} files attached)	({n} archivos adjuntos)
+A manual, or the file to study?	¿Un manual o el archivo que estudiar?
+Use as the manual	Usar como manual
+The builder reads it to learn what the original does. It's kept with the project's references.	El constructor lo lee para saber qué hace el original. Se guarda con las referencias del proyecto.
+Study this file	Estudiar este archivo
+Open it as the thing to look inside, as if you'd opened it from Home.	Ábrelo como lo que hay que examinar, como si lo hubieras abierto desde Inicio.

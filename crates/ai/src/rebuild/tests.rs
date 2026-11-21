@@ -678,6 +678,97 @@ fn documents_about_the_original_reach_the_builder() {
     }
     let reminder = documents_reminder(&ws);
     assert!(reminder.contains("1 document(s)") && reminder.contains("reference/docs/"), "{reminder}");
+    assert!(reminder.contains("app/features.json"), "the checklist is kept up to date: {reminder}");
+    let b = brief(&ws, "app", false, false, None, false, None);
+    assert!(b.contains(super::kinds::features::FEATURES_CONTRACT), "the first brief asks for the checklist");
+}
+
+/// No kind's own checks, so only what joins every round (the features check) runs.
+struct NoChecksKind;
+
+impl TargetKind for NoChecksKind {
+    fn id(&self) -> &'static str {
+        "none"
+    }
+    fn words(&self) -> KindWords {
+        KindWords { button: "Open", icon: "play", ready: "Ready", change_hint: "Ask for a change" }
+    }
+    fn detect(&self, _cx: &DetectCx) -> Option<u32> {
+        None
+    }
+    fn default_stack(&self, _cx: &DetectCx) -> &'static str {
+        "Rust"
+    }
+    fn goal(&self) -> &'static str {
+        "an app"
+    }
+    fn checks(&self, _ws: &Workspace) -> Vec<Box<dyn Check>> {
+        Vec::new()
+    }
+}
+
+/// A project with a manual is held to a checklist of what it describes, whatever its kind: no
+/// checklist, or a feature still to do, keeps it from Ready; built (where) and left out (why)
+/// pass. Without documents the check doesn't run.
+#[test]
+fn a_build_with_a_manual_is_held_to_its_features() {
+    let d = tempfile::tempdir().unwrap();
+    let ws = Workspace::create(d.path(), "Notes", "Recreate this app", TargetRef::None).unwrap();
+    let (tx, _rx) = std::sync::mpsc::channel();
+    let w = Worker {
+        wake: Default::default(),
+        engine: Arc::new(Engine::new(craft_anything_engine::testing::session())),
+        tx,
+        stop: CancelToken::default(),
+        preview: Arc::default(),
+        seen: HashSet::new(),
+        inbox: Inbox::new(ws.inbox_dir()),
+        editor: None,
+        notes: Arc::default(),
+        feed: Arc::new(Mutex::new(feed::FeedLog::open(&ws))),
+        keys: crate::KeyStore::file_only(ws.root.join("keys.toml")),
+        assets: false,
+        decompiled: false,
+        usage: None,
+        self_check: None,
+        reset_progress_after_notes: false,
+        spend: None,
+        spend_failure: None,
+        price: None,
+    };
+    assert!(w.run_checks(&ws, &NoChecksKind, 1).unwrap().is_empty(), "no documents, no checklist");
+    let manual = d.path().join("Manual.md");
+    std::fs::write(&manual, "# Notes\nExport to PDF. Cloud sync.").unwrap();
+    ws.add_references(&[manual]).unwrap();
+    let check = |round| {
+        let mut all = w.run_checks(&ws, &NoChecksKind, round).unwrap();
+        assert_eq!(all.len(), 1);
+        all.remove(0)
+    };
+    let none = check(2);
+    assert!(none.failed() && none.required && none.note.contains("no app/features.json"), "{}", none.note);
+    std::fs::create_dir_all(ws.app_dir()).unwrap();
+    std::fs::write(
+        ws.features_path(),
+        r#"{"version": 1, "features": [
+            {"name": "Export to PDF", "status": "built", "where": "src/export.rs"},
+            {"name": "Cloud sync", "status": "todo"}
+        ]}"#,
+    )
+    .unwrap();
+    let todo = check(3);
+    assert!(todo.failed() && todo.note.contains("Cloud sync (todo)"), "{}", todo.note);
+    std::fs::write(
+        ws.features_path(),
+        r#"{"version": 1, "features": [
+            {"name": "Export to PDF", "status": "built", "where": "src/export.rs"},
+            {"name": "Cloud sync", "status": "left_out", "reason": "it needs the vendor's servers"}
+        ]}"#,
+    )
+    .unwrap();
+    let ok = check(4);
+    assert!(ok.passed(), "{}", ok.note);
+    assert!(ok.note.contains("Left out: Cloud sync: it needs the vendor's servers."), "{}", ok.note);
 }
 
 /// What a builder that can't look at pictures (the API loop) is told to open or look at a

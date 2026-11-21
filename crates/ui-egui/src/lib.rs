@@ -1141,7 +1141,16 @@ impl CraftApp {
                             .pick_files(),
                     )
                 } else {
-                    pollster::block_on(d.set_title(tr("Attach pictures")).add_filter(tr("Pictures"), PICTURES).pick_files())
+                    // Pictures for the message, and a manual or notes about the original.
+                    let docs = craft_anything_engine::workspace::DOCUMENT_EXTENSIONS;
+                    let both: Vec<&str> = PICTURES.iter().chain(docs).copied().collect();
+                    pollster::block_on(
+                        d.set_title(tr("Attach pictures or documents"))
+                            .add_filter(tr("Pictures and documents"), &both)
+                            .add_filter(tr("Pictures"), PICTURES)
+                            .add_filter(tr("Documents"), docs)
+                            .pick_files(),
+                    )
                 };
                 let files: Vec<PathBuf> = files.unwrap_or_default().iter().map(|h| h.path().to_path_buf()).collect();
                 return Ok(if pick == Pick::Pictures { Done::Pictures(files) } else { Done::ToAttach(files) });
@@ -1823,18 +1832,36 @@ impl CraftApp {
             ctx.request_repaint_after(Duration::from_secs(1));
         }
         // Dropped pictures go to the prompt box on Make or a project; anything else opens. A
-        // dropped document opens too (it may be the file to study), so a manual is added with the
-        // paperclip instead.
+        // dropped document may be a manual or the file to study, so there the person is asked.
         let dropped: Vec<PathBuf> = ctx.input(|i| i.raw.dropped_files.iter().map(|f| f.path().to_path_buf()).filter(|p| !p.as_os_str().is_empty()).collect());
-        let pictures = !dropped.is_empty() && dropped.iter().all(|p| craft_anything_engine::workspace::is_picture(p));
-        match self.state.screen {
-            Screen::Project if pictures => self.attach(dropped),
-            Screen::Home if pictures => self.add_pictures(dropped),
-            _ => {
-                if let Some(p) = dropped.into_iter().next() {
-                    self.open_path(p);
-                }
+        self.drop_files(dropped);
+    }
+
+    /// Act on files dropped on the window (see `tick`).
+    pub(crate) fn drop_files(&mut self, dropped: Vec<PathBuf>) {
+        use craft_anything_engine::workspace::{is_document, is_picture};
+        let references = !dropped.is_empty() && dropped.iter().all(|p| crate::project::is_reference(p));
+        let prompt = matches!(self.state.screen, Screen::Project | Screen::Home);
+        if prompt && references {
+            let (documents, pictures): (Vec<PathBuf>, Vec<PathBuf>) = dropped.into_iter().partition(|p| is_document(p));
+            if !pictures.is_empty() {
+                self.add_dropped_references(pictures);
             }
+            if !documents.is_empty() {
+                self.state.modal = Some(state::Modal::DroppedDocuments(documents));
+            }
+            return;
+        }
+        if let Some(p) = dropped.into_iter().find(|p| !is_picture(p) || !prompt) {
+            self.open_path(p);
+        }
+    }
+
+    /// Pictures or documents for the open project's next message, or for Make's draft.
+    pub(crate) fn add_dropped_references(&mut self, files: Vec<PathBuf>) {
+        match self.state.screen {
+            Screen::Project => self.attach(files),
+            _ => self.add_pictures(files),
         }
     }
 

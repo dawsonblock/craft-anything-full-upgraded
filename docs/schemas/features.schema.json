@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Features",
+  "description": "Every feature the documents describe.",
+  "type": "object",
+  "properties": {
+    "features": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Feature"
+      }
+    },
+    "version": {
+      "type": "integer",
+      "format": "uint32",
+      "default": 1,
+      "minimum": 0
+    }
+  },
+  "required": [
+    "features"
+  ],
+  "$defs": {
+    "Feature": {
+      "description": "One feature: \"Export to PDF\", from chapter 4 of the manual, built in `src/export.rs`.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "What the documents call it.",
+          "type": "string"
+        },
+        "reason": {
+          "description": "For a feature left out: why.",
+          "type": "string"
+        },
+        "source": {
+          "description": "Where the documents describe it (\"reference/docs/Manual.pdf, chapter 4\"), or empty.",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/FeatureStatus"
+        },
+        "where": {
+          "description": "For a built feature: where it is in `app/` (a file, a screen).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "status"
+      ]
+    },
+    "FeatureStatus": {
+      "description": "Where a feature stands.",
+      "oneOf": [
+        {
+          "description": "In the build; `where` says where.",
+          "type": "string",
+          "const": "built"
+        },
+        {
+          "description": "Not built, on purpose; `reason` says why.",
+          "type": "string",
+          "const": "left_out"
+        },
+        {
+          "description": "Not built yet.",
+          "type": "string",
+          "const": "todo"
+        }
+      ]
+    }
+  }
+}

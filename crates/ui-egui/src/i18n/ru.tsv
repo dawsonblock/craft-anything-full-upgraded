@@ -1504,3 +1504,12 @@ On this computer	На этом компьютере
 Sandbox image	Образ песочницы
 debian:bookworm-slim	debian:bookworm-slim
 Docker	Docker
+Attach pictures or documents	Прикрепить изображения или документы
+Attach pictures or a manual (or drop or paste them here)	Прикрепить изображения или руководство (или перетащить или вставить их сюда)
+(1 file attached)	(прикреплён 1 файл)
+({n} files attached)	(прикреплено файлов: {n})
+A manual, or the file to study?	Это руководство или файл для изучения?
+Use as the manual	Использовать как руководство
+The builder reads it to learn what the original does. It's kept with the project's references.	Сборщик прочитает его, чтобы узнать, что делает оригинал. Оно хранится среди материалов проекта.
+Study this file	Изучить этот файл
+Open it as the thing to look inside, as if you'd opened it from Home.	Открыть его как то, что нужно изучить изнутри, как если бы вы открыли его с Главной.

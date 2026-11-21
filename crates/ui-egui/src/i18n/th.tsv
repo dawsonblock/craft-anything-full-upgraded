@@ -1504,3 +1504,12 @@ On this computer	บนคอมพิวเตอร์เครื่องน
 Sandbox image	อิมเมจแซนด์บ็อกซ์
 debian:bookworm-slim	debian:bookworm-slim
 Docker	Docker
+Attach pictures or documents	แนบรูปหรือเอกสาร
+Attach pictures or a manual (or drop or paste them here)	แนบรูปหรือคู่มือ (หรือลากมาวาง/วางที่นี่)
+(1 file attached)	(แนบ 1 ไฟล์)
+({n} files attached)	(แนบ {n} ไฟล์)
+A manual, or the file to study?	เป็นคู่มือ หรือไฟล์ที่จะศึกษา?
+Use as the manual	ใช้เป็นคู่มือ
+The builder reads it to learn what the original does. It's kept with the project's references.	ตัวสร้างจะอ่านเพื่อเรียนรู้ว่าต้นฉบับทำอะไร โดยเก็บไว้กับข้อมูลอ้างอิงของโปรเจกต์
+Study this file	ศึกษาไฟล์นี้
+Open it as the thing to look inside, as if you'd opened it from Home.	เปิดเป็นสิ่งที่จะดูข้างใน เหมือนเปิดจากหน้าหลัก

@@ -1282,13 +1282,9 @@ impl Workspace {
     /// Returns how many were added; other files are skipped, and a picture or document over 20 MB
     /// refuses the whole call before anything is copied.
     pub fn add_references(&self, files: &[PathBuf]) -> Result<usize, ToolError> {
-        if let Some(f) = files.iter().find(|f| document_too_large(f)) {
-            let name = f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| f.display().to_string());
-            return Err(ToolError::new(ErrorCode::OverLimit, format!("{name} can't be added: a document can be up to 20 MB."))
-                .with_remediation("Add the chapters that describe what the program does, or save the manual as plain text."));
-        }
+        refuse_large_documents(files)?;
         let pictures = copy_pictures(&self.reference_dir(), files)?.len();
-        let documents = copy_documents(&self.reference_documents_dir(), files)?;
+        let documents = copy_documents(&self.reference_documents_dir(), files)?.len();
         Ok(pictures.saturating_add(documents))
     }
 
@@ -1322,12 +1318,23 @@ impl Workspace {
         self.root.join("attachments")
     }
 
-    /// Copy a message's pictures into attachments/. Returns where each one went.
+    /// Copy a message's pictures into attachments/, and its documents about the original (a
+    /// manual, notes) into reference/docs/, where every later round's reminder names them.
+    /// Returns where each one went, pictures first; a picture or document over 20 MB refuses the
+    /// whole call before anything is copied.
     pub fn add_attachments(&self, files: &[PathBuf]) -> Result<Vec<PathBuf>, ToolError> {
-        copy_pictures(&self.attachments_dir(), files)
+        refuse_large_documents(files)?;
+        let mut copies = copy_pictures(&self.attachments_dir(), files)?;
+        copies.extend(copy_documents(&self.reference_documents_dir(), files)?);
+        Ok(copies)
     }
     pub fn checks_dir(&self) -> PathBuf {
         self.root.join("checks")
+    }
+    /// The builder's checklist of what the documents about the original describe
+    /// (`crate::features`).
+    pub fn features_path(&self) -> PathBuf {
+        self.app_dir().join(crate::features::FEATURES)
     }
     /// The builder's sheet of how the rebuild plays (`crate::mechanics`).
     pub fn mechanics_path(&self) -> PathBuf {
@@ -1689,13 +1696,25 @@ fn safe_document_name(p: &Path) -> Option<String> {
 /// Copy documents into `dir` under their own safe names ([`safe_document_name`]), numbering a
 /// name already taken (`manual-2.pdf`). Files that aren't documents are skipped. Returns how many
 /// were copied.
-fn copy_documents(dir: &Path, files: &[PathBuf]) -> Result<usize, ToolError> {
+/// Refuse the first document over [`MAX_DOCUMENT_BYTES`], by its name.
+fn refuse_large_documents(files: &[PathBuf]) -> Result<(), ToolError> {
+    match files.iter().find(|f| document_too_large(f)) {
+        Some(f) => {
+            let name = f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| f.display().to_string());
+            Err(ToolError::new(ErrorCode::OverLimit, format!("{name} can't be added: a document can be up to 20 MB."))
+                .with_remediation("Add the chapters that describe what the program does, or save the manual as plain text."))
+        }
+        None => Ok(()),
+    }
+}
+
+fn copy_documents(dir: &Path, files: &[PathBuf]) -> Result<Vec<PathBuf>, ToolError> {
     let docs: Vec<&PathBuf> = files.iter().filter(|f| is_document(f) && f.is_file()).collect();
     if docs.is_empty() {
-        return Ok(0);
+        return Ok(Vec::new());
     }
     std::fs::create_dir_all(dir).map_err(|e| ToolError::io(dir.display(), e))?;
-    let mut copied = 0usize;
+    let mut copied = Vec::new();
     for f in docs {
         let Some(name) = safe_document_name(f) else { continue };
         let (stem, ext) = name.rsplit_once('.').unwrap_or((name.as_str(), ""));
@@ -1704,7 +1723,7 @@ fn copy_documents(dir: &Path, files: &[PathBuf]) -> Result<usize, ToolError> {
             return Err(ToolError::new(ErrorCode::OverLimit, format!("reference/docs already holds 1000 documents named like {name}.")));
         };
         std::fs::copy(f, &to).map_err(|e| ToolError::io(to.display(), e))?;
-        copied = copied.saturating_add(1);
+        copied.push(to);
     }
     Ok(copied)
 }
@@ -2006,6 +2025,26 @@ mod tests {
         assert_eq!(TargetRef::parse("just words"), TargetRef::None);
         let dir = tempfile::tempdir().unwrap();
         assert_eq!(TargetRef::parse(&dir.path().display().to_string()), TargetRef::Local { path: dir.path().to_path_buf() });
+    }
+
+    /// A manual sent with a message joins reference/docs/, where later rounds name it; its
+    /// pictures go to attachments/ as before, and an oversized document copies nothing.
+    #[test]
+    fn a_message_takes_documents_into_the_references() {
+        let dir = tempfile::tempdir().unwrap();
+        let ws = Workspace::create(dir.path(), "App", "Copy it", TargetRef::None).unwrap();
+        let src = dir.path().join("src");
+        std::fs::create_dir_all(&src).unwrap();
+        for f in ["shot.png", "Manual.pdf", "tool.exe"] {
+            std::fs::write(src.join(f), "x").unwrap();
+        }
+        let got = ws.add_attachments(&[src.join("Manual.pdf"), src.join("shot.png"), src.join("tool.exe")]).unwrap();
+        assert_eq!(got, vec![ws.attachments_dir().join("picture-1.png"), ws.reference_documents_dir().join("Manual.pdf")], "pictures first, then documents");
+        assert_eq!(ws.reference_documents(), vec![ws.reference_documents_dir().join("Manual.pdf")]);
+        let big = src.join("huge.pdf");
+        std::fs::File::create(&big).unwrap().set_len(MAX_DOCUMENT_BYTES + 1).unwrap();
+        assert_eq!(ws.add_attachments(&[src.join("shot.png"), big]).unwrap_err().code, ErrorCode::OverLimit);
+        assert_eq!(std::fs::read_dir(ws.attachments_dir()).unwrap().count(), 1, "nothing more was copied");
     }
 
     #[test]

@@ -1504,3 +1504,12 @@ On this computer	Bu bilgisayarda
 Sandbox image	Korumalı alan imajı
 debian:bookworm-slim	debian:bookworm-slim
 Docker	Docker
+Attach pictures or documents	Resim veya belge ekleyin
+Attach pictures or a manual (or drop or paste them here)	Resim veya kılavuz ekleyin (ya da buraya bırakın veya yapıştırın)
+(1 file attached)	(1 dosya eklendi)
+({n} files attached)	({n} dosya eklendi)
+A manual, or the file to study?	Bir kılavuz mu, yoksa incelenecek dosya mı?
+Use as the manual	Kılavuz olarak kullan
+The builder reads it to learn what the original does. It's kept with the project's references.	Oluşturucu, orijinalin ne yaptığını öğrenmek için onu okur. Projenin başvuru malzemeleriyle birlikte saklanır.
+Study this file	Bu dosyayı incele
+Open it as the thing to look inside, as if you'd opened it from Home.	Ana sayfadan açmışsınız gibi, içine bakılacak şey olarak açın.

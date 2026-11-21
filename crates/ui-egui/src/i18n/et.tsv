@@ -1504,3 +1504,12 @@ On this computer	Selles arvutis
 Sandbox image	Liivakasti kujutis
 debian:bookworm-slim	debian:bookworm-slim
 Docker	Docker
+Attach pictures or documents	Lisa pilte või dokumente
+Attach pictures or a manual (or drop or paste them here)	Lisa pilte või juhend (või lohista või kleebi need siia)
+(1 file attached)	(1 fail lisatud)
+({n} files attached)	({n} faili lisatud)
+A manual, or the file to study?	Juhend või uuritav fail?
+Use as the manual	Kasuta juhendina
+The builder reads it to learn what the original does. It's kept with the project's references.	Ehitaja loeb seda, et teada saada, mida originaal teeb. See hoitakse projekti viidete juures.
+Study this file	Uuri seda faili
+Open it as the thing to look inside, as if you'd opened it from Home.	Ava see kui asi, mille sisse vaadata, nagu oleksid selle avanud Avalehelt.

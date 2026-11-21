@@ -4,6 +4,7 @@
 //! trait and calling [`KindRegistry::register`].
 
 mod app;
+pub mod features;
 mod game;
 pub mod mechanics;
 pub mod own;
@@ -14,6 +15,7 @@ pub mod self_test;
 pub mod website;
 
 pub use app::{AppKind, RUNS_BRIEF};
+pub use features::FeaturesCheck;
 pub use game::{CreditsCheck, GameKind};
 pub use mechanics::MechanicsCheck;
 pub use runs::RunsCheck;
@@ -283,8 +285,10 @@ impl Worker {
             .filter(|c| c.kinds.is_empty() || c.kinds.iter().any(|k| k == kind.id()))
             .map(|check| Box::new(plugin_check::PluginJudge { check, kind: kind.id() }) as Box<dyn Check>);
         let all: Vec<Box<dyn Check>> = if ws.manifest.own_project() { own::checks() } else { kind.checks(ws) };
+        // Every kind is held to the documents about the original, when the project has any.
+        let documents = std::iter::once(Box::new(FeaturesCheck) as Box<dyn Check>);
         // A check that doesn't run in this run leaves no result, and isn't numbered or named.
-        let checks: Vec<Box<dyn Check>> = all.into_iter().chain(plugin_checks).filter(|c| c.applies(&cx)).collect();
+        let checks: Vec<Box<dyn Check>> = all.into_iter().chain(documents).chain(plugin_checks).filter(|c| c.applies(&cx)).collect();
         let mut out = Vec::new();
         for (i, c) in checks.iter().enumerate() {
             // Pause, or a round past its limit, stops before this check starts. A check that

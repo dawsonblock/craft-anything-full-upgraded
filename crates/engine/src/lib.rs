@@ -13,6 +13,7 @@ pub mod execution;
 /// Everything else keeps the app's own policy; a test in the AI crate checks each is registered
 /// and asks for consent.
 pub const AGENT_APP_PREAPPROVED_TOOLS: &[&str] = &["rebuild_start"];
+pub mod features;
 pub mod feed;
 pub mod inbox;
 pub mod journal;

@@ -942,3 +942,12 @@ On this computer	このコンピューター上
 Sandbox image	サンドボックスのイメージ
 debian:bookworm-slim	debian:bookworm-slim
 Docker	Docker
+Attach pictures or documents	画像または文書を添付
+Attach pictures or a manual (or drop or paste them here)	画像または説明書を添付(ここにドロップ・貼り付けも可)
+(1 file attached)	(ファイル 1 件を添付)
+({n} files attached)	(ファイル {n} 件を添付)
+A manual, or the file to study?	説明書ですか、それとも調べるファイルですか?
+Use as the manual	説明書として使う
+The builder reads it to learn what the original does. It's kept with the project's references.	ビルダーが読んで、元のものが何をするかを知ります。プロジェクトの参考資料と一緒に保存されます。
+Study this file	このファイルを調べる
+Open it as the thing to look inside, as if you'd opened it from Home.	ホームから開いたときと同じように、中を調べる対象として開きます。

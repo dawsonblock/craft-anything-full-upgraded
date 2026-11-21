@@ -1504,3 +1504,12 @@ On this computer	Na tomto počítači
 Sandbox image	Obraz sandboxu
 debian:bookworm-slim	debian:bookworm-slim
 Docker	Docker
+Attach pictures or documents	Přiložit obrázky nebo dokumenty
+Attach pictures or a manual (or drop or paste them here)	Přiložit obrázky nebo příručku (nebo je přetáhněte či vložte sem)
+(1 file attached)	(1 soubor přiložen)
+({n} files attached)	(přiloženo souborů: {n})
+A manual, or the file to study?	Příručka, nebo soubor k prozkoumání?
+Use as the manual	Použít jako příručku
+The builder reads it to learn what the original does. It's kept with the project's references.	Tvůrce si ji přečte, aby zjistil, co originál dělá. Uloží se k podkladům projektu.
+Study this file	Prozkoumat tento soubor
+Open it as the thing to look inside, as if you'd opened it from Home.	Otevřít ho jako to, do čeho se má nahlédnout, jako byste ho otevřeli z Úvodu.

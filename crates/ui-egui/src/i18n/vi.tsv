@@ -1504,3 +1504,12 @@ On this computer	Trên máy này
 Sandbox image	Ảnh hộp cát
 debian:bookworm-slim	debian:bookworm-slim
 Docker	Docker
+Attach pictures or documents	Đính kèm ảnh hoặc tài liệu
+Attach pictures or a manual (or drop or paste them here)	Đính kèm ảnh hoặc hướng dẫn sử dụng (hoặc thả hay dán vào đây)
+(1 file attached)	(Đã đính kèm 1 tệp)
+({n} files attached)	(Đã đính kèm {n} tệp)
+A manual, or the file to study?	Đây là hướng dẫn sử dụng, hay tệp cần tìm hiểu?
+Use as the manual	Dùng làm hướng dẫn sử dụng
+The builder reads it to learn what the original does. It's kept with the project's references.	Trình xây dựng đọc nó để biết bản gốc làm gì. Nó được giữ cùng tài liệu tham khảo của dự án.
+Study this file	Tìm hiểu tệp này
+Open it as the thing to look inside, as if you'd opened it from Home.	Mở nó như thứ cần xem bên trong, như thể bạn mở từ Trang chủ.

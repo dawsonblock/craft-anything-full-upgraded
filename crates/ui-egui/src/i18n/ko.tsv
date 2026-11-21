@@ -1504,3 +1504,12 @@ On this computer	이 컴퓨터에서
 Sandbox image	샌드박스 이미지
 debian:bookworm-slim	debian:bookworm-slim
 Docker	Docker
+Attach pictures or documents	그림 또는 문서 첨부
+Attach pictures or a manual (or drop or paste them here)	그림 또는 설명서 첨부 (또는 여기에 끌어다 놓거나 붙여넣기)
+(1 file attached)	(파일 1개 첨부됨)
+({n} files attached)	(파일 {n}개 첨부됨)
+A manual, or the file to study?	설명서인가요, 분석할 파일인가요?
+Use as the manual	설명서로 사용
+The builder reads it to learn what the original does. It's kept with the project's references.	빌더가 원본이 무엇을 하는지 알기 위해 읽습니다. 프로젝트의 참고 자료와 함께 보관됩니다.
+Study this file	이 파일 분석
+Open it as the thing to look inside, as if you'd opened it from Home.	홈에서 연 것처럼, 안을 살펴볼 대상으로 엽니다.

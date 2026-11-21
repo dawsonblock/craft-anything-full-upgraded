@@ -1504,3 +1504,12 @@ On this computer	ამ კომპიუტერზე
 Sandbox image	Sandbox-ის იმიჯი
 debian:bookworm-slim	debian:bookworm-slim
 Docker	Docker
+Attach pictures or documents	სურათების ან დოკუმენტების მიმაგრება
+Attach pictures or a manual (or drop or paste them here)	სურათების ან სახელმძღვანელოს მიმაგრება (ან ჩააგდეთ ან ჩასვით ისინი აქ)
+(1 file attached)	(მიმაგრებულია 1 ფაილი)
+({n} files attached)	(მიმაგრებულია {n} ფაილი)
+A manual, or the file to study?	სახელმძღვანელოა, თუ შესასწავლი ფაილი?
+Use as the manual	სახელმძღვანელოდ გამოყენება
+The builder reads it to learn what the original does. It's kept with the project's references.	შემქმნელი კითხულობს მას, რომ გაიგოს, რას აკეთებს ორიგინალი. ის პროექტის მასალებთან ინახება.
+Study this file	ამ ფაილის შესწავლა
+Open it as the thing to look inside, as if you'd opened it from Home.	გახსენით, როგორც ის, რასაც შიგნით უნდა ჩავხედოთ, თითქოს მთავარიდან გახსენით.

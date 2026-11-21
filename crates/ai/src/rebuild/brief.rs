@@ -345,8 +345,9 @@ pub(super) fn documents_note(ws: &Workspace) -> Option<String> {
     }
     let names = docs.iter().filter_map(|p| p.file_name()).map(|n| format!("reference/docs/{}", n.to_string_lossy())).collect::<Vec<_>>().join(", ");
     Some(format!(
-        "The person added {} document(s) about the original: {names}. A manual or notes says what the original does and how it behaves, which pictures can't show. Read every one before you plan (a long manual: its contents first, then the chapters on features, screens and settings), and build what they describe: its features, its screens and what each control does, its settings and their effects. Write every word the app shows in your own words: don't copy passages, help text or examples from them into the app. If one can't be read (a PDF your tools can't open), say so with core_person_ask and ask the person what it covers.",
-        docs.len()
+        "The person added {} document(s) about the original: {names}. A manual or notes says what the original does and how it behaves, which pictures can't show. Read every one before you plan (a long manual: its contents first, then the chapters on features, screens and settings), and build what they describe: its features, its screens and what each control does, its settings and their effects. Write every word the app shows in your own words: don't copy passages, help text or examples from them into the app. If one can't be read (a PDF your tools can't open), say so with core_person_ask and ask the person what it covers. {}",
+        docs.len(),
+        super::kinds::features::FEATURES_CONTRACT
     ))
 }
 
@@ -356,7 +357,9 @@ pub(super) fn documents_reminder(ws: &Workspace) -> String {
     if n == 0 {
         return String::new();
     }
-    format!("\n\nKeep to what the {n} document(s) about the original in reference/docs/ describe (read any you haven't yet), in your own words.")
+    format!(
+        "\n\nKeep to what the {n} document(s) about the original in reference/docs/ describe (read any you haven't yet), in your own words, and keep app/features.json up to date: each feature built (where) or left out on purpose (why)."
+    )
 }
 
 /// A short reminder for later rounds, so pictures added after the first build count too.

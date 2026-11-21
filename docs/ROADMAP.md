@@ -1348,20 +1348,34 @@ Owner: open · Status: in progress
       `documents` and the CLI's `--reference <FILE>`, which refuse a file they can't add before a
       project folder is made
       — claimed: Claude, branch claude/magical-faraday-dqfztt
-- [ ] Check a build against its documents: have the builder list the features the manual
+- [x] Check a build against its documents: have the builder list the features the manual
       describes in a checklist kept with the project (like `mechanics.json` for games), and keep the
-      build from Ready while any stays unaccounted for
+      build from Ready while any stays unaccounted for. Done: `app/features.json`
+      (`engine::features`, schema in `docs/schemas/features.schema.json`) and `FeaturesCheck`, which
+      joins every kind's round when the project has documents and is required; the first brief
+      gives the format and later rounds' reminders ask to keep it up to date
       — decided by a maintainer on 2026-11-21: each feature is marked built (saying where) or
       "left out on purpose" with a reason; left out counts as accounted for, and the reasons are
       shown on the project
       — claimed: Claude, branch claude/magical-faraday-dqfztt
-- [ ] Documents with a message: a chat attachment is pictures only, and a dropped document opens
-      as a target (it may be the file to study), so a manual added after the start goes through
+- [ ] The features check trusts the checklist: a feature marked built is counted when it names a
+      place, without looking there. Have the check confirm that each `where` exists in `app/`, or
+      have the Check step's screenshots or a walkthrough look for the feature
+- [x] Documents with a message: a chat attachment was pictures only, and a dropped document opened
+      as a target (it may be the file to study), so a manual added after the start went through
       Make or `--reference` only
       — decided by a maintainer on 2026-11-21: on Make or a project, a dropped document asks "Use
       as the manual" or "Study this file"; elsewhere it opens as a target; the chat's paperclip
       takes documents too
       — claimed: Claude, branch claude/magical-faraday-dqfztt
+      Done: the project's paperclip takes pictures and documents; `Workspace::add_attachments`
+      copies a message's documents into reference/docs/ (refusing one over 20 MB before anything
+      is copied), the message names them and says to read them first, and the feed says "(2 files
+      attached)". A document dropped on Make or a project shows "A manual, or the file to study?"
+      (pictures dropped with it go to the message at once). Nine strings in all sixteen catalogues
+      (a native speaker should still check them)
+- [ ] `rebuild_note` takes text only, so a headless client still can't send a manual with a note
+      (the `attach` row in `headless_parity.rs` is `Pending`)
 
 ### R2.7 The request decides how to build
 Owner: open · Status: in progress

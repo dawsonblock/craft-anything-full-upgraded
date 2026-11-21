@@ -1504,3 +1504,12 @@ On this computer	在這台電腦上
 Sandbox image	沙箱映像
 debian:bookworm-slim	debian:bookworm-slim
 Docker	Docker
+Attach pictures or documents	附加圖片或文件
+Attach pictures or a manual (or drop or paste them here)	附加圖片或說明書 (或拖到這裡、貼到這裡)
+(1 file attached)	(已附加 1 個檔案)
+({n} files attached)	(已附加 {n} 個檔案)
+A manual, or the file to study?	這是說明書，還是要研究的檔案？
+Use as the manual	用作說明書
+The builder reads it to learn what the original does. It's kept with the project's references.	建構者會閱讀它，了解原作的功能。它會保存在專案的參考資料中。
+Study this file	研究這個檔案
+Open it as the thing to look inside, as if you'd opened it from Home.	把它當作要查看內部的對象開啟，就像從首頁開啟一樣。
