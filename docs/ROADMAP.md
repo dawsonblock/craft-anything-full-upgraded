@@ -1382,6 +1382,13 @@ Owner: open · Status: in progress
       when one is missing, of another kind or over 20 MB), copied as the app's are, and the message
       is built by the same `rebuild::notes::with_attachments`; the `attach` parity row names it.
       The copying with a running build is tested only through the app's path
+- [x] Keep `rebuild_note`'s attachments to the person: a security review found that an agent or
+      MCP client could have named any `.txt`, `.md` or `.html` file on the computer (in Clean room,
+      the original's own) and had it copied into the project the builder reads, and that the
+      file checks ran before the running-build lookup, so any caller could learn whether a path
+      existed. Agent and MCP callers now get `NoPermission` before any path is looked at, and the
+      checks run only once a build is found
+      — claimed: Claude, branch claude/magical-faraday-dqfztt
 
 ### R2.7 The request decides how to build
 Owner: open · Status: in progress

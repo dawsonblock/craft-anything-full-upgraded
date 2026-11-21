@@ -1080,6 +1080,13 @@ command through on a rule in the person's `settings.json`, and on one in the bui
 enforces is what that program reads, not what we pass it: check live, with a stand-in that logs
 and denies, which of the program's own files can decide first, and turn them off.
 
+**A tool that copies a named file is a tool that reads it.** `rebuild_note` gained `attachments`
+(absolute paths, copied into the project the builder reads), with the effects it had for text and
+a place on the Clean room list, so an agent could have pulled the person's files, or the
+original's in Clean room, into reach; and its file checks, run before anything else, told any
+caller whether a path existed. A parameter that takes a path on the computer changes who may call
+the tool: refuse agents and MCP clients for it (or ask), and look at the path only after that.
+
 **A refusal is not a consent request.** `sandbox_unconfined = "refuse"` returned
 `ErrorCode::ConsentRequired`; the MCP server and the API agent loop ask the person on that code and
 retry with consent granted, so the person approved a route that could never run. Use a non-consent
