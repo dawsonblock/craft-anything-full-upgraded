@@ -2079,33 +2079,9 @@ impl SpendDrafts {
     }
 }
 
-/// A spending field's text as a ceiling in US dollars: empty is none; otherwise digits, with an
-/// optional leading `$` and at most one decimal point (`2.50`, or `1.234` as the field shows a
-/// value set in config.toml) or one decimal comma followed by one or two digits (`1,5`). A comma
-/// before three digits (`1,000`) could be a thousands separator, so it's refused rather than
-/// guessed at, as is anything else that isn't an amount of zero or more.
+/// A spending field's text as a ceiling in US dollars (see [`craft_anything_ai::budget::parse_dollars`]).
 pub(crate) fn parse_dollars(text: &str) -> Result<Option<f64>, ()> {
-    let text = text.trim();
-    let text = text.strip_prefix('$').unwrap_or(text).trim();
-    if text.is_empty() {
-        return Ok(None);
-    }
-    let (whole, cents, comma) = match text.find(['.', ',']) {
-        Some(at) => (text.get(..at).ok_or(())?, Some(text.get(at + 1..).ok_or(())?), text.get(at..at + 1) == Some(",")),
-        None => (text, None, false),
-    };
-    let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
-    if !digits(whole) || cents.is_some_and(|c| !digits(c) || (comma && c.len() > 2)) {
-        return Err(());
-    }
-    let normal = match cents {
-        Some(c) => format!("{whole}.{c}"),
-        None => whole.to_string(),
-    };
-    match normal.parse::<f64>() {
-        Ok(v) if v.is_finite() => Ok(Some(v)),
-        _ => Err(()),
-    }
+    craft_anything_ai::budget::parse_dollars(text).map_err(|_| ())
 }
 
 impl CraftApp {

@@ -512,7 +512,9 @@ impl AgentAdapter for ClaudeCode {
     }
 
     /// A build is given `--permission-prompt-tool mcp__craft-anything__core_action_approve`, so
-    /// edits, commands and fetches ask us first. Outside a build there is no approval tool.
+    /// edits, commands and fetches ask us first, and `--setting-sources ""`, so no settings file
+    /// (the person's own, or one the builder writes in its folder) can allow them first. Outside
+    /// a build there is no approval tool.
     fn confinement(&self) -> Confinement {
         Confinement::OUR_APPROVALS_BUILD
     }
@@ -568,6 +570,12 @@ impl AgentAdapter for ClaudeCode {
         if cx.builder {
             // Questions go through our core_person_ask tool, which the app shows as buttons.
             a.extend(["--permission-prompt-tool".into(), format!("mcp__{MCP_NAME}__{APPROVAL_TOOL}"), "--disallowedTools".into(), "AskUserQuestion".into()]);
+            // Allow rules in a settings file decide before the approval tool is asked: run live
+            // with Claude Code 2.1.330, a `Bash(touch:*)` rule in the person's own settings.json or
+            // in a `.claude/settings.local.json` the builder could write in its own folder let the
+            // command run without asking us. A build reads no settings files; what we pass with
+            // `--settings` (the notes hook) still applies.
+            a.extend(["--setting-sources".into(), String::new()]);
         }
         if let Some(dir) = cx.mcp.notes.as_deref().filter(|_| cx.builder) {
             // After every tool call, notes the person added meanwhile reach the model as context.

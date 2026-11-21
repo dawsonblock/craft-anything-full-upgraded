@@ -92,6 +92,73 @@ impl SpendLimits {
     }
 }
 
+/// A ceiling typed in US dollars (a Settings field, `ai policy`): empty is none; otherwise digits, with an
+/// optional leading `$` and at most one decimal point (`2.50`, or `1.234` as Settings shows a
+/// value set in config.toml) or one decimal comma followed by one or two digits (`1,5`). A comma
+/// before three digits (`1,000`) could be a thousands separator, so it's refused rather than
+/// guessed at, as is anything else that isn't an amount of zero or more.
+pub fn parse_dollars(text: &str) -> Result<Option<f64>, ToolError> {
+    let refused = || {
+        ToolError::invalid(format!("{text:?} isn't an amount in US dollars."))
+            .with_remediation("Enter an amount of zero or more, such as 5 or 2.50, or leave it empty for no limit.")
+    };
+    let text = text.trim();
+    let text = text.strip_prefix('$').unwrap_or(text).trim();
+    if text.is_empty() {
+        return Ok(None);
+    }
+    let (whole, cents, comma) = match text.find(['.', ',']) {
+        Some(at) => (text.get(..at).ok_or_else(refused)?, Some(text.get(at + 1..).ok_or_else(refused)?), text.get(at..at + 1) == Some(",")),
+        None => (text, None, false),
+    };
+    let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+    if !digits(whole) || cents.is_some_and(|c| !digits(c) || (comma && c.len() > 2)) {
+        return Err(refused());
+    }
+    let normal = match cents {
+        Some(c) => format!("{whole}.{c}"),
+        None => whole.to_string(),
+    };
+    match normal.parse::<f64>() {
+        Ok(v) if v.is_finite() => Ok(Some(v)),
+        _ => Err(refused()),
+    }
+}
+
+/// How builds are held: whether an agent that declares no boundary is refused, and the
+/// spending ceilings.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BuildPolicy {
+    pub require_confined_build: bool,
+    pub spend: SpendLimits,
+}
+
+impl BuildPolicy {
+    /// As `[ai]` names it.
+    pub fn to_json(self) -> serde_json::Value {
+        serde_json::json!({
+            "require_confined_build": self.require_confined_build,
+            "max_run_cost_usd": self.spend.run_usd,
+            "max_daily_cost_usd": self.spend.daily_usd,
+        })
+    }
+}
+
+/// A change to [`BuildPolicy`]: `None` leaves a field as it is; for a ceiling, `Some(None)`
+/// removes it.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct PolicyChange {
+    pub require_confined_build: Option<bool>,
+    pub run_usd: Option<Option<f64>>,
+    pub daily_usd: Option<Option<f64>>,
+}
+
+impl PolicyChange {
+    pub fn is_empty(self) -> bool {
+        self == PolicyChange::default()
+    }
+}
+
 /// The spend ledger kept beside `config.toml`.
 pub fn ledger_path(settings: &Path) -> PathBuf {
     settings.with_file_name("spend.json")
@@ -209,7 +276,7 @@ fn run_limit_error(limit: f64, spent: f64) -> ToolError {
         format!("This build reached its AI spending limit of {} and stopped; it had spent about {}.", dollars(limit), dollars(spent)),
     )
     .with_remediation(
-        "Raise \"Most per build\" in Settings → AI → Spending limits (`max_run_cost_usd` under [ai] in config.toml), then continue the build, or start a new one.",
+        "Raise \"Most per build\" in Settings → AI → Spending limits (or `craft-anything-cli ai policy --max-per-build`), then continue the build, or start a new one.",
     )
 }
 
@@ -219,7 +286,7 @@ fn daily_limit_error(limit: f64, spent: f64) -> ToolError {
         format!("Today's builds have reached the AI spending limit of {} (about {} spent today, UTC), so this build stopped.", dollars(limit), dollars(spent)),
     )
     .with_remediation(
-        "Raise \"Most per day\" in Settings → AI → Spending limits (`max_daily_cost_usd` under [ai] in config.toml), or wait until tomorrow (UTC).",
+        "Raise \"Most per day\" in Settings → AI → Spending limits (or `craft-anything-cli ai policy --max-per-day`), or wait until tomorrow (UTC).",
     )
 }
 

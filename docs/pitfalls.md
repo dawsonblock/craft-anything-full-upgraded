@@ -1064,6 +1064,14 @@ inventory itself, then regenerate the manifest after the last source change.
 never asked. List every route by the function that starts the program or build, not only by the
 tools, and test the check paths too.
 
+**An approval tool that a settings file answered first.** Claude Code builds were held by
+`--permission-prompt-tool`, and the argument checks refused every flag that could loosen it, but
+Claude Code reads allow rules from settings files before it asks that tool: a live run let a
+command through on a rule in the person's `settings.json`, and on one in the build folder's
+`.claude/settings.local.json`, a file the builder can write itself. A boundary that a program
+enforces is what that program reads, not what we pass it: check live, with a stand-in that logs
+and denies, which of the program's own files can decide first, and turn them off.
+
 **A refusal is not a consent request.** `sandbox_unconfined = "refuse"` returned
 `ErrorCode::ConsentRequired`; the MCP server and the API agent loop ask the person on that code and
 retry with consent granted, so the person approved a route that could never run. Use a non-consent

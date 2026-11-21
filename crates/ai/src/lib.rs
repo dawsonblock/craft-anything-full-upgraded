@@ -601,6 +601,28 @@ impl AiHub {
         self.save_config(&cfg)
     }
 
+    /// Change how builds are held in one save: the confinement gate and either spending ceiling
+    /// (`Some(None)` removes a ceiling; `None` leaves a field as it is). Refused, with nothing
+    /// written, for a negative amount or an `[ai]` section it can't read (#261). Returns what is
+    /// saved now.
+    pub fn set_build_policy(&self, change: budget::PolicyChange) -> Result<budget::BuildPolicy, ToolError> {
+        let mut cfg = self.config_to_change()?;
+        if let Some(on) = change.require_confined_build {
+            cfg.require_confined_build = on;
+        }
+        if let Some(v) = change.run_usd {
+            cfg.max_run_cost_usd = v;
+        }
+        if let Some(v) = change.daily_usd {
+            cfg.max_daily_cost_usd = v;
+        }
+        cfg.spend_limits().validate()?;
+        if !change.is_empty() {
+            self.save_config(&cfg)?;
+        }
+        Ok(budget::BuildPolicy { require_confined_build: cfg.require_confined_build, spend: cfg.spend_limits() })
+    }
+
     /// The program an agent app runs (`None` or empty: found by its usual name, on PATH and in the
     /// usual install folders). Returns false when there was no such backend.
     pub fn set_command(&self, name: &str, command: Option<&str>) -> Result<bool, ToolError> {

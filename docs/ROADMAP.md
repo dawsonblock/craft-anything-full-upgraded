@@ -1158,9 +1158,13 @@ Owner: open · Status: in progress
       goes through `config_to_change`, the app saves on a worker, and the switch draws a value a
       worker last read
       — claimed: Claude, branch claude/magical-faraday-dqfztt
-- [ ] Give the "Refuse unconfined builds" switch a headless counterpart: `settings_set` reaches
-      `ai.require_confined_build` only once the [ai] section has been saved with it, so add a CLI
-      `ai` subcommand (its row in `headless_parity.rs` is `Pending` until then)
+- [x] Give the "Refuse unconfined builds" switch and the spending ceilings a headless
+      counterpart: `settings_set` reaches them only once the [ai] section has been saved with them.
+      `craft-anything-cli ai policy` shows them and sets any of `--refuse-unconfined on|off`,
+      `--max-per-build <USD|none>` and `--max-per-day <USD|none>` in one save
+      (`AiHub::set_build_policy`, which refuses a bad amount or an unreadable [ai] section before
+      writing). The amount parser moved to `budget::parse_dollars`, shared with Settings. Both
+      rows in `headless_parity.rs` name the command
       — claimed: Claude, branch claude/magical-faraday-dqfztt
 - [x] Count the confinement declaration from what holds, not from a list of flags that break it:
       only `--dangerously-skip-permissions` (Claude Code) and a Codex `--sandbox` were counted, so
@@ -1170,11 +1174,18 @@ Owner: open · Status: in progress
       (`CLAUDE_CODE_SAFE_ARGS`, `CODEX_SAFE_ARGS`); any other argument, a flag that swallows a flag as
       its value, or a `-c` key outside the list reports nothing, and the refusal names the argument
       — claimed: Claude, branch claude/magical-faraday-dqfztt
-- [ ] Check live which settings Claude Code consults before `--permission-prompt-tool`: the
-      person's own `~/.claude/settings.json` allow rules (and `defaultMode`) may decide before our
-      approval tool is asked, which no argument check can see. If they do, pass `--setting-sources`
-      or say so in the declaration
+- [x] Check live which settings Claude Code consults before `--permission-prompt-tool`. Run with
+      Claude Code 2.1.330 and a stand-in approval tool that logs and denies: a `Bash(touch:*)` allow
+      rule in the person's `settings.json` ran the command without asking it, and so did one in a
+      `.claude/settings.local.json` in the build's own folder, which the builder can write; one in
+      `.claude/settings.json` there was ignored only because the folder wasn't trusted;
+      `defaultMode: "bypassPermissions"` in `settings.json` did not skip it. With
+      `--setting-sources ""` every case asked, and `--settings` (our notes hook) still applied, so a
+      Claude Code build now reads no settings files
       — claimed: Claude, branch claude/magical-faraday-dqfztt
+- [ ] A Claude Code build no longer reads the person's `settings.json`, so its `env` (a proxy's
+      `ANTHROPIC_BASE_URL`) and `apiKeyHelper` don't reach a build either; its sign-in is a separate
+      file and is unaffected. Carry those two keys over in our `--settings` if anyone relies on them
 - [x] Close the spend ledger's gaps. The cross-process lock is an OS lock (`File::try_lock`) on
       `spend.json.lock`, which the system releases when its process ends, instead of an exclusive
       file that a 30-second staleness guess deleted (two processes could both clear it and both
