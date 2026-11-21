@@ -758,6 +758,9 @@ fn a_build_with_a_manual_is_held_to_its_features() {
     .unwrap();
     let todo = check(3);
     assert!(todo.failed() && todo.note.contains("Cloud sync (todo)"), "{}", todo.note);
+    assert!(todo.note.contains("Export to PDF (built, but there's no src/export.rs in app/)"), "a place that isn't there: {}", todo.note);
+    std::fs::create_dir_all(ws.app_dir().join("src")).unwrap();
+    std::fs::write(ws.app_dir().join("src/export.rs"), "pub fn export() {}").unwrap();
     std::fs::write(
         ws.features_path(),
         r#"{"version": 1, "features": [

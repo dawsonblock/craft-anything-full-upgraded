@@ -121,6 +121,14 @@ unrelated group, so `killpg` raised `PermissionError` out of a test and the gate
 - Treat `ProcessLookupError` and `PermissionError` as "nothing left to stop"; a cleanup helper
   must never raise into the result it is cleaning up after.
 
+**A group of zombies probed as alive.** Three capture cleanup tests failed in a cloud container and
+passed in CI, and were set aside as "the environment". The cause was ours: a killed group's orphans
+become zombies until init reaps them, `killpg(pid, 0)` still succeeds on a group of zombies, and
+that container's first process never reaps, so cleanup said "incomplete" after waiting out the
+whole settle. Docker without `--init` behaves the same. A liveness probe by signal 0 counts
+zombies: read the members' state (`/proc/<pid>/stat` on Linux) before calling a group alive, and
+find the cause of a failure that only one environment shows before calling it that environment's.
+
 **A heartbeat sampled before shutdown raced a successful stop.** A child could write between
 the baseline read and `stop()`, failing the descendant cleanup test even when cleanup worked.
 Probe for exit instead of timing writes: the child holds a file lock the system releases only

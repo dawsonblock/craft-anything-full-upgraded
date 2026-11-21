@@ -49,7 +49,7 @@ pub fn specs() -> Vec<ToolSpec> {
         ToolSpec {
             id: "rebuild_note",
             title: "Add to a running build",
-            summary: "Tell a running build something more; the agent reads it at its next step. With no build running, start a follow-up with rebuild_start instead.",
+            summary: "Tell a running build something more, with pictures or documents about the original if you like (`attachments`); the agent reads it at its next step. With no build running, start a follow-up with rebuild_start instead.",
             beginner: "Adds information while it builds.",
             toolset: Toolset::Projects,
             effects: Effects::CHANGES_UI_STATE.union(Effects::WRITES_FILESYSTEM),
@@ -210,6 +210,11 @@ pub struct NoteParams {
     pub project: PathBuf,
     /// What to tell the builder.
     pub text: String,
+    /// Files to send with it (absolute paths): pictures (.png, .jpg, .jpeg, .webp, .gif) that
+    /// show what's meant, copied into attachments/, and documents about the original (.pdf, .md,
+    /// .markdown, .txt, .html, .htm), copied into reference/docs/; up to 20 MB each.
+    #[serde(default)]
+    pub attachments: Vec<PathBuf>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -482,13 +487,19 @@ fn rebuild_activity_show(_ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput
 fn rebuild_note(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolError> {
     let p: NoteParams = parse_params(params)?;
     let ws = open(&p.project)?;
+    // A file that can't be added is refused before anything is copied or sent.
+    let (documents, pictures): (Vec<PathBuf>, Vec<PathBuf>) = p.attachments.iter().cloned().partition(|f| craft_anything_engine::workspace::is_document(f));
+    refuse_unaddable_references(&pictures, &documents)?;
     let runs = runs(ctx);
     let mut set = runs.0.lock().unwrap_or_else(PoisonError::into_inner);
     refresh(ctx, &mut set);
     match set.get(&ws.root).filter(|r| r.is_running()) {
         Some(run) => {
-            let id = run.add_note(p.text.clone(), p.text, Vec::new());
-            Ok(ToolOutput::Value(json!({"id": id, "queued": run.queued()})))
+            let files = if p.attachments.is_empty() { Vec::new() } else { ws.add_attachments(&p.attachments)? };
+            let message = super::notes::with_attachments(&p.text, &files, &ws.root);
+            let id = run.add_note(message, p.text, files.clone());
+            let attached: Vec<String> = files.iter().map(|f| f.strip_prefix(&ws.root).unwrap_or(f).display().to_string().replace('\\', "/")).collect();
+            Ok(ToolOutput::Value(json!({"id": id, "queued": run.queued(), "attached": attached})))
         }
         None => Err(ToolError::new(ErrorCode::BadInput, "No build is running for this project in this session.")
             .with_remediation("Start a follow-up with rebuild_start (pass project and your message).")),
@@ -602,6 +613,15 @@ mod tests {
         assert_eq!(st["result"]["running"], false);
         assert_eq!(st["result"]["queued"], Value::Null);
         assert!(e.call("rebuild_note", json!({"project": ws.root, "text": "blue"}), ok()).is_err());
+        // A file sent with a note is checked first: one that isn't there, or isn't a picture or a
+        // document, is refused by name.
+        let gone = d.path().join("gone.pdf");
+        let err = e.call("rebuild_note", json!({"project": ws.root, "text": "read this", "attachments": [gone]}), ok()).unwrap_err();
+        assert!(err.message.contains("no file there"), "{}", err.message);
+        let tool = d.path().join("tool.exe");
+        std::fs::write(&tool, "x").unwrap();
+        let err = e.call("rebuild_note", json!({"project": ws.root, "text": "read this", "attachments": [tool]}), ok()).unwrap_err();
+        assert!(err.message.contains("isn't a picture"), "{}", err.message);
         assert!(e.call("rebuild_note_withdraw", json!({"project": ws.root, "id": 1}), ok()).is_err());
         assert!(e.call("rebuild_stop", json!({"project": ws.root}), ok()).is_err());
     }

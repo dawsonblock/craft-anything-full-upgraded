@@ -1358,9 +1358,12 @@ Owner: open · Status: in progress
       "left out on purpose" with a reason; left out counts as accounted for, and the reasons are
       shown on the project
       — claimed: Claude, branch claude/magical-faraday-dqfztt
-- [ ] The features check trusts the checklist: a feature marked built is counted when it names a
-      place, without looking there. Have the check confirm that each `where` exists in `app/`, or
-      have the Check step's screenshots or a walkthrough look for the feature
+- [x] The features check trusted the checklist: a feature marked built counted when it named a
+      place, without looking there. A `where` that names a path (`src/export.rs`, `src/export.rs:42`,
+      `app/src/ui.rs, the Export menu`) must now be in `app/`, and one leaving it (`..`, absolute)
+      never is; the brief asks for a path
+- [ ] A `where` in words ("the Export menu") is still taken as said, and a file that exists isn't
+      read for the feature: have the Check step's screenshots or a walkthrough look for it
 - [x] Documents with a message: a chat attachment was pictures only, and a dropped document opened
       as a target (it may be the file to study), so a manual added after the start went through
       Make or `--reference` only
@@ -1374,8 +1377,11 @@ Owner: open · Status: in progress
       attached)". A document dropped on Make or a project shows "A manual, or the file to study?"
       (pictures dropped with it go to the message at once). Nine strings in all sixteen catalogues
       (a native speaker should still check them)
-- [ ] `rebuild_note` takes text only, so a headless client still can't send a manual with a note
-      (the `attach` row in `headless_parity.rs` is `Pending`)
+- [x] `rebuild_note` took text only, so a headless client couldn't send a manual with a note. It
+      now takes `attachments` (pictures and documents, refused by name before anything is copied
+      when one is missing, of another kind or over 20 MB), copied as the app's are, and the message
+      is built by the same `rebuild::notes::with_attachments`; the `attach` parity row names it.
+      The copying with a running build is tested only through the app's path
 
 ### R2.7 The request decides how to build
 Owner: open · Status: in progress

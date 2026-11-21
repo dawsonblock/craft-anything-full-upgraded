@@ -390,27 +390,10 @@ pub fn as_typed(shown: &str) -> &str {
     if n.is_some_and(|n| [false, true].iter().any(|d| counted_line(n, *d) == last)) { text } else { shown }
 }
 
-/// The text the agent gets: the message, then where its pictures are so it opens them, and the
-/// documents it was given about the original (copied into reference/docs/) so it reads them.
+/// The text the agent gets: the message, then its pictures and documents
+/// ([`craft_anything_ai::rebuild::notes::with_attachments`]).
 pub fn with_attachments(text: &str, files: &[PathBuf], root: &std::path::Path) -> String {
-    let names = |want_documents: bool| {
-        let list: Vec<String> = files
-            .iter()
-            .filter(|p| craft_anything_engine::workspace::is_document(p) == want_documents)
-            .map(|p| p.strip_prefix(root).unwrap_or(p).display().to_string().replace('\\', "/"))
-            .collect();
-        (!list.is_empty()).then(|| list.join(", "))
-    };
-    let mut message = text.to_string();
-    if let Some(list) = names(false) {
-        message.push_str(&format!("\n\nAttached pictures: {list}. Open each one with the Read tool; they show what the person means."));
-    }
-    if let Some(list) = names(true) {
-        message.push_str(&format!(
-            "\n\nAttached documents about the original, now in the project's references: {list}. Read each one before you change anything: it says what the original does. Put every word the app shows in your own words."
-        ));
-    }
-    message
+    craft_anything_ai::rebuild::notes::with_attachments(text, files, root)
 }
 
 #[cfg(test)]
